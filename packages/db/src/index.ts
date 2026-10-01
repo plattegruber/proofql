@@ -10,4 +10,23 @@ export {
   type VerbatimSliceReview,
 } from "./chunks.js";
 export { createDb, type Db, type Sql } from "./client.js";
+export {
+  type Fused,
+  fuseRanked,
+  maxRrfScore,
+  normalizeRrf,
+  RRF_K,
+  rrfContribution,
+  rrfScore,
+} from "./queries/fusion.js";
+export {
+  MAX_SEARCH_LIMIT,
+  type SearchChunksParams,
+  type SearchFilters,
+  type SearchMode,
+  type SearchPolicy,
+  type SearchResult,
+  type SearchResultReview,
+  searchChunks,
+} from "./queries/searchChunks.js";
 export * as schema from "./schema/index.js";
