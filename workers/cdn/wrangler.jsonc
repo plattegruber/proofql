@@ -1,0 +1,98 @@
+// Wrangler configuration for the ProofQL cdn worker (`proofql-cdn-<env>`).
+//
+// What it serves (scope.md §3 "Snippet", #34, #35):
+//
+//   /v1.js             the latest snippet build — what the script tag loads;
+//                      5 minute cache, a day of stale-while-revalidate
+//   /v1.<hash>.js      the same bytes under a content hash — immutable, a year
+//   /v1.js.map, /v1.<hash>.js.map
+//   /version.json      { version, hash, builtAt } of the deployed build
+//   /health            { ok: true, version, hash } for the deploy smoke check
+//   /demo/             the hosted demo: a static small-business site using the
+//                      snippet against the seeded demo project
+//
+// Every file comes from the `public/` directory through the `ASSETS` static
+// assets binding; `run_worker_first` routes every request through
+// src/worker.ts so the cache and security headers (src/handler.ts) are set
+// in code and unit-tested, not left to the asset layer's defaults. public/
+// is built by `pnpm --filter @proofql/cdn build` (scripts/build.mjs) and
+// gitignored except for public/demo/; always build before deploying — the
+// deploy workflow does.
+//
+// No KV, no Hyperdrive, no queue, nothing to provision: this worker holds no
+// state and reads no database. `scripts/check-provisioning.mjs` lists it
+// only so the deploy order and env blocks are checked.
+//
+// !! `assets` is repeated in each env block on purpose: wrangler environments
+// do not inherit bindings, and the binding is what the worker reads.
+//
+// Environment matrix, ports, and binding names: see infra/environments.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+
+  // Top-level config is the LOCAL default (`wrangler dev`). Local runs never
+  // deploy; the name still follows `proofql-<name>-<env>`.
+  "name": "proofql-cdn-local",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-01",
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+
+  // Fixed ports so `pnpm dev` can run every worker side by side
+  // (api 8797, pipeline 8798, dashboard 8799, cdn 8800).
+  "dev": {
+    "port": 8800,
+    "inspector_port": 9242
+  },
+
+  "vars": {
+    "ENVIRONMENT": "local"
+  },
+
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    // Every request hits src/worker.ts first; it fetches the asset through
+    // the binding and sets the headers.
+    "run_worker_first": true,
+    // `/demo` → `/demo/` → demo/index.html.
+    "html_handling": "auto-trailing-slash",
+    // A path that is not an asset is a plain 404 (no SPA fallback).
+    "not_found_handling": "none"
+  },
+
+  "env": {
+    "preview": {
+      "name": "proofql-cdn-preview",
+      "vars": { "ENVIRONMENT": "preview" },
+      "assets": {
+        "directory": "./public",
+        "binding": "ASSETS",
+        "run_worker_first": true,
+        "html_handling": "auto-trailing-slash",
+        "not_found_handling": "none"
+      }
+    },
+    "prod": {
+      "name": "proofql-cdn-prod",
+      "vars": { "ENVIRONMENT": "prod" },
+      "assets": {
+        "directory": "./public",
+        "binding": "ASSETS",
+        "run_worker_first": true,
+        "html_handling": "auto-trailing-slash",
+        "not_found_handling": "none"
+      }
+      // TODO(cdn.proofql.com): once the domain exists (scope §7.6) and the
+      // zone is on this account, route the custom domain here and add the
+      // Zone permission to the CI token (infra/provisioning.md, "Custom
+      // domains"). Until then the worker answers on
+      // https://proofql-cdn-prod.<subdomain>.workers.dev only.
+      //
+      // "routes": [{ "pattern": "cdn.proofql.com", "custom_domain": true }]
+    }
+  }
+}

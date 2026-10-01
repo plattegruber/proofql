@@ -7,7 +7,7 @@
  *     node scripts/check-provisioning.mjs preview    # one env; exit 1 if any remain
  *     node scripts/check-provisioning.mjs prod
  *
- * Read-only: it parses the three wrangler.jsonc files and prints. It touches
+ * Read-only: it parses every worker's wrangler.jsonc and prints. It touches
  * no network and no Cloudflare API. The deploy workflow runs it before
  * `wrangler deploy` so an unprovisioned environment fails with a readable
  * list instead of wrangler's generic "KV namespace not found".
@@ -31,6 +31,9 @@ export const ENVS = ["preview", "prod"];
 export const WORKERS = [
   ["workers/pipeline", "pipeline"],
   ["workers/api", "api"],
+  // Static assets only; nothing to provision. Listed so its env blocks are
+  // checked and the report mirrors the deploy order.
+  ["workers/cdn", "cdn"],
   ["apps/dashboard", "dashboard"],
 ];
 

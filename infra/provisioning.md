@@ -1,8 +1,9 @@
 # Provisioning checklist (M0, issue #14)
 
 The owner runs this once, top to bottom, with the real accounts. Everything
-an agent could prepare is already in the tree: the three `wrangler.jsonc`
-files with `preview` and `prod` env blocks, the deploy workflow
+an agent could prepare is already in the tree: the four `wrangler.jsonc`
+files with `preview` and `prod` env blocks (the cdn worker's needs no ids —
+it is static assets only), the deploy workflow
 ([`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)), the
 inventory of every secret ([`docs/secrets.md`](../docs/secrets.md)), and a
 read-only checker for what is still unprovisioned:
@@ -419,6 +420,8 @@ pnpm --filter @proofql/dashboard exec wrangler deploy --env preview
 ```sh
 curl -fsS https://proofql-api-preview.$WORKERS_SUBDOMAIN.workers.dev/health        # {"ok":true}
 curl -fsS https://proofql-pipeline-preview.$WORKERS_SUBDOMAIN.workers.dev/health   # {"ok":true}
+curl -fsS https://proofql-cdn-preview.$WORKERS_SUBDOMAIN.workers.dev/health        # {"ok":true,"version":…,"hash":…}
+curl -fsSI https://proofql-cdn-preview.$WORKERS_SUBDOMAIN.workers.dev/v1.js | grep -i cache-control   # max-age=300, stale-while-revalidate
 curl -sS -o /dev/null -w '%{http_code}\n' https://proofql-dashboard-preview.$WORKERS_SUBDOMAIN.workers.dev/   # 200 (placeholder page until #36)
 pnpm --filter @proofql/api exec wrangler queues list                                # consumer on proofql-ingest-preview
 pnpm --filter @proofql/api exec wrangler tail proofql-api-preview --format pretty   # ctrl-c after a request
@@ -476,6 +479,40 @@ watch it, then approve `deploy-prod`. Smoke-check
 - [ ] `DEPLOY_ENABLED=true` and one green manual run of `deploy.yml` for preview
 - [ ] [`docs/secrets.md`](../docs/secrets.md) rows marked *now* all exist; close #14
 
-Later, outside this checklist: custom domain (`api.proofql.com`, `cdn.`;
-scope §7.6) replaces the workers.dev URLs in `API_URL` and the smoke check,
-and adds a Zone permission to the token.
+## Custom domains (later, outside this checklist)
+
+Scope §7.6: `api.proofql.com` and `cdn.proofql.com` replace the workers.dev
+URLs once the domain is owned and its zone is on this Cloudflare account.
+Then:
+
+1. Add **Zone → Workers Routes: Edit** and **Zone → DNS: Edit** for that zone
+   to the `proofql-github-actions` token (step 8).
+2. `workers/cdn/wrangler.jsonc`: in `env.prod`, replace the `TODO(cdn.proofql.com)`
+   comment with
+   `"routes": [{ "pattern": "cdn.proofql.com", "custom_domain": true }]`.
+   `wrangler deploy --env prod` creates the DNS record and certificate. The
+   snippet tag in the docs (`<script src="https://cdn.proofql.com/v1.js">`)
+   and the demo link in the README then resolve; nothing in the worker
+   changes. Give preview its own hostname (`cdn-preview.proofql.com`) the
+   same way if a stable preview URL is wanted.
+3. The api gets its route the same way, and `API_URL` in the dashboard
+   config (step 9) and the smoke check in `deploy.yml` move to the new
+   hostnames.
+
+## Demo project on preview (after step 11, for #35)
+
+The hosted demo (`/demo/` on the cdn worker) reads its publishable key from
+its URL and never ships one in the tree. Seed the preview database once —
+`DATABASE_URL="<preview DIRECT string>" pnpm seed` prints the keys — add the
+cdn worker's origin (`https://proofql-cdn-preview.<subdomain>.workers.dev`,
+later `https://cdn.proofql.com`) to the demo project's `allowed_origins`
+(dashboard → project settings, or SQL), and put the resulting link in the
+README's "Demo" section:
+
+```
+https://proofql-cdn-preview.<subdomain>.workers.dev/demo/?key=pq_pk_live_…&api=https://proofql-api-preview.<subdomain>.workers.dev
+```
+
+A publishable key is public by design (it ships in page source and is
+scoped by origin), so the link can be committed. `&api=` is dropped once the
+api lives at `https://api.proofql.com`, the snippet's default.

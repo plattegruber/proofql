@@ -139,6 +139,12 @@ pnpm --filter @proofql/snippet test    # vitest (jsdom, axe-core) + the size bud
 pnpm --filter @proofql/snippet demo    # build and serve demo/ on http://localhost:3000
 ```
 
-`demo/index.html` is a static visual-check page (light and dark host, default render, filters, a template). It talks to the local API: run `pnpm run setup` (prints the seed's keys) and `pnpm --filter @proofql/api dev`, then paste the *live publishable* key into the demo's script tag in place of `pq_pk_test_REPLACE_ME`. Never commit a key. The hosted demo is #35.
+`demo/index.html` is a static **styling test page** for this package (light and dark host, default render, filters, a template, a floor-dropped fallback), not the demo people are shown. It talks to the local API: run `pnpm run setup` (prints the seed's keys) and `pnpm --filter @proofql/api dev`, then paste the *live publishable* key into the demo's script tag in place of `pq_pk_test_REPLACE_ME`. Never commit a key.
+
+The **hosted demo** — a fictional small-business site using the snippet the way a customer would — lives in [`workers/cdn`](../../workers/cdn/README.md) (`public/demo/`), next to the `/v1.js` it loads, and takes the key from its URL: `http://localhost:8800/demo/?key=pq_pk_live_…&api=http://localhost:8797` locally. The hosted URL is in the root README's "Demo" section once provisioned.
+
+## Publishing
+
+`workers/cdn` is how the bundle reaches `cdn.proofql.com`: its build runs `scripts/build.mjs` here, then serves `dist/v1.js` as `/v1.js` (5 minute cache) and as the content-addressed `/v1.<sha256-8>.js` (immutable, a year). Merge to `main` and the deploy workflow ships it; nothing is published from this package directly.
 
 `test` runs the size check, so CI's unit-test job fails when the bundle exceeds the budget (`scripts/size.mjs`). Tests mock `fetch` and need no services.

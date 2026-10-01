@@ -2,8 +2,8 @@
 
 Every deployable workspace ships as a Cloudflare Worker configured by a
 `wrangler.jsonc` in its workspace root. Naming convention everywhere:
-`proofql-<name>-<env>` with `<name>` ∈ {`api`, `pipeline`, `dashboard`} and
-`<env>` ∈ {`local`, `preview`, `prod`}.
+`proofql-<name>-<env>` with `<name>` ∈ {`api`, `pipeline`, `cdn`, `dashboard`}
+and `<env>` ∈ {`local`, `preview`, `prod`}.
 
 - **local** — the top-level (default) config in each `wrangler.jsonc`. Used by
   `wrangler dev` only; never deployed. Queues and KV run in Miniflare's local
@@ -22,6 +22,7 @@ Every deployable workspace ships as a Cloudflare Worker configured by a
 | ------------------ | ------------------------- | --------------------------- | ------------------------ |
 | `workers/api`      | `proofql-api-local`       | `proofql-api-preview`       | `proofql-api-prod`       |
 | `workers/pipeline` | `proofql-pipeline-local`  | `proofql-pipeline-preview`  | `proofql-pipeline-prod`  |
+| `workers/cdn`      | `proofql-cdn-local`       | `proofql-cdn-preview`       | `proofql-cdn-prod`       |
 | `apps/dashboard`   | `proofql-dashboard-local` | `proofql-dashboard-preview` | `proofql-dashboard-prod` |
 
 ## Local dev ports
@@ -35,6 +36,7 @@ so both repos can run at once on one machine.
 | `workers/api`      | <http://localhost:8797> | 8797       | 9239                 |
 | `workers/pipeline` | <http://localhost:8798> | 8798       | 9240                 |
 | `apps/dashboard`   | <http://localhost:8799> | 8799       | 9241                 |
+| `workers/cdn`      | <http://localhost:8800> | 8800       | 9242                 |
 | Postgres (compose) | `localhost:54323`       | —          | —                    |
 
 The dashboard's dev server is Vite (`@cloudflare/vite-plugin`, #36), so its
@@ -44,6 +46,16 @@ port is pinned twice: `dev.port` in `apps/dashboard/wrangler.jsonc` (raw
 Vite build: `CLOUDFLARE_ENV=<env> react-router build` resolves the env block
 into `build/server/wrangler.json` and `wrangler deploy` follows the redirect
 in `.wrangler/deploy/config.json` (see the header of its `wrangler.jsonc`).
+
+The cdn worker (`workers/cdn`, #34/#35) serves the built snippet (`/v1.js`,
+`/v1.<hash>.js`, maps, `/version.json`) and the hosted demo site (`/demo/`)
+from Workers static assets. Its `public/` directory is **built, not
+committed** (`pnpm --filter @proofql/cdn build`, which runs the snippet's
+esbuild step); only `public/demo/` is in the tree. `pnpm dev` builds before
+`wrangler dev`, and the deploy workflow builds before `wrangler deploy`. The
+demo page reads the publishable key from its own URL (`/demo/?key=…`), so
+the seed lists `http://localhost:8800` among the demo project's allowed
+origins.
 
 ## Bindings
 
@@ -66,6 +78,12 @@ identical across workers and environments.
 | `CLERK_PUBLISHABLE_KEY` | var      | —        | —        | yes       | `.dev.vars` (optional)                             | the Clerk instance's publishable key (`pk_test_…` preview, `pk_live_…` prod) |
 | `CLERK_SECRET_KEY` | secret        | —        | —        | yes       | `.dev.vars`; **unset ⇒ local auth stub** (acts as the seeded demo account) | `wrangler secret put` per env; required — no stub outside local |
 | `CLERK_WEBHOOK_SIGNING_SECRET` | secret | —   | —        | yes       | `.dev.vars` (optional; `POST /webhooks/clerk` answers 503 without it) | `wrangler secret put` per env |
+
+The cdn worker has none of the above. Its only binding is `ASSETS` (Workers
+static assets, the `public/` directory, with `run_worker_first` so the
+worker sets the cache and security headers itself), plus the `ENVIRONMENT`
+var. It holds no state and reads no database, so nothing is provisioned for
+it; `scripts/check-provisioning.mjs` lists it as `ok` in every environment.
 
 Why the split: the api embeds queries (AI), reads/writes Postgres (HYPERDRIVE),
 serves from and fills the cache (CACHE), enqueues ingested reviews
@@ -103,6 +121,7 @@ name. Local has none of it (Miniflare simulators and the compose Postgres).
 | api URL                 | `https://proofql-api-preview.<subdomain>.workers.dev`        | `https://proofql-api-prod.<subdomain>.workers.dev` (custom domain TBD, scope §7.6) | `env.<env>.vars.API_URL` in the dashboard config; repo variable `WORKERS_SUBDOMAIN` for the smoke check |
 | pipeline URL            | `https://proofql-pipeline-preview.<subdomain>.workers.dev`   | `https://proofql-pipeline-prod.<subdomain>.workers.dev`   | `/health` only                          |
 | dashboard URL           | `https://proofql-dashboard-preview.<subdomain>.workers.dev`  | `https://proofql-dashboard-prod.<subdomain>.workers.dev` (custom domain TBD) | —                                       |
+| cdn URL                 | `https://proofql-cdn-preview.<subdomain>.workers.dev`        | `https://proofql-cdn-prod.<subdomain>.workers.dev` → `https://cdn.proofql.com` once the domain exists (TODO route in `workers/cdn/wrangler.jsonc`, provisioning.md "Custom domains") | the snippet tag's `src`; the demo link in the README |
 
 **Provisioning status:** every KV namespace id and Hyperdrive config id in
 the `wrangler.jsonc` env blocks, and the dashboard's `API_URL`, start as the
@@ -116,8 +135,9 @@ a **real** `wrangler deploy` fails on the placeholders until then — expected.
 ## Deploys
 
 [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml): a push to
-`main` migrates the Neon `preview` branch then deploys the three preview
-workers (pipeline, api, dashboard, in that order); `workflow_dispatch` with
+`main` migrates the Neon `preview` branch then deploys the four preview
+workers (pipeline, api, cdn, dashboard, in that order — the cdn is built from
+`packages/snippet` right before its deploy); `workflow_dispatch` with
 `environment=prod` does the same for prod inside the GitHub environment
 `production` (required reviewer). Every job is skipped until the repository
 variable `DEPLOY_ENABLED` is `true` — the last provisioning step and the

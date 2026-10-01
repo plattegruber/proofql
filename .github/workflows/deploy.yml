@@ -1,4 +1,4 @@
-# Deploy (#14): migrate Neon, then `wrangler deploy` the three workers.
+# Deploy (#14): migrate Neon, then `wrangler deploy` the four workers.
 #
 #   push to main            → preview  (migrate-preview → deploy-preview)
 #   workflow_dispatch       → preview by default, or prod via the
@@ -22,8 +22,10 @@
 # Order inside each environment: migrations first (expand → migrate →
 # contract, CONTRIBUTING "Database migrations"), then pipeline (the queue
 # consumer) before api (the producer) so no message is ever enqueued without
-# a consumer attached, then the dashboard. Each `wrangler deploy` is its own
-# step so a failure names the worker.
+# a consumer attached, then the cdn (the snippet the demo and every customer
+# page load, built from packages/snippet right before the deploy, #34), then
+# the dashboard. Each `wrangler deploy` is its own step so a failure names
+# the worker.
 name: Deploy
 
 on:
@@ -105,6 +107,19 @@ jobs:
           packageManager: pnpm
           workingDirectory: workers/api
           command: deploy --env preview
+      # The cdn deploys static assets (#34): its build runs the snippet's
+      # esbuild step and writes public/ (v1.js, the hashed copy, version.json),
+      # which is gitignored, so the build must run right here.
+      - name: Build proofql-cdn-preview
+        run: pnpm --filter "@proofql/cdn..." build
+      - name: Deploy proofql-cdn-preview
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: workers/cdn
+          command: deploy --env preview
       # The dashboard deploys from its Vite build (#36): CLOUDFLARE_ENV picks
       # the wrangler env block the build resolves into build/server/
       # wrangler.json, and `wrangler deploy` follows the redirect the plugin
@@ -132,7 +147,7 @@ jobs:
             echo "::notice::WORKERS_SUBDOMAIN variable not set; skipping smoke check (infra/provisioning.md)."
             exit 0
           fi
-          for worker in api pipeline dashboard; do
+          for worker in api pipeline cdn dashboard; do
             url="https://proofql-${worker}-preview.${SUBDOMAIN}.workers.dev/health"
             echo "GET $url"
             curl --fail --silent --show-error --max-time 20 "$url"
@@ -186,6 +201,19 @@ jobs:
           packageManager: pnpm
           workingDirectory: workers/api
           command: deploy --env prod
+      # The cdn deploys static assets (#34): its build runs the snippet's
+      # esbuild step and writes public/ (v1.js, the hashed copy, version.json),
+      # which is gitignored, so the build must run right here.
+      - name: Build proofql-cdn-prod
+        run: pnpm --filter "@proofql/cdn..." build
+      - name: Deploy proofql-cdn-prod
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: workers/cdn
+          command: deploy --env prod
       # The dashboard deploys from its Vite build (#36): CLOUDFLARE_ENV picks
       # the wrangler env block the build resolves into build/server/
       # wrangler.json, and `wrangler deploy` follows the redirect the plugin
@@ -213,7 +241,7 @@ jobs:
             echo "::notice::WORKERS_SUBDOMAIN variable not set; skipping smoke check (infra/provisioning.md)."
             exit 0
           fi
-          for worker in api pipeline dashboard; do
+          for worker in api pipeline cdn dashboard; do
             url="https://proofql-${worker}-prod.${SUBDOMAIN}.workers.dev/health"
             echo "GET $url"
             curl --fail --silent --show-error --max-time 20 "$url"
