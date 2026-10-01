@@ -1,0 +1,6 @@
+# public/ is the Workers static-assets directory. Everything in it except the
+# demo site is produced by `pnpm --filter @proofql/cdn build` (the snippet
+# bundle, its hashed copy, the source maps, version.json) and is never
+# committed: the deploy workflow builds before `wrangler deploy`.
+public/*
+!public/demo/

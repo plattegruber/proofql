@@ -29,8 +29,12 @@
  * "St.", "e.g.") and initials with the sentence that follows, so the
  * chunker's sentence count matches a reader's again: 30 window chunks over
  * 11 reviews (10 live, 1 test), none ending in a bare "Dr.".
+ *
+ * v4 (#35): same reviews; `http://localhost:8800` (the local cdn worker,
+ * which serves the hosted demo page at `/demo/`) added to the project's
+ * allowed origins.
  */
-export const SEED_VERSION = 3;
+export const SEED_VERSION = 4;
 
 /**
  * Natural key of the demo account. The wipe step finds any previous seed
@@ -50,9 +54,13 @@ export const DEMO_PROJECT_ID = "de300000-0000-4000-8000-000000000002";
 export const DEMO_PROJECT_NAME = "Cedar Ridge Dental";
 export const DEMO_PROJECT_SLUG = "cedar-ridge-dental";
 
-/** The local dashboard (8799) and a generic dev server (3000). */
+/**
+ * The local dashboard (8799), the local cdn worker whose `/demo/` page is
+ * the hosted demo (8800, #35), and a generic dev server (3000).
+ */
 export const DEMO_ALLOWED_ORIGINS = [
   "http://localhost:8799",
+  "http://localhost:8800",
   "http://localhost:3000",
 ] as const;
 

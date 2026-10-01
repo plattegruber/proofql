@@ -79,7 +79,8 @@ What the dataset contains:
 
 - **1 account** (`clerk_org_id = org_demo_proofql`, free plan) and **1
   project** (`cedar-ridge-dental`, fixed id `DEMO_PROJECT_ID`,
-  `allowed_origins` = the local dashboard and `localhost:3000`, default
+  `allowed_origins` = the local dashboard (8799), the local cdn worker's
+  demo page (8800), and `localhost:3000`; default
   policy: `min_rating 4`, `similarity_floor 0.55`).
 - **4 API keys**: a secret + publishable pair for `live` and one for
   `test`. Plaintexts are printed at the end of the run and nowhere else;

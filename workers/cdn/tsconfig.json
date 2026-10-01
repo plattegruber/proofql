@@ -1,0 +1,10 @@
+{
+  "extends": "@proofql/tsconfig/worker.json",
+  "compilerOptions": {
+    // `node` alongside the Workers types: the build test (src/build.test.ts)
+    // drives scripts/build.mjs under Node (fs, os, path). Runtime code in
+    // src/handler.ts and src/worker.ts uses Web APIs only.
+    "types": ["@cloudflare/workers-types", "node"]
+  },
+  "include": ["src", "scripts/*.d.mts", "vitest.config.ts"]
+}
