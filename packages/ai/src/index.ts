@@ -1,3 +1,37 @@
 // Workers AI providers: bge-m3 embeddings and the sentiment classifier, with deterministic fakes.
-// Placeholder from the monorepo scaffold (#10); real code arrives with its issue.
-export const PACKAGE_NAME = "@proofql/ai";
+
+export {
+  BGE_M3_EMBEDDING_MODEL,
+  createWorkersAiEmbedder,
+  EMBEDDING_BATCH_SIZE,
+  EMBEDDING_DIMENSIONS,
+  EmbeddingDimensionError,
+  EmbeddingError,
+  type EmbeddingProvider,
+  FAKE_EMBEDDING_MODEL,
+  FakeEmbeddingProvider,
+  type FakeEmbeddingProviderOptions,
+  fakeEmbed,
+  type WorkersAiEmbedderOptions,
+} from "./embedding.js";
+export {
+  createWorkersAiSentimentClassifier,
+  DEFAULT_NEUTRAL_THRESHOLD,
+  DISTILBERT_SST2_MODEL,
+  FAKE_SENTIMENT_MODEL,
+  FakeSentimentClassifier,
+  fakeSentiment,
+  type Sentiment,
+  type SentimentClassifier,
+  type SentimentClassifierOptions,
+  SentimentError,
+  type SentimentResult,
+  toSentimentResult,
+  type WorkersAiSentimentClassifierOptions,
+} from "./sentiment.js";
+export { cosineSimilarity } from "./vector.js";
+export {
+  AiProviderError,
+  AiResponseError,
+  type WorkersAiBinding,
+} from "./workersAi.js";
