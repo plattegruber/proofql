@@ -158,20 +158,28 @@
    selector to outrank it. */
 :root:root,
 :root:root[data-theme="light"] {
-  --sl-openapi-method-bg-get: var(--sl-color-gray-6);
-  --sl-openapi-method-bg-post: var(--sl-color-gray-6);
-  --sl-openapi-method-bg-put: var(--sl-color-gray-6);
-  --sl-openapi-method-bg-patch: var(--sl-color-gray-6);
-  --sl-openapi-method-bg-delete: var(--sl-color-gray-6);
-  --sl-openapi-method-bg-options: var(--sl-color-gray-6);
-  --sl-openapi-method-bg-head: var(--sl-color-gray-6);
-  --sl-openapi-method-bg-trace: var(--sl-color-gray-6);
-  --sl-openapi-method-border-get: var(--sl-color-gray-4);
-  --sl-openapi-method-border-post: var(--sl-color-gray-4);
-  --sl-openapi-method-border-put: var(--sl-color-gray-4);
-  --sl-openapi-method-border-patch: var(--sl-color-gray-4);
-  --sl-openapi-method-border-delete: var(--sl-color-gray-4);
-  --sl-openapi-method-border-options: var(--sl-color-gray-4);
-  --sl-openapi-method-border-head: var(--sl-color-gray-4);
-  --sl-openapi-method-border-trace: var(--sl-color-gray-4);
+  /* Badge text is light in both themes, so the background is ink in both:
+     the dark theme's surface, the light theme's `--ink-700`. */
+  --pq-method-bg: #1b211f;
+  --pq-method-border: #575f5b;
+  --sl-openapi-method-bg-get: var(--pq-method-bg);
+  --sl-openapi-method-bg-post: var(--pq-method-bg);
+  --sl-openapi-method-bg-put: var(--pq-method-bg);
+  --sl-openapi-method-bg-patch: var(--pq-method-bg);
+  --sl-openapi-method-bg-delete: var(--pq-method-bg);
+  --sl-openapi-method-bg-options: var(--pq-method-bg);
+  --sl-openapi-method-bg-head: var(--pq-method-bg);
+  --sl-openapi-method-bg-trace: var(--pq-method-bg);
+  --sl-openapi-method-border-get: var(--pq-method-border);
+  --sl-openapi-method-border-post: var(--pq-method-border);
+  --sl-openapi-method-border-put: var(--pq-method-border);
+  --sl-openapi-method-border-patch: var(--pq-method-border);
+  --sl-openapi-method-border-delete: var(--pq-method-border);
+  --sl-openapi-method-border-options: var(--pq-method-border);
+  --sl-openapi-method-border-head: var(--pq-method-border);
+  --sl-openapi-method-border-trace: var(--pq-method-border);
+}
+:root:root[data-theme="light"] {
+  --pq-method-bg: #313a37;
+  --pq-method-border: #313a37;
 }
