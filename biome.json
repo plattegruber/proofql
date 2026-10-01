@@ -29,6 +29,7 @@
       "includes": [
         "apps/**",
         "workers/**",
+        "packages/core/**",
         "!**/*.test.ts",
         "!**/*.test.tsx",
         "!**/test/**"
