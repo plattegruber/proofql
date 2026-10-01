@@ -23,12 +23,12 @@ describe("renderInto", () => {
     renderInto(el, fixtureResponse(), "excerpts");
 
     const list = el.querySelector(".pq-list");
+    expect(list?.tagName).toBe("UL");
     expect(list?.getAttribute("role")).toBe("list");
     const items = el.querySelectorAll(".pq-list > .pq-item");
     expect(items).toHaveLength(3);
     for (const item of items) {
-      expect(item.tagName).toBe("ARTICLE");
-      expect(item.getAttribute("role")).toBe("listitem");
+      expect(item.tagName).toBe("LI");
     }
 
     const first = items[0] as HTMLElement;

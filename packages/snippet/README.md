@@ -38,8 +38,8 @@ Nothing else is sent. The API rejects unknown parameters, and the snippet adds n
 ### Rendered structure
 
 ```html
-<div class="pq-list" role="list">
-  <article class="pq-item" role="listitem">
+<ul class="pq-list" role="list">
+  <li class="pq-item">
     <span class="pq-stars" role="img" aria-label="4 out of 5 stars">
       <span class="pq-stars-on" aria-hidden="true">★★★★</span><span class="pq-stars-off" aria-hidden="true">☆</span>
     </span>
@@ -49,14 +49,14 @@ Nothing else is sent. The API rejects unknown parameters, and the snippet adds n
       <a class="pq-source" href="…" rel="noopener" target="_blank">Google</a>
       <time class="pq-date" datetime="2026-01-15T10:30:00.000Z">Jan 15, 2026</time>
     </footer>
-  </article>
-</div>
+  </li>
+</ul>
 <a class="pq-badge" href="https://proofql.com/?ref=badge" rel="noopener" target="_blank">Reviews by ProofQL</a>
 ```
 
 - Everything from the API is inserted as text, never parsed as HTML.
 - Parts a review lacks are omitted: no stars without a rating, no author, date, or `.pq-meta` without data. `.pq-source` is a link only when the review has an `http(s)` URL, a `<span>` otherwise, and absent for `source: custom`.
-- The badge appears when the API says `badge: true` (free tier). It sits after the list, not inside it: a `role="list"` may only own list items.
+- A native list with an explicit `role="list"` (Safari drops list semantics under `list-style: none`). The badge appears when the API says `badge: true` (free tier). It sits after the list, not inside it: a list may only own list items.
 - `data-proofql-rendered` marks an element that has been (or is being) rendered; a rendering never runs twice for the same element.
 
 ### Failure policy

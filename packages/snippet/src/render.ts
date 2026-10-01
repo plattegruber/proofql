@@ -5,8 +5,8 @@
  * likes. The structure is the contract #33's stylesheet targets:
  *
  * ```html
- * <div class="pq-list" role="list">
- *   <article class="pq-item" role="listitem">
+ * <ul class="pq-list" role="list">
+ *   <li class="pq-item">
  *     <span class="pq-stars" role="img" aria-label="4 out of 5 stars">
  *       <span aria-hidden="true">★★★★</span><span class="pq-stars-off" aria-hidden="true">☆</span>
  *     </span>
@@ -16,13 +16,16 @@
  *       <a class="pq-source" href="…">Google</a>   <!-- <span> without a URL; none for `custom` -->
  *       <time class="pq-date" datetime="…">Jan 15, 2026</time>
  *     </footer>
- *   </article>
- * </div>
+ *   </li>
+ * </ul>
  * <a class="pq-badge" href="https://proofql.com/?ref=badge" …>Reviews by ProofQL</a>
  * ```
  *
- * The badge is a sibling of the list, not a child: a `role="list"` may only
- * own list items.
+ * A native list (`<ul>`/`<li>`): `role="listitem"` is not an allowed role on
+ * `<article>` (axe `aria-allowed-role`). The explicit `role="list"` is kept
+ * on purpose — Safari drops a `<ul>`'s list semantics under
+ * `list-style: none`, which the default stylesheet sets. The badge is a
+ * sibling of the list, not a child: a list may only own list items.
  */
 
 import type { QueryMode, QueryResponse, QueryResult } from "./types.js";
@@ -123,8 +126,7 @@ export function renderItem(
   result: QueryResult,
   mode: QueryMode,
 ): HTMLElement {
-  const item = element(doc, "article", "pq-item");
-  item.setAttribute("role", "listitem");
+  const item = element(doc, "li", "pq-item");
 
   const stars = starCount(result.review.rating);
   if (stars !== null) item.appendChild(renderStars(doc, stars));
@@ -181,7 +183,7 @@ export function renderInto(
   mode: QueryMode,
 ): void {
   const doc = el.ownerDocument;
-  const list = element(doc, "div", "pq-list");
+  const list = element(doc, "ul", "pq-list");
   list.setAttribute("role", "list");
   for (const result of response.results) {
     list.appendChild(renderItem(doc, result, mode));
