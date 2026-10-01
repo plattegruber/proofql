@@ -1,0 +1,6 @@
+﻿review_id,reviewer,stars,posted,comment
+"a-1","Kim, Jo","★★★★☆","2026-01-05","Said ""wow"" twice.
+Second line of the same review."
+"a-2","","5 stars","05.02.2026","Plain row"
+
+"a-3",Lee,4/5,1736035200000,"Trailing row without newline"
