@@ -1,0 +1,207 @@
+# CI (#12): lint, typecheck, unit tests, integration tests, and the migration
+# gate on every PR and every push to main.
+#
+# Push-to-main runs matter even though every commit on main arrived through a
+# green PR: branch protection is strict (branches must be up to date) but a
+# red main is still an incident worth a notification, and the pnpm store cache
+# written from main's scope is what makes fresh PR branches start warm
+# (actions/cache restores from the PR branch scope first, then falls back to
+# the default branch's).
+#
+# Later workflows (deploy, previews) extend this layout — new jobs slot in
+# alongside the ones below and reuse .github/actions/setup.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Nothing here needs write access. Later workflows (deploy, previews) grant
+# their own permissions.
+permissions:
+  contents: read
+
+# Superseded pushes to the same PR cancel their stale runs; runs on main are
+# never cancelled (every main commit must be fully verified).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  # Parallel jobs, not sequential steps: a Biome failure must not hide a type
+  # error, and parallelism keeps wall clock short.
+  #
+  # WARNING: all five job ids below (lint, typecheck, test, integration,
+  # migration-check) are required status-check contexts in main's branch
+  # protection (infra/branch-protection.json). Renaming a job here breaks
+  # protection SILENTLY — the old context is required forever-pending and the
+  # new one requires nothing. Update infra/branch-protection.json and re-apply
+  # it (see infra/README.md) in the same PR as any rename. None of these jobs
+  # may become a matrix job for the same reason (matrix legs get per-leg check
+  # names).
+  #
+  # No turbo cache is persisted across runs on purpose. Every job starts on a
+  # fresh runner, so every turbo task actually executes; this is what keeps
+  # `build` (whose root turbo.json config declares `outputs: []`) producing
+  # the dist/ that dependents import. Caching .turbo would turn a build cache
+  # hit into "logs replayed, no dist/" and break downstream tests.
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - name: Lint (Biome via turbo)
+        run: pnpm lint
+
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - name: Typecheck
+        run: pnpm typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - name: Unit tests
+        run: pnpm test
+
+  # Integration tests (`*.integration.test.ts` only, see CONTRIBUTING "Tests")
+  # against a real Postgres with pgvector. Parallel with the jobs above — it
+  # never gates or slows the unit-test path.
+  #
+  # Passes today with no integration tests: `turbo run test:integration` with
+  # no matching task in any workspace is a successful no-op. Once #15 adds a
+  # `db:migrate` script to packages/db, the conditional step below applies the
+  # migrations before the tests without further changes here.
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        # Exact image matters: plain `postgres` lacks the pgvector extension
+        # the schema installs. Same image as the local docker compose (#11).
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: proofql
+          POSTGRES_PASSWORD: proofql
+          POSTGRES_DB: proofql
+        ports:
+          - 5432:5432
+        # Folded block (>-) is load-bearing: a malformed options string
+        # silently skips health checking and the job races Postgres startup.
+        options: >-
+          --health-cmd "pg_isready -U proofql"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Service containers are reachable on localhost with the mapped port.
+      # The runner has no competing Postgres, so the default 5432 is fine.
+      DATABASE_URL: postgres://proofql:proofql@localhost:5432/proofql
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - name: Detect packages/db scripts
+        id: db
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const scripts = fs.existsSync("packages/db/package.json")
+              ? JSON.parse(fs.readFileSync("packages/db/package.json", "utf8")).scripts ?? {}
+              : {};
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `migrate=${Boolean(scripts["db:migrate"])}\n`);
+          '
+      # Build the db package's workspace dependencies with plain pnpm, not
+      # turbo, so dist/ definitely exists for anything the migrator imports
+      # (see the note on turbo caching above). A no-op while db has none.
+      - name: Build migration dependencies
+        if: steps.db.outputs.migrate == 'true'
+        run: pnpm --filter "@proofql/db^..." build
+      - name: Apply migrations
+        if: steps.db.outputs.migrate == 'true'
+        run: pnpm --filter @proofql/db db:migrate
+      - name: Integration tests
+        run: pnpm test:integration
+
+  # Migration gate: two filesystem-only checks, no database needed.
+  # (1) Append-only: a *.sql migration that exists on the base branch must
+  #     never be modified, deleted, or renamed — fix forward with a new
+  #     migration (CONTRIBUTING "Database migrations").
+  # (2) Drift: the schema in packages/db/src/schema must match the committed
+  #     migrations — `db:generate` must be a no-op.
+  # Scope note: the append-only rule covers only *.sql files. Drizzle's
+  # migrations/meta/_journal.json and meta/*_snapshot.json are legitimately
+  # rewritten by `generate` when a new migration is appended, so they can't
+  # be immutable — their integrity is covered by the drift check instead
+  # (generate is deterministic given schema + journal, so a hand-edited
+  # journal or snapshot makes the next generate produce a diff).
+  # Both checks pass trivially until #15 lands migrations and a `db:generate`
+  # script; neither needs to be touched when it does.
+  migration-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history: the append-only check diffs against the merge-base
+          # with the base branch (three-dot), which a shallow clone lacks.
+          fetch-depth: 0
+      # Three-dot (merge-base) diff, not two-dot: a PR merely behind its base
+      # must not flag files that the *base* changed. --diff-filter=MDR:
+      # renames included because a rename breaks the journal's reference to
+      # the file (the journal records migration tags by name). On a push to
+      # main the base is main itself and the diff is empty by construction.
+      # Runs regardless of whether packages/db/migrations exists yet: an
+      # empty pathspec match is an empty diff, and this way deleting the whole
+      # folder is caught too.
+      - name: Append-only check (merged migrations are immutable)
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
+        run: |
+          git fetch origin "$BASE_REF"
+          violations=$(git diff --name-status --diff-filter=MDR "origin/$BASE_REF...HEAD" -- 'packages/db/migrations/*.sql')
+          if [ -n "$violations" ]; then
+            echo "$violations"
+            echo "::error::Migrations are append-only once merged. Create a new migration instead of editing this one."
+            exit 1
+          fi
+          echo "No merged migration was modified, deleted, or renamed (vs. merge-base with origin/$BASE_REF)."
+      - uses: ./.github/actions/setup
+      - name: Detect packages/db scripts
+        id: db
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const scripts = fs.existsSync("packages/db/package.json")
+              ? JSON.parse(fs.readFileSync("packages/db/package.json", "utf8")).scripts ?? {}
+              : {};
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `generate=${Boolean(scripts["db:generate"])}\n`);
+          '
+      # Build with plain pnpm, not turbo (see the caching note above), in case
+      # the schema barrel imports a sibling package's dist/.
+      - name: Build schema dependencies
+        if: steps.db.outputs.generate == 'true'
+        run: pnpm --filter "@proofql/db^..." build
+      # drizzle-kit generate is deterministic given the same schema + journal
+      # + drizzle-kit version (pinned by the workspace devDependency — never
+      # install drizzle-kit ad hoc here), so add-and-diff is a sound oracle.
+      # add-then-diff (not plain `git diff`) so *untracked* new migration
+      # files are caught too.
+      - name: Drift check (schema must match committed migrations)
+        if: steps.db.outputs.generate == 'true'
+        run: |
+          pnpm --filter @proofql/db db:generate
+          git add -A
+          if ! git diff --cached --exit-code --stat -- packages/db; then
+            echo "::error::Schema changed without a migration. Run \`pnpm --filter @proofql/db db:generate\` and commit the result."
+            exit 1
+          fi
+          echo "db:generate was a no-op — schema and migrations agree."

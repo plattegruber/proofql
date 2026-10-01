@@ -1,5 +1,7 @@
 # ProofQL
 
+[![CI](https://github.com/plattegruber/proofql/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/plattegruber/proofql/actions/workflows/ci.yml)
+
 **Review search as an API.** Send us your reviews, ask us a question, get back the ones that answer it.
 
 ```http
