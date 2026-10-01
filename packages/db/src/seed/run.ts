@@ -13,10 +13,14 @@
  *   list and `SEED_ANCHOR`. API keys are minted fresh on every run (only
  *   their hashes are stored) and returned in the summary for the CLI to
  *   print once.
- * - **Pipeline stand-ins.** Chunks come from `./chunking.ts` (seed-only;
- *   the real chunker is #23) and are asserted verbatim before insert.
- *   Embeddings come from `fakeEmbed` in `@proofql/ai`, so a query vector
- *   built with the same fake lands near the right rows. Sentiment is
+ * - **Same chunker as the pipeline.** Chunks come from `chunkReview` in
+ *   `@proofql/core` with the review's `language` as the locale — exactly
+ *   the call `workers/pipeline` makes — so a seeded review's chunks are
+ *   byte-identical (same `full` + `window` boundaries, same UTF-16
+ *   offsets) to what ingesting it would produce. `assertVerbatimChunks`
+ *   gates every chunk before insert, as it does on the pipeline write
+ *   path. Embeddings come from `fakeEmbed` in `@proofql/ai`, so a query
+ *   vector built with the same fake lands near the right rows. Sentiment is
  *   `sentimentFromRating` for rated reviews (`sentiment_source = 'rating'`)
  *   and the fixture's hand label for unrated ones (`'model'`, standing in
  *   for the classifier). `indexed_at` is set because chunks and embeddings
@@ -27,6 +31,8 @@ import { fakeEmbed } from "@proofql/ai";
 import {
   type ApiKeyEnvironment,
   type ApiKeyKind,
+  assertVerbatimChunks,
+  chunkReview,
   generateApiKey,
   sentimentFromRating,
 } from "@proofql/core";
@@ -37,7 +43,6 @@ import { apiKeys } from "../schema/apiKeys.js";
 import { reviewChunks } from "../schema/reviewChunks.js";
 import { reviews } from "../schema/reviews.js";
 import { accounts, projects } from "../schema/tenancy.js";
-import { chunkReviewText } from "./chunking.js";
 import {
   DEMO_ACCOUNT_CLERK_ORG_ID,
   DEMO_ACCOUNT_ID,
@@ -53,6 +58,7 @@ import {
   DEMO_REVIEW_FIXTURES,
   type DemoReviewFixture,
   demoExternalId,
+  demoLanguage,
 } from "./fixtures/reviews.js";
 
 /** The account's display name carries the dataset version (see constants). */
@@ -163,11 +169,14 @@ export async function runSeed(
       }
     }
 
-    // Chunks: deterministic full + window slices, all embedded with the fake.
+    // Chunks: the pipeline's chunker, gated the way the pipeline gates it.
     type ChunkInsert = typeof reviewChunks.$inferInsert;
     const chunkRows: ChunkInsert[] = [];
     for (const { id, fixture } of inserted) {
-      const chunks = chunkReviewText(fixture.text); // asserts verbatim
+      const chunks = chunkReview(fixture.text, {
+        locale: demoLanguage(fixture),
+      });
+      assertVerbatimChunks(fixture.text, chunks);
       const vectors = fakeEmbed(chunks.map((c) => c.text));
       chunks.forEach((chunk, i) => {
         chunkRows.push({
@@ -225,7 +234,7 @@ function reviewRow(
     authorName: fixture.authorName,
     occurredAt: occurredAtFor(fixture.key, fixture.daysAgo),
     url: sourceUrl(fixture),
-    language: "en",
+    language: demoLanguage(fixture),
     metadata: { location: fixture.location },
     sentiment,
     sentimentSource: sentiment === null ? null : rated ? "rating" : "model",
