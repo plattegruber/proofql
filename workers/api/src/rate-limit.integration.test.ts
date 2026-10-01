@@ -4,11 +4,11 @@
  * built with. A recording fake stands in for the Cloudflare binding.
  */
 
-import { type ApiKeyKind, generateApiKey } from "@proofql/core";
-import type { Db } from "@proofql/db";
-import { apiKey, project, setupTestDb } from "@proofql/db/test";
+import { generateApiKey } from "@proofql/core";
+import { project, setupTestDb } from "@proofql/db/test";
 import { describe, expect, it } from "vitest";
 
+import { issueKey, testEnv } from "../test/helpers.js";
 import { createApp } from "./app.js";
 import { requireAnyKey } from "./auth.js";
 import type { ApiBindings } from "./bindings.js";
@@ -28,26 +28,11 @@ function recordingLimiter(outcomes: boolean[] = []) {
   return limiter;
 }
 
-const env: ApiBindings = {
-  ENVIRONMENT: "test",
-  HYPERDRIVE: { connectionString: "postgres://unused" } as Hyperdrive,
-  CACHE: {} as KVNamespace,
-  INGEST_QUEUE: {
+const env = testEnv({
+  queue: {
     sendBatch: async () => {},
   } as unknown as ApiBindings["INGEST_QUEUE"],
-};
-
-async function issueKey(db: Db, projectId: string, kind: ApiKeyKind) {
-  const generated = await generateApiKey({ kind, environment: "live" });
-  const row = await apiKey(db, {
-    projectId,
-    kind,
-    environment: "live",
-    keyHash: generated.hash,
-    prefix: generated.prefix,
-  });
-  return { plaintext: generated.plaintext, row };
-}
+});
 
 /** The real app plus a read route either key kind may call. */
 function appWith(limiters: RateLimiter | Partial<RateLimiters>) {

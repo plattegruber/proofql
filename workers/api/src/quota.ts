@@ -2,30 +2,34 @@
  * Monthly query quota (scope.md §2 "Free tier": 50,000 queries / month,
  * cached hits are free; issue #29).
  *
- * `queryQuota` is route-level middleware for `/v1/query` only, mounted
- * after the auth middleware. Per request:
+ * Two halves, both used by `/v1/query` only:
  *
- *   1. One statement joins `projects` → `accounts` for the plan and LEFT
- *      JOINs this month's `usage` row (`month` = first day of the UTC
- *      month). The enforced number is `queries - cache_hits`, as the
- *      `usage` schema documents: `queries` counts every query answered,
- *      `cache_hits` the subset served from KV, which no plan charges for.
- *   2. At or over the plan's limit → 429 `query_quota_exceeded` (distinct
- *      from `rate_limited`: "wait for the month or upgrade", not "slow
- *      down") with `Retry-After` set to the seconds until the next month.
- *      The snippet renders nothing on any error, so an over-quota site
- *      degrades to an empty widget, never a broken page.
- *   3. Otherwise the handler runs; if it produced a 2xx the counters are
- *      bumped after the response via `waitUntil`, with
- *      `INSERT ... ON CONFLICT (project_id, month) DO UPDATE SET
- *      queries = usage.queries + 1` — an atomic increment, never a
- *      read-modify-write, so concurrent requests cannot lose counts. Errors
- *      (422, 503) are not charged.
+ *   - `enforceQueryQuota(c)` — the handler calls it **after** a cache miss
+ *     and before any uncached work. One statement joins `projects` →
+ *     `accounts` for the plan and LEFT JOINs this month's `usage` row
+ *     (`month` = first day of the UTC month). The enforced number is
+ *     `queries - cache_hits`, as the `usage` schema documents: `queries`
+ *     counts every query answered, `cache_hits` the subset served from KV,
+ *     which no plan charges for. At or over the plan's limit → 429
+ *     `query_quota_exceeded` (distinct from `rate_limited`: "wait for the
+ *     month or upgrade", not "slow down") with `Retry-After` set to the
+ *     seconds until the next month. The snippet renders nothing on any
+ *     error, so an over-quota site degrades to an empty widget, never a
+ *     broken page.
+ *   - `queryQuota` — route-level middleware mounted after auth. Once the
+ *     handler has produced a 2xx it bumps the counters after the response
+ *     via `waitUntil`, with `INSERT ... ON CONFLICT (project_id, month) DO
+ *     UPDATE SET queries = usage.queries + 1` — an atomic increment, never
+ *     a read-modify-write, so concurrent requests cannot lose counts. A
+ *     handler that called `markCacheHit(c)` is counted under `cache_hits`
+ *     too, so the hit shows in the dashboard total but not in the enforced
+ *     number. Errors (422, 429, 503) are not charged.
  *
- * The cache seam (#28): a handler that serves from KV calls `markCacheHit(c)`
- * before returning; the post-response increment then bumps `cache_hits`
- * along with `queries`, so the hit shows in the dashboard total but not in
- * the enforced number.
+ * Why the check is a call rather than middleware ahead of the handler: the
+ * cache lookup (src/query/cache.ts) must come first, so that a cached
+ * answer — free by definition — is served at quota rather than refused,
+ * and so that a hit costs no `usage` read at all. Only the miss path pays
+ * for the check, immediately before it pays for the search.
  *
  * Usage is per project, not per environment or key: a test key shares its
  * project's quota (packages/db/src/schema/usage.ts). The check reads the
@@ -125,28 +129,38 @@ export function recordQuery(
 /**
  * Call from a `/v1/query` handler that answered from the cache, before
  * returning. The post-response hook then counts the request as a cache hit
- * (free) instead of an uncached query. The seam for #28.
+ * (free) instead of an uncached query.
  */
 export function markCacheHit(c: Context<AppEnv>): void {
   c.set("cacheHit", true);
 }
 
-/** `/v1/query` only, after auth: refuse over quota, else count afterwards. */
+/**
+ * Refuse with 429 `query_quota_exceeded` when the project is at its plan's
+ * monthly limit of uncached queries. The `/v1/query` handler calls this on
+ * a cache miss, before embedding and searching (module doc).
+ */
+export async function enforceQueryQuota(c: Context<AppEnv>): Promise<void> {
+  const auth = c.get("auth");
+  const now = new Date();
+  const quota = await readQuota(
+    c.get("getDb")(),
+    auth.projectId,
+    monthStart(now),
+  );
+  if (quota.uncached < quota.limit) return;
+  c.header("Retry-After", String(secondsToMonthEnd(now)));
+  throw new ApiError(
+    "query_quota_exceeded",
+    `This project has used its ${quota.plan} plan quota of ${quota.limit.toLocaleString("en-US")} uncached queries for the month (cached queries are free). The quota resets at the start of next month (UTC); upgrade the account's plan in the dashboard to raise it.`,
+  );
+}
+
+/** `/v1/query` only, after auth: count every answered query afterwards. */
 export const queryQuota = createMiddleware<AppEnv>(async (c, next) => {
   const auth = c.get("auth");
   const db = c.get("getDb")();
-  const now = new Date();
-  const month = monthStart(now);
-
-  const quota = await readQuota(db, auth.projectId, month);
-  if (quota.uncached >= quota.limit) {
-    const retryAfter = secondsToMonthEnd(now);
-    c.header("Retry-After", String(retryAfter));
-    throw new ApiError(
-      "query_quota_exceeded",
-      `This project has used its ${quota.plan} plan quota of ${quota.limit.toLocaleString("en-US")} uncached queries for the month (cached queries are free). The quota resets at the start of next month (UTC); upgrade the account's plan in the dashboard to raise it.`,
-    );
-  }
+  const month = monthStart();
 
   await next();
 

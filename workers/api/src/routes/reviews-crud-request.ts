@@ -14,7 +14,7 @@
 
 import { Buffer } from "node:buffer";
 
-import { REVIEW_SOURCES, reviewInputSchema } from "@proofql/core";
+import { REVIEW_SOURCES, reviewMetadataSchema } from "@proofql/core";
 import { z } from "zod";
 
 export const LIST_LIMIT_DEFAULT = 20;
@@ -45,13 +45,13 @@ export type ListQuery = z.output<typeof listQuerySchema>;
 
 /**
  * `PATCH /v1/reviews/:id`. `metadata` replaces the whole map and reuses the
- * ingest schema's shape (flat string→string, same caps) so a value that
- * passes ingest passes here and vice versa.
+ * ingest schema (flat string→string, same caps) so a value that passes
+ * ingest passes here and vice versa.
  */
 export const patchBodySchema = z
   .strictObject({
     hidden: z.boolean().optional(),
-    metadata: reviewInputSchema.shape.metadata,
+    metadata: reviewMetadataSchema.optional(),
   })
   .refine((body) => body.hidden !== undefined || body.metadata !== undefined, {
     message: "Provide at least one of `hidden`, `metadata`.",

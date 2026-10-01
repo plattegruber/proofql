@@ -31,6 +31,7 @@
  * like `limt=3` must not quietly return five results.
  */
 
+import { reviewMetadataSchema } from "@proofql/core";
 import { MAX_SEARCH_LIMIT } from "@proofql/db";
 import { z } from "zod";
 
@@ -41,9 +42,6 @@ export const Q_MAX_LENGTH = 500;
 
 const SOURCE_MAX = 64;
 const SOURCES_MAX = 20;
-const METADATA_KEY_MAX = 64;
-const METADATA_VALUE_MAX = 512;
-const METADATA_ENTRIES_MAX = 32;
 
 /** `YYYY-MM-DD` or a full ISO 8601 timestamp, as `Date`. */
 const isoDate = z
@@ -72,15 +70,6 @@ const sourceList = z
   .array(z.string().trim().min(1).max(SOURCE_MAX))
   .max(SOURCES_MAX);
 
-const metadataSchema = z
-  .record(
-    z.string().min(1).max(METADATA_KEY_MAX),
-    z.string().max(METADATA_VALUE_MAX),
-  )
-  .refine((m) => Object.keys(m).length <= METADATA_ENTRIES_MAX, {
-    message: `metadata may have at most ${METADATA_ENTRIES_MAX} entries`,
-  });
-
 const filtersSchema = z.strictObject({
   min_rating: z.number().int().min(1).max(5).optional(),
   // A single string is one source; the GET mapper already splits commas.
@@ -89,7 +78,8 @@ const filtersSchema = z.strictObject({
     .transform((v) => (typeof v === "string" ? [v] : v))
     .optional(),
   since: isoDate.optional(),
-  metadata: metadataSchema.optional(),
+  // The ingest shape: a value a review can carry is a value one can filter on.
+  metadata: reviewMetadataSchema.optional(),
 });
 
 export const QUERY_MODES = ["excerpts", "reviews"] as const;

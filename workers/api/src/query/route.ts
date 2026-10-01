@@ -25,6 +25,21 @@
  *    RRF fusion, floor, and per-review collapse in one SQL statement.
  *    Without `q` it returns the newest publishable reviews.
  *
+ * ## Cache (`./cache.ts`, #28)
+ *
+ * Between validation and the quota check the handler looks the request up
+ * in KV under a key built from the project, environment, the project's
+ * cache generation, and a hash of the normalized request. A hit is served
+ * as-is with `cached: true`, a fresh `took_ms`, `x-cache: HIT`, and is
+ * counted as a free cache hit (`markCacheHit`) — so it is served even when
+ * the project is at its monthly quota. A miss pays the quota check
+ * (`enforceQueryQuota`), then the embedding and the search, and the
+ * `results` are stored after the response goes out (`waitUntil`) for the
+ * next caller; `x-cache: MISS`. `Cache-Control: no-cache` on the request
+ * skips the lookup but still stores (`x-cache: BYPASS`). A failing KV read
+ * is logged and treated as a miss: the cache can slow the endpoint down,
+ * never take it down.
+ *
  * ## Response
  *
  * ```json
@@ -45,8 +60,8 @@
  * is `null`. `excerpt` is a verbatim slice of `review.text`; in
  * `mode=excerpts` it is the best-matching chunk, in `mode=reviews` the
  * same best chunk accompanies the whole review as `review.text`. `badge`
- * mirrors `projects.show_badge` (free tier: true). `cached` is always
- * false until #28 adds the KV layer. (#42: copy this block into OpenAPI.)
+ * mirrors `projects.show_badge` (free tier: true). `cached` says whether
+ * `results` came from KV. (#42: copy this block into OpenAPI.)
  */
 
 import type { SearchFilters, SearchResult } from "@proofql/db";
@@ -55,15 +70,25 @@ import { type Context, type Handler, Hono } from "hono";
 
 import { lookupApiKey, presentedToken, requireQueryKey } from "../auth.js";
 import type { AppEnv } from "../bindings.js";
+import { readProjectGeneration } from "../cache-purge.js";
 import {
   applyCorsHeaders,
   corsOriginFor,
   isAllowedOrigin,
   PREFLIGHT_HEADERS,
 } from "../cors.js";
+import { waitUntil } from "../db.js";
 import { ApiError } from "../errors.js";
 import { log } from "../log.js";
-import { queryQuota } from "../quota.js";
+import { enforceQueryQuota, markCacheHit, queryQuota } from "../quota.js";
+import {
+  CACHE_HEADER,
+  type CacheOutcome,
+  cacheKey,
+  getCached,
+  putCached,
+  wantsFresh,
+} from "./cache.js";
 import {
   parseQueryRequest,
   type QueryFilters,
@@ -97,8 +122,8 @@ export interface QueryResponseResult {
 export interface QueryResponse {
   results: QueryResponseResult[];
   took_ms: number;
-  /** Always false until the KV cache (#28) lands. */
-  cached: false;
+  /** Whether `results` were served from the KV cache. */
+  cached: boolean;
   /** Whether the snippet must render the "Reviews by ProofQL" badge. */
   badge: boolean;
 }
@@ -158,6 +183,20 @@ const handleQuery: Handler<AppEnv> = async (c) => {
     similarityFloor: project.similarityFloor,
   };
 
+  const cache = await lookupCache(c, request, policy);
+  if (cache.hit !== null) {
+    markCacheHit(c);
+    const tookMs = Math.round(performance.now() - started);
+    logServed(c, request, policy, cache.hit.length, tookMs, {
+      cached: true,
+      embed_ms: 0,
+    });
+    return respond(c, cache.hit, tookMs, true, cache.outcome);
+  }
+
+  // Only a miss costs quota — and the check comes before the expensive work.
+  await enforceQueryQuota(c);
+
   let queryEmbedding: number[] | undefined;
   let embedMs = 0;
   if (request.q !== undefined) {
@@ -186,7 +225,7 @@ const handleQuery: Handler<AppEnv> = async (c) => {
     embedMs = performance.now() - embedStarted;
   }
 
-  const results = await searchChunks(c.get("getDb")(), {
+  const rows = await searchChunks(c.get("getDb")(), {
     projectId: auth.projectId,
     environment: auth.environment,
     queryEmbedding,
@@ -196,8 +235,93 @@ const handleQuery: Handler<AppEnv> = async (c) => {
     filters: toSearchFilters(request.filters),
     mode: request.mode,
   });
+  const results = rows.map((r) => toResponseResult(r, request.mode));
+
+  if (cache.key !== null) {
+    // After the response: a slow KV write must not add to `took_ms`, and a
+    // failed one is a cache miss next time, not an error now.
+    waitUntil(
+      c,
+      putCached(c.env.CACHE, cache.key, results, {
+        generation: cache.generation,
+      }).catch((error: unknown) => logCacheError(c, "put", error)),
+    );
+  }
 
   const tookMs = Math.round(performance.now() - started);
+  logServed(c, request, policy, results.length, tookMs, {
+    cached: false,
+    embed_ms: Math.round(embedMs),
+  });
+  return respond(c, results, tookMs, false, cache.outcome);
+};
+
+interface CacheLookup {
+  /** Null when KV could not be read; the result is then not stored either. */
+  key: string | null;
+  generation: number;
+  hit: QueryResponseResult[] | null;
+  outcome: CacheOutcome;
+}
+
+/** Key the request and consult KV unless the caller asked for fresh results. */
+async function lookupCache(
+  c: Context<AppEnv>,
+  request: QueryRequest,
+  policy: { minRating: number; similarityFloor: number },
+): Promise<CacheLookup> {
+  const auth = c.get("auth");
+  const kv = c.env.CACHE;
+  const fresh = wantsFresh(c.req.header("Cache-Control"));
+  try {
+    const generation = await readProjectGeneration(c.env, auth.projectId);
+    const key = await cacheKey({
+      projectId: auth.projectId,
+      environment: auth.environment,
+      generation,
+      request,
+      policy,
+    });
+    if (fresh) return { key, generation, hit: null, outcome: "BYPASS" };
+    const entry = await getCached(kv, key);
+    return {
+      key,
+      generation,
+      hit: entry?.results ?? null,
+      outcome: entry === null ? "MISS" : "HIT",
+    };
+  } catch (error) {
+    logCacheError(c, "get", error);
+    return { key: null, generation: 0, hit: null, outcome: "MISS" };
+  }
+}
+
+function respond(
+  c: Context<AppEnv>,
+  results: QueryResponseResult[],
+  tookMs: number,
+  cached: boolean,
+  outcome: CacheOutcome,
+): Response {
+  const body: QueryResponse = {
+    results,
+    took_ms: tookMs,
+    cached,
+    badge: c.get("auth").project.showBadge,
+  };
+  c.header(CACHE_HEADER, outcome);
+  return c.json(body);
+}
+
+function logServed(
+  c: Context<AppEnv>,
+  request: QueryRequest,
+  policy: { minRating: number; similarityFloor: number },
+  resultCount: number,
+  tookMs: number,
+  extra: { cached: boolean; embed_ms: number },
+): void {
+  const auth = c.get("auth");
   log("query.served", {
     request_id: c.get("requestId"),
     project_id: auth.projectId,
@@ -209,19 +333,27 @@ const handleQuery: Handler<AppEnv> = async (c) => {
     limit: request.limit,
     min_rating: policy.minRating,
     similarity_floor: policy.similarityFloor,
-    result_count: results.length,
+    result_count: resultCount,
     took_ms: tookMs,
-    embed_ms: Math.round(embedMs),
+    ...extra,
   });
+}
 
-  const body: QueryResponse = {
-    results: results.map((r) => toResponseResult(r, request.mode)),
-    took_ms: tookMs,
-    cached: false,
-    badge: project.showBadge,
-  };
-  return c.json(body);
-};
+function logCacheError(
+  c: Context<AppEnv>,
+  op: "get" | "put",
+  error: unknown,
+): void {
+  log("query.cache_error", {
+    request_id: c.get("requestId"),
+    project_id: c.get("auth").projectId,
+    op,
+    error:
+      error instanceof Error
+        ? `${error.name}: ${error.message}`
+        : String(error),
+  });
+}
 
 async function readRequest(c: Context<AppEnv>): Promise<QueryRequest> {
   if (c.req.method === "GET") {
@@ -275,6 +407,7 @@ function toResponseResult(
 
 queryRoutes.options("/", preflight);
 // Quota after CORS so an over-quota 429 is readable by the snippet's origin.
+// `queryQuota` only counts here; the handler enforces on a cache miss.
 queryRoutes.on(
   ["GET", "POST"],
   "/",

@@ -25,10 +25,13 @@ import type { Context } from "hono";
 import type { AppEnv, AuthContext } from "./bindings.js";
 import { ApiError } from "./errors.js";
 
-/** Methods and headers `/v1/query` accepts cross-origin. */
+/**
+ * Methods and headers `/v1/query` accepts cross-origin. `Cache-Control` so a
+ * page can send `no-cache` to bypass the KV cache (src/query/cache.ts).
+ */
 export const PREFLIGHT_HEADERS = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Authorization, Content-Type",
+  "Access-Control-Allow-Headers": "Authorization, Cache-Control, Content-Type",
   "Access-Control-Max-Age": "600",
 } as const;
 
