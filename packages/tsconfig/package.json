@@ -1,0 +1,16 @@
+{
+  "name": "@proofql/tsconfig",
+  "version": "0.0.0",
+  "private": true,
+  "files": [
+    "*.json"
+  ],
+  "exports": {
+    "./base.json": "./base.json",
+    "./worker.json": "./worker.json",
+    "./react.json": "./react.json"
+  },
+  "scripts": {
+    "lint": "biome check ."
+  }
+}
