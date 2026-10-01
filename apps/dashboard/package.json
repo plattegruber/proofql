@@ -4,16 +4,43 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit",
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "test": "vitest run",
+    "build": "react-router build",
+    "dev": "pnpm run typegen && react-router dev",
+    "deploy": "pnpm run build && wrangler deploy",
+    "typegen": "wrangler types worker-configuration.d.ts --env-file=.dev.vars.example && react-router typegen",
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
     "lint": "biome check .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "pnpm run typegen && tsc --noEmit"
+  },
+  "dependencies": {
+    "@clerk/react-router": "^3.6.29",
+    "@proofql/core": "workspace:*",
+    "@proofql/db": "workspace:*",
+    "@tailwindcss/vite": "^4.3.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "drizzle-orm": "^0.45.3",
+    "isbot": "^5.2.2",
+    "lucide-react": "^1.49.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router": "7.18.4",
+    "tailwind-merge": "^3.7.0",
+    "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.62.3",
     "@proofql/tsconfig": "workspace:*",
+    "@react-router/dev": "7.18.4",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "happy-dom": "^20.14.5",
     "typescript": "^5.9.2",
+    "vite": "^7.1.7",
     "vitest": "^3.2.4",
     "wrangler": "^4.145.0"
   }

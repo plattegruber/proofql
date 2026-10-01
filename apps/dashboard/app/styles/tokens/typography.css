@@ -1,0 +1,15 @@
+/* Adapted from Well-Regarded's design/design-system/tokens/typography.css.
+   The designer's font-shorthand variables (e.g. `--text-body: 400 15px/1.55 …`)
+   were dropped here: the app consumes the type scale through Tailwind
+   utilities generated from `@theme` in app.css (text-body, text-title, …),
+   and shorthand strings are not valid `font-size` values for those utilities.
+   Families also live in @theme (so `font-sans` / `font-mono` utilities work);
+   the values are identical to the designer's. */
+:root {
+  /* Letterspacing */
+  --tracking-display: -0.03em;
+  --tracking-label: 0.08em;
+
+  /* Numerals in metrics use tabular figures */
+  --numeric: "tnum" 1;
+}

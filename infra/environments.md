@@ -37,9 +37,13 @@ so both repos can run at once on one machine.
 | `apps/dashboard`   | <http://localhost:8799> | 8799       | 9241                 |
 | Postgres (compose) | `localhost:54323`       | —          | —                    |
 
-When React Router v7 lands in the dashboard (#36) its dev server becomes Vite
-(`@cloudflare/vite-plugin`); pin 8799 in `apps/dashboard/vite.config.ts`
-(`server.port`) as well, and keep the two in sync.
+The dashboard's dev server is Vite (`@cloudflare/vite-plugin`, #36), so its
+port is pinned twice: `dev.port` in `apps/dashboard/wrangler.jsonc` (raw
+`wrangler dev` only) and `server.port` in `apps/dashboard/vite.config.ts`
+(`pnpm dev`). Keep the two in sync. The dashboard is also deployed from its
+Vite build: `CLOUDFLARE_ENV=<env> react-router build` resolves the env block
+into `build/server/wrangler.json` and `wrangler deploy` follows the redirect
+in `.wrangler/deploy/config.json` (see the header of its `wrangler.jsonc`).
 
 ## Bindings
 
@@ -58,6 +62,9 @@ identical across workers and environments.
 | `ENVIRONMENT`  | var               | yes      | yes      | yes       | `"local"`                                          | `"preview"` / `"prod"`                           |
 | `RATE_LIMITS`  | var (optional)    | yes      | —        | —         | unset                                              | unset; JSON override of the advertised per-kind limits, must mirror the `ratelimits` entries when set |
 | `API_URL`      | var               | —        | —        | yes       | `http://localhost:8797`                            | the api worker's public origin                   |
+| `CLERK_PUBLISHABLE_KEY` | var      | —        | —        | yes       | `.dev.vars` (optional)                             | the Clerk instance's publishable key (`pk_test_…` preview, `pk_live_…` prod) |
+| `CLERK_SECRET_KEY` | secret        | —        | —        | yes       | `.dev.vars`; **unset ⇒ local auth stub** (acts as the seeded demo account) | `wrangler secret put` per env; required — no stub outside local |
+| `CLERK_WEBHOOK_SIGNING_SECRET` | secret | —   | —        | yes       | `.dev.vars` (optional; `POST /webhooks/clerk` answers 503 without it) | `wrangler secret put` per env |
 
 Why the split: the api embeds queries (AI), reads/writes Postgres (HYPERDRIVE),
 serves from and fills the cache (CACHE), enqueues ingested reviews
@@ -141,11 +148,12 @@ Both point at the docker compose database from `pnpm run setup`
 | File        | Read by              | Holds                                                                      |
 | ----------- | -------------------- | -------------------------------------------------------------------------- |
 | `.env`      | the wrangler CLI     | process config: the Hyperdrive connection string above                     |
-| `.dev.vars` | the worker (runtime) | `env.*` vars and secrets for `wrangler dev` (none required yet)            |
+| `.dev.vars` | the worker (runtime) | `env.*` vars and secrets for `wrangler dev` (the dashboard's Clerk keys; nothing required) |
 
 When `.dev.vars` is absent wrangler falls back to loading `.env` as runtime
-vars, so every worker commits a `.dev.vars.example` (comments only for now)
-that `pnpm run setup` copies, keeping the connection string out of `env`.
+vars, so every worker commits a `.dev.vars.example` (comments, plus empty
+Clerk placeholders in the dashboard's) that `pnpm run setup` copies, keeping
+the connection string out of `env`.
 
 ## Repo-level env vars
 

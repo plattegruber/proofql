@@ -105,6 +105,15 @@ jobs:
           packageManager: pnpm
           workingDirectory: workers/api
           command: deploy --env preview
+      # The dashboard deploys from its Vite build (#36): CLOUDFLARE_ENV picks
+      # the wrangler env block the build resolves into build/server/
+      # wrangler.json, and `wrangler deploy` follows the redirect the plugin
+      # writes. Build the workspace deps first so dist/ exists (see the
+      # caching note in ci.yml).
+      - name: Build proofql-dashboard-preview
+        env:
+          CLOUDFLARE_ENV: preview
+        run: pnpm --filter "@proofql/dashboard..." build
       - name: Deploy proofql-dashboard-preview
         uses: cloudflare/wrangler-action@v3
         with:
@@ -115,7 +124,6 @@ jobs:
           command: deploy --env preview
       # workers.dev URLs are deterministic once the account subdomain is
       # known (repository variable WORKERS_SUBDOMAIN, infra/provisioning.md).
-      # The dashboard has no /health until React Router lands (#36).
       - name: Smoke check /health
         env:
           SUBDOMAIN: ${{ vars.WORKERS_SUBDOMAIN }}
@@ -124,7 +132,7 @@ jobs:
             echo "::notice::WORKERS_SUBDOMAIN variable not set; skipping smoke check (infra/provisioning.md)."
             exit 0
           fi
-          for worker in api pipeline; do
+          for worker in api pipeline dashboard; do
             url="https://proofql-${worker}-preview.${SUBDOMAIN}.workers.dev/health"
             echo "GET $url"
             curl --fail --silent --show-error --max-time 20 "$url"
@@ -178,6 +186,15 @@ jobs:
           packageManager: pnpm
           workingDirectory: workers/api
           command: deploy --env prod
+      # The dashboard deploys from its Vite build (#36): CLOUDFLARE_ENV picks
+      # the wrangler env block the build resolves into build/server/
+      # wrangler.json, and `wrangler deploy` follows the redirect the plugin
+      # writes. Build the workspace deps first so dist/ exists (see the
+      # caching note in ci.yml).
+      - name: Build proofql-dashboard-prod
+        env:
+          CLOUDFLARE_ENV: prod
+        run: pnpm --filter "@proofql/dashboard..." build
       - name: Deploy proofql-dashboard-prod
         uses: cloudflare/wrangler-action@v3
         with:
@@ -188,7 +205,6 @@ jobs:
           command: deploy --env prod
       # workers.dev URLs are deterministic once the account subdomain is
       # known (repository variable WORKERS_SUBDOMAIN, infra/provisioning.md).
-      # The dashboard has no /health until React Router lands (#36).
       - name: Smoke check /health
         env:
           SUBDOMAIN: ${{ vars.WORKERS_SUBDOMAIN }}
@@ -197,7 +213,7 @@ jobs:
             echo "::notice::WORKERS_SUBDOMAIN variable not set; skipping smoke check (infra/provisioning.md)."
             exit 0
           fi
-          for worker in api pipeline; do
+          for worker in api pipeline dashboard; do
             url="https://proofql-${worker}-prod.${SUBDOMAIN}.workers.dev/health"
             echo "GET $url"
             curl --fail --silent --show-error --max-time 20 "$url"

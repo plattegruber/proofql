@@ -1,0 +1,19 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      // CLOUDFLARE_ENV selects the wrangler environment the Vite build
+      // resolves (preview/prod; unset = top-level local config). It must be
+      // part of the task hash or a cached local build could be replayed as a
+      // preview/prod artifact.
+      "env": ["CLOUDFLARE_ENV"],
+      "outputs": [
+        "build/**",
+        // @cloudflare/vite-plugin's deploy-config redirect: points
+        // `wrangler deploy` at the built config in build/server/.
+        ".wrangler/deploy/**"
+      ]
+    }
+  }
+}

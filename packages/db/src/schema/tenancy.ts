@@ -23,6 +23,7 @@ import {
   pgTable,
   smallint,
   text,
+  timestamp,
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -41,6 +42,15 @@ export const accounts = pgTable("accounts", {
   plan: accountPlanEnum("plan").notNull().default("free"),
   /** Set once Stripe billing lands (M3); null on the free tier. */
   stripeCustomerId: text("stripe_customer_id").unique(),
+  /**
+   * Set by the dashboard's Clerk webhook on `organization.deleted` (#36).
+   * A soft mark, not a DELETE: deleting the row would cascade through
+   * every project, key, review and chunk the moment someone removes the
+   * organization in Clerk, and that is not reversible. The data stays until
+   * a retention job (later) purges it; `requireAccount` refuses deleted
+   * accounts, and re-creating the organization clears the mark.
+   */
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
   ...timestamps,
 });
 

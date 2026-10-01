@@ -66,6 +66,7 @@ assert that the query line never contains the query.
 | `workers/api` request | `request_id`, `method`, `path` | `requestContext` middleware ([`request-id.ts`](../workers/api/src/request-id.ts)), first in the chain. The id honours an inbound `x-request-id` (≤128 chars), else Cloudflare's `cf-ray`, else `crypto.randomUUID()`. Echoed on every response as `x-request-id` and inside every error envelope as `request_id`, so a support ticket quotes one string. `path` excludes the query string, so a `?key=` never lands in a line. |
 | `workers/pipeline` queue message | `queue`, `message_id`, `attempt`, then `review_id`, `project_id`, `environment` once the body parses | `handleQueueBatch` ([`handlers.ts`](../workers/pipeline/src/handlers.ts)) creates one child per message and hands it to `indexReview` in the context, so `review.indexed` and the `ingest.message.*` decision carry the same ids without passing them around. `handleDeadLetters` ([`dlq.ts`](../workers/pipeline/src/dlq.ts)) binds the same fields for `proofql-ingest-dlq` deliveries; `queue` tells the two apart. |
 | `workers/pipeline` cron | `trigger: "cron"` | `handleScheduled`. |
+| `apps/dashboard` request | `request_id`, `method`, `path` | The worker entry ([`workers/app.ts`](../apps/dashboard/workers/app.ts)) resolves the id with the api's rule, binds the child, and hands it to every middleware/loader/action as `getCloudflare(context).log`; echoed as `x-request-id`. Loaders never touch `console`. |
 
 Route and indexer code never adds these fields itself: it logs through the
 child it was given (`c.get("log")` in Hono; `ctx.log` in the pipeline).
@@ -129,6 +130,16 @@ wire) and bind it in `handleQueueBatch`.
 | `review.skipped` | info | `reason` (`not_found` \| `hidden` \| `empty_text`) | A property of the review that redelivery cannot change. Acked. |
 | `sweep.completed` | info | `older_than_minutes`, `limit`, `enqueued`, `exhausted`, `batches`, `review_ids[]` | Every cron tick ([`sweep.ts`](../workers/pipeline/src/sweep.ts)). |
 | `sweep.exhausted` | warn | `max_attempts`, `count`, `review_ids[]` | Reviews stuck past the attempt cap, listed once per tick and not re-sent. A non-empty one is a review the pipeline cannot index: look at its last `ingest.message.failed`, or its `ingest.dlq.recorded` (a dead letter sets the counter to the cap directly). |
+
+### dashboard
+
+| Event | Level | Fields beyond the request bindings | When |
+|---|---|---|---|
+| `ssr.stream_error` | error | `error` | React's streamed render threw after the shell was sent ([`entry.server.tsx`](../apps/dashboard/app/entry.server.tsx)); the response is already in flight, so the status flips to 500 only if the shell had not committed. |
+
+The dashboard logs nothing else yet (#36 is the scaffold); the loaders'
+account and project queries are plain reads. Surfaces that mutate state
+(#37, #41) add their events here when they land.
 
 ## Tuning the similarity floor
 

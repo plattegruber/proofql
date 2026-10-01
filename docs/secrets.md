@@ -9,9 +9,9 @@ environment matrix (worker names, binding names, ports) is
 ProofQL has unusually few secrets by design (scope §2): embeddings and
 sentiment run on Workers AI through a binding (no key), there is no LLM
 vendor, and workers reach Postgres through the Hyperdrive **binding**, so no
-worker ever holds a database URL. Today the only secrets anywhere are the
-two the deploy workflow needs and the two Neon connection strings the
-migrator needs.
+worker ever holds a database URL. Today the secrets are the two the deploy
+workflow needs, the two Neon connection strings the migrator needs, and the
+dashboard's Clerk keys (M2, #36).
 
 ## Where values live
 
@@ -87,17 +87,32 @@ that environment plus the matching `NEON_*_DATABASE_URL` secret.
 
 ### Worker runtime secrets (wrangler secrets / `.dev.vars`)
 
-None are required today. Every `.dev.vars.example` is comments only, and
-`wrangler deploy` needs no `wrangler secret put` for the first deploy. The
-rows below reserve names for the milestones that introduce them; each lands
-with its own PR that adds the schema check, the `.dev.vars.example` line, and
-flips this table's status.
+The dashboard's Clerk rows are live (#36); the api and pipeline still need
+no runtime secret, and `wrangler deploy` of those two needs no
+`wrangler secret put`. The remaining rows reserve names for the milestones
+that introduce them; each lands with its own PR that adds the schema check,
+the `.dev.vars.example` line, and flips this table's status.
+
+**Clerk (dashboard).** One Clerk application (`app_3K61mygiVkqZZcrltxAu8UpG5kx`,
+owner-created) with a *development* instance for local and preview and a
+*production* instance for prod. Locally the three values go in
+`apps/dashboard/.dev.vars`; leave `CLERK_SECRET_KEY` empty and the dashboard
+runs with the **local auth stub** (every request acts as the seeded demo
+account, banner shown) — the stub never engages outside `ENVIRONMENT=local`.
+The webhook endpoint to register in Clerk (Configure → Webhooks → Add
+endpoint, events `organization.created`, `organization.updated`,
+`organization.deleted`) is
+`https://proofql-dashboard-<env>.<subdomain>.workers.dev/webhooks/clerk`, one
+endpoint per deployed environment; its signing secret is that environment's
+`CLERK_WEBHOOK_SIGNING_SECRET`. Locally, `clerk webhooks listen
+--forward-to http://localhost:8799/webhooks/clerk` relays events and prints a
+secret to paste into `.dev.vars`.
 
 | Name | Status | Secret? | Workers | Local | Deployed | Rotation / notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| `CLERK_SECRET_KEY` | M2 (dashboard auth, scope §2) | **yes** | dashboard | `apps/dashboard/.dev.vars` | `wrangler secret put CLERK_SECRET_KEY --env preview\|prod` from `apps/dashboard` | Clerk dashboard → API keys → roll; the old key keeps working until you revoke it, so set the new one first. Use a separate Clerk *development* instance for local and preview and the *production* instance for prod. |
-| `CLERK_PUBLISHABLE_KEY` | M2 | no (publishable) | dashboard | `apps/dashboard/.dev.vars` | `vars` in `apps/dashboard/wrangler.jsonc` (all three blocks) | Changes only when the Clerk instance changes. |
-| `CLERK_WEBHOOK_SIGNING_SECRET` | M2 (only if the dashboard consumes Clerk webhooks; otherwise delete this row) | **yes** | dashboard | `apps/dashboard/.dev.vars` | `wrangler secret put ... --env preview\|prod` | Clerk → Webhooks → the endpoint's signing secret. |
+| `CLERK_SECRET_KEY` | **now** (#36; required for the first dashboard deploy) | **yes** | dashboard | `apps/dashboard/.dev.vars` (empty ⇒ local auth stub) | `wrangler secret put CLERK_SECRET_KEY --env preview\|prod` from `apps/dashboard` | Clerk dashboard → Configure → API keys → roll; the old key keeps working until you revoke it, so set the new one first. Development instance for local and preview, production instance for prod. |
+| `CLERK_PUBLISHABLE_KEY` | **now** (#36) | no (publishable) | dashboard | `apps/dashboard/.dev.vars` | `vars` in `apps/dashboard/wrangler.jsonc` (`env.preview` and `env.prod`; placeholder `TBD-provision-in-m0` until pasted — `check-provisioning.mjs` lists it) | Changes only when the Clerk instance changes. Public by design, but still never committed from a real `.env`: paste it into the config deliberately. |
+| `CLERK_WEBHOOK_SIGNING_SECRET` | **now** (#36; `POST /webhooks/clerk` answers 503 until set) | **yes** | dashboard | `apps/dashboard/.dev.vars` | `wrangler secret put CLERK_WEBHOOK_SIGNING_SECRET --env preview\|prod` from `apps/dashboard` | Clerk → Configure → Webhooks → the endpoint for `https://proofql-dashboard-<env>.<subdomain>.workers.dev/webhooks/clerk` → Signing secret. One endpoint (and secret) per environment; rotating in Clerk invalidates the old one at once, so set the new secret first, then rotate. |
 | `CREDENTIALS_KEY` | M3 (Google connector; encrypts `connections.credentials`, scope §4) | **yes** | pipeline, api | `.dev.vars` in both (a dev-only value lands in `.dev.vars.example`) | `wrangler secret put CREDENTIALS_KEY --env preview\|prod` from **both** `workers/api` and `workers/pipeline`, same value | 32 random bytes, base64: `openssl rand -base64 32`. AES-256-GCM, one key per environment, **identical across the workers that share the table**. Rotation re-encrypts every `connections.credentials` row; the implementing PR must ship a versioned-key format (e.g. `{"1": "<base64>"}` like well-regarded's `PII_ENCRYPTION_KEYS`) or a re-encrypt script before the first real credential is stored. Losing the key loses every connected Google account (users reconnect). |
 | `GOOGLE_CLIENT_ID` | M3 (Google OAuth client, scope §7.1–2) | no (public identifier) | api (connect flow), pipeline (token refresh while polling) | `.dev.vars` (placeholders; the fake Google server ignores them) | `vars` in both workers' `wrangler.jsonc` | Changes only if the OAuth client is recreated. |
 | `GOOGLE_CLIENT_SECRET` | M3 | **yes** | api, pipeline | `.dev.vars` | `wrangler secret put GOOGLE_CLIENT_SECRET --env preview\|prod` from both workers | Google Cloud console → Credentials → the client → add a new secret, deploy it, then delete the old one. |
@@ -122,9 +137,12 @@ Not in the table on purpose:
 Nothing secret is needed to run `pnpm run setup && pnpm dev` or any test
 level: the compose Postgres credentials (`proofql:proofql@localhost:54323`)
 are local-only and committed in `docker-compose.yml` and the `.env.example`
-files. When a row above goes live, its local value goes into the affected
-worker's `.dev.vars` (never `.env`: see the `.env` vs `.dev.vars` table in
-[`infra/environments.md`](../infra/environments.md)).
+files, and the dashboard runs with its local auth stub until Clerk keys are
+pasted into `apps/dashboard/.dev.vars` (never `.env`: see the `.env` vs
+`.dev.vars` table in [`infra/environments.md`](../infra/environments.md)).
+The Clerk CLI's `clerk init` / `clerk env pull` write `.env.local`; move the
+values into `.dev.vars` and delete that file (`.env.local` is gitignored as
+a backstop).
 
 ## Adding a variable or secret
 
