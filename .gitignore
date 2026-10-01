@@ -9,3 +9,8 @@ coverage/
 # React Router (apps/dashboard): vite build output and generated route types
 build/
 .react-router/
+
+# Framework/CLI env files that must never carry a key into the tree (`clerk
+# init` and `clerk env pull` write `.env.local`).
+.env.local
+.env.*.local

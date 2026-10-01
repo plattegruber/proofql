@@ -1,0 +1,28 @@
+/* Adapted from Well-Regarded's design/design-system/tokens/base.css — element defaults
+   consumers can rely on. The body font shorthand was expanded because the
+   shorthand token was replaced by the @theme type scale (see typography.css
+   in this directory). */
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  color: var(--text-primary);
+  background: var(--surface-page);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--text-link);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+a:hover {
+  color: var(--ink-900);
+}
+
+::selection {
+  background: var(--accent-200);
+}

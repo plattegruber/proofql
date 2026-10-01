@@ -1,4 +1,25 @@
 {
   "extends": "@proofql/tsconfig/react.json",
-  "include": ["src"]
+  "compilerOptions": {
+    // `import.meta.env` (workers/app.ts, root.tsx in dev) and `process.env`
+    // (the @proofql/db test harness in the integration tests).
+    "types": ["vite/client", "node"],
+    // Lets route modules import their generated types as a sibling
+    // (`./+types/<route>`) — react-router typegen writes them under
+    // .react-router/types, and rootDirs overlays that tree onto app/.
+    "rootDirs": [".", "./.react-router/types"],
+    "paths": {
+      "~/*": ["./app/*"]
+    }
+  },
+  "include": [
+    ".react-router/types/**/*",
+    "app/**/*",
+    "test/**/*",
+    "workers/**/*",
+    "worker-configuration.d.ts",
+    "react-router.config.ts",
+    "vite.config.ts",
+    "vitest.config.ts"
+  ]
 }

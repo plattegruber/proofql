@@ -1,13 +1,27 @@
-# Worker runtime vars/secrets for `wrangler dev` in apps/dashboard. Copy to
-# `.dev.vars` (done for you by `pnpm run setup`); `.dev.vars` is gitignored
-# and never committed.
+# Worker runtime vars/secrets for the dashboard dev server in apps/dashboard.
+# Copy to `.dev.vars` (done for you by `pnpm run setup`); `.dev.vars` is
+# gitignored and never committed. Never paste a real key into THIS file.
 #
-# Nothing is required yet: ENVIRONMENT comes from `vars` in wrangler.jsonc and
-# ProofQL has no third-party secrets (embeddings run on Workers AI, no key).
-# The file still exists on purpose: when `.dev.vars` is absent, wrangler loads
-# this directory's `.env` as runtime vars instead, leaking the wrangler-side
-# Hyperdrive connection string into `env`. Add real secrets here as they
-# arrive, one `KEY=value` per line.
+# ENVIRONMENT and API_URL come from `vars` in wrangler.jsonc. The file still
+# exists on purpose: when `.dev.vars` is absent, wrangler loads this
+# directory's `.env` as runtime vars instead, leaking the wrangler-side
+# Hyperdrive connection string into `env`.
 #
-# The inventory of every planned secret (Clerk, Stripe, Google, CREDENTIALS_KEY)
-# and which worker gets it: docs/secrets.md.
+# Clerk (docs/secrets.md; Clerk application app_3K61mygiVkqZZcrltxAu8UpG5kx,
+# development instance). Keys: https://dashboard.clerk.com → the ProofQL
+# application → Configure → API keys; or `clerk env pull` with the Clerk CLI
+# and move the values here.
+#
+# Leave CLERK_SECRET_KEY empty and, because ENVIRONMENT is "local", the app
+# runs with the LOCAL AUTH STUB: every request acts as the seeded demo
+# account (`pnpm seed`), a "Local auth stub" banner shows, and /sign-in
+# redirects straight to /app. Fill both keys to exercise real Clerk sign-in,
+# organizations, and the webhook locally (app/lib/account.server.ts).
+CLERK_PUBLISHABLE_KEY=
+CLERK_SECRET_KEY=
+# Signing secret of the Clerk webhook endpoint that points at
+# <this app's origin>/webhooks/clerk (Clerk dashboard → Webhooks →
+# the endpoint → Signing secret, `whsec_…`). Locally, `clerk webhooks listen
+# --forward-to http://localhost:8799/webhooks/clerk` prints one. Empty ⇒
+# the endpoint answers 503 and nothing else changes.
+CLERK_WEBHOOK_SIGNING_SECRET=

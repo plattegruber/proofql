@@ -2,23 +2,33 @@
 //
 // !! Bindings are NOT inherited across envs — edit all three sections !!
 // Wrangler environments only inherit a small set of top-level keys (main,
-// compatibility_date, etc.). Every KV/Hyperdrive binding below must be
-// repeated in full inside `env.preview` and `env.prod`. If you add, rename,
-// or remove a binding, update the top-level (local) block AND both env blocks.
+// compatibility_date, etc.). Every KV/Hyperdrive binding and every var below
+// must be repeated in full inside `env.preview` and `env.prod`. If you add,
+// rename, or remove one, update the top-level (local) block AND both env
+// blocks.
 //
-// Today `main` is a placeholder fetch handler (src/worker.ts). React Router v7
-// on Workers lands in #36: it swaps `main` for the framework server entry,
-// adds an `assets` block for the client build (`./build/client`), and the dev
-// server becomes Vite via @cloudflare/vite-plugin, which consumes this file —
-// pin the same port in vite.config.ts `server.port` when that happens.
+// React Router v7 wiring (#36): `@cloudflare/vite-plugin` consumes this file.
+// `react-router build` resolves it (honoring $CLOUDFLARE_ENV for env
+// selection), writes the deployable config — including the `assets` block
+// for the client build — to build/server/wrangler.json, and drops a redirect
+// in .wrangler/deploy/config.json so a plain `wrangler deploy` (or
+// `--dry-run`) uses the built artifact. Always build before deploying, and
+// select the environment at BUILD time (`CLOUDFLARE_ENV=preview`); the
+// `--env preview` flag on `wrangler deploy` must then name the same
+// environment (it is accepted, but the bindings come from the build).
+// `pnpm run deploy` chains the two for the local config; the deploy
+// workflow sets CLOUDFLARE_ENV per job.
 //
 // Environment matrix, ports, and binding names: see infra/environments.md.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
 
   "name": "proofql-dashboard-local",
-  "main": "src/worker.ts",
+  // React Router server entry: exports the fetch handler that delegates to
+  // the framework request handler (virtual:react-router/server-build).
+  "main": "./workers/app.ts",
   "compatibility_date": "2026-09-01",
+  // nodejs_compat: Clerk's SDK (@clerk/backend) needs it.
   "compatibility_flags": ["nodejs_compat"],
 
   "observability": {
@@ -26,7 +36,10 @@
     "head_sampling_rate": 1
   },
 
-  // Fixed ports so `pnpm dev` can run every worker side by side.
+  // Fixed ports so `pnpm dev` can run every worker side by side. The
+  // dashboard dev server is Vite, so the port is ALSO pinned in
+  // vite.config.ts (`server.port: 8799`) — this block only covers a raw
+  // `wrangler dev`. Keep the two in sync.
   "dev": {
     "port": 8799,
     "inspector_port": 9241
@@ -37,6 +50,11 @@
     // Browser-visible origin of the api worker (the playground calls it from
     // the browser).
     "API_URL": "http://localhost:8797"
+    // Clerk (docs/secrets.md): locally CLERK_PUBLISHABLE_KEY, CLERK_SECRET_KEY
+    // and CLERK_WEBHOOK_SIGNING_SECRET come from the gitignored `.dev.vars`
+    // (copy `.dev.vars.example`). Leave CLERK_SECRET_KEY empty and the app
+    // runs with the local auth stub against the seeded demo account
+    // (app/lib/account.server.ts).
   },
 
   "kv_namespaces": [
@@ -62,7 +80,11 @@
       "vars": {
         "ENVIRONMENT": "preview",
         // <TBD>: the proofql-api-preview public origin.
-        "API_URL": "TBD-provision-in-m0"
+        "API_URL": "TBD-provision-in-m0",
+        // <TBD>: the Clerk *development* instance's publishable key (public,
+        // `pk_test_…`; docs/secrets.md). The matching CLERK_SECRET_KEY and
+        // CLERK_WEBHOOK_SIGNING_SECRET are wrangler secrets, never vars.
+        "CLERK_PUBLISHABLE_KEY": "TBD-provision-in-m0"
       },
       "kv_namespaces": [
         // <TBD>: id of KV namespace `proofql-cache-preview`.
@@ -78,7 +100,10 @@
       "vars": {
         "ENVIRONMENT": "prod",
         // <TBD>: the proofql-api-prod public origin.
-        "API_URL": "TBD-provision-in-m0"
+        "API_URL": "TBD-provision-in-m0",
+        // <TBD>: the Clerk *production* instance's publishable key
+        // (`pk_live_…`).
+        "CLERK_PUBLISHABLE_KEY": "TBD-provision-in-m0"
       },
       "kv_namespaces": [
         // <TBD>: id of KV namespace `proofql-cache-prod`.

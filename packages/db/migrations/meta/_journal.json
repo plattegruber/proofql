@@ -22,6 +22,13 @@
       "when": 1790861995661,
       "tag": "0003_reviews_index_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790864200504,
+      "tag": "0004_accounts_deleted_at",
+      "breakpoints": true
     }
   ]
 }
