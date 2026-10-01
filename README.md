@@ -39,11 +39,55 @@ The idea comes from [well-regarded](https://github.com/plattegruber/well-regarde
 
 ## Quickstart
 
+Prerequisites:
+
+- **Node 22** — pinned in `.nvmrc` (`nvm use` picks it up).
+- **pnpm 10** — pinned via the `packageManager` field; `corepack enable` makes `pnpm` resolve to the right version automatically.
+- **Docker** (Desktop, or any daemon with compose v2) — runs the local Postgres.
+
 ```sh
 git clone https://github.com/plattegruber/proofql && cd proofql
-corepack enable            # pnpm 10 (pinned in package.json), Node 22 (.nvmrc)
-pnpm i
-pnpm lint && pnpm typecheck && pnpm test
+corepack enable
+pnpm i          # install all workspace dependencies
+pnpm run setup  # copy example env files, start Postgres (docker compose), run migrations
+pnpm dev        # boot every worker side by side (turbo terminal UI — one pane per worker)
 ```
 
-That works today against placeholder workspaces. `pnpm run setup` (local Postgres via docker compose) lands in #11 and `pnpm dev` (wrangler for the workers and dashboard) in #13; the README gains a real quickstart when they do. See [CONTRIBUTING.md](CONTRIBUTING.md) for branches, PRs, and the test split.
+> Note it's `pnpm run setup`, **not** bare `pnpm setup` — the bare form invokes
+> pnpm's own built-in `setup` command (which configures `PNPM_HOME` and edits
+> your shell rc) instead of the repo script. See Troubleshooting.
+
+`pnpm run setup` is idempotent — run it whenever you pull new migrations. It never overwrites an existing `.env` or `.dev.vars`. Migrations and the demo seed run automatically once `@proofql/db` ships them (#15); until then the script says so and skips those steps.
+
+After `pnpm run setup` you have:
+
+| Service | Where | Notes |
+|---|---|---|
+| Postgres 16 + pgvector | `localhost:54323` | `postgres://proofql:proofql@localhost:54323/proofql` (local-only credentials) |
+
+`pnpm dev` (wrangler for the workers and dashboard, fixed ports documented in `infra/environments.md`) lands in #13.
+
+Everyday commands:
+
+```sh
+pnpm build      # build all workspaces
+pnpm test       # run every workspace's Vitest unit suite (no services needed)
+pnpm lint       # biome check per workspace, via turbo
+pnpm typecheck  # tsc --noEmit in every workspace, no build required
+```
+
+Biome replaces ESLint + Prettier; run `pnpm lint:fix` before pushing. See [CONTRIBUTING.md](CONTRIBUTING.md) for branches, PRs, and the test split.
+
+## Troubleshooting
+
+**`pnpm setup` printed pnpm-home instructions / edited my shell rc.** Bare `pnpm setup` is pnpm's built-in command for provisioning `PNPM_HOME` — it shadows the repo's `setup` script and appends a `# pnpm` block to your `~/.zshrc`/`~/.bashrc` (safe to delete). Use `pnpm run setup`.
+
+**`pnpm run setup` fails with "The Docker daemon is not running".** The script checks `docker info` before touching compose. Start Docker Desktop (or your daemon), wait for it to finish booting, and re-run. If instead you see "Docker is not installed", install Docker Desktop first.
+
+**Port 54323 already in use.** Something else grabbed our Postgres port. Find it with `lsof -i :54323`. If it's a stale `proofql-db-1` container from another checkout, `docker compose down` in that checkout (or `docker stop <id>`); otherwise stop the offender or change the port mapping locally in `docker-compose.yml` (and everywhere the canonical connection string appears).
+
+**Schema looks wrong / migrations fail after a destructive schema change.** The named volume outlives `docker compose down`. Wipe and rebuild: `docker compose down -v && pnpm run setup`. (Migrations are append-only — see CONTRIBUTING — so a healthy volume never needs this; it's for local experiments gone sideways.)
+
+**pnpm version mismatch / "This project is configured to use pnpm@…".** The repo pins pnpm via `packageManager`. Run `corepack enable` once so the pinned version is used automatically; if corepack itself is missing, install Node 22 (`nvm use`) which bundles it.
+
+**`wrangler dev` errors about a local Postgres connection string for Hyperdrive, or DB queries fail.** Check Postgres is healthy (`docker compose ps` should say `healthy`) and that the worker's `.env` (not `.dev.vars` — wrangler ignores this var there) contains `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE` with the canonical connection string — `pnpm run setup` creates it from `.env.example`. The suffix after `_STRING_` must exactly match the binding name (`HYPERDRIVE`); a mismatch fails silently.
