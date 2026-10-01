@@ -1,4 +1,10 @@
 {
   "extends": "@proofql/tsconfig/worker.json",
-  "include": ["src"]
+  "compilerOptions": {
+    // `node` alongside the workers types (the shape `wrangler types` emits
+    // for nodejs_compat workers): the integration tests import the
+    // @proofql/db test harness, which reads `process.env.DATABASE_URL`.
+    "types": ["@cloudflare/workers-types", "node"]
+  },
+  "include": ["src", "test", "vitest.config.ts"]
 }
