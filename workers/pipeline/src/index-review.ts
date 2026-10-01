@@ -1,6 +1,6 @@
 /**
- * Index one review: sentiment, then chunks (#23). The embedding stage (#24)
- * slots in after chunking via {@link EmbedChunks}.
+ * Index one review: sentiment, chunks (#23), then embeddings (#24) via
+ * {@link EmbedChunks} — by default `embedChunks` from src/embed-chunks.ts.
  *
  * Sentiment (scope.md §2 "Sentiment gate"): a star rating is the signal when
  * there is one — `sentimentFromRating`, `sentiment_source = 'rating'`. Only
@@ -10,9 +10,9 @@
  * `full` chunk plus sentence windows for longer reviews, every one a
  * verbatim slice — asserted twice before the insert (core's invariant on the
  * chunk list, db's `assertVerbatimSlice` per row, the gate the schema
- * documents). `embedding` is left NULL and `indexed_at` untouched: #24
- * fills both once vectors exist, and the API reports `status: "indexing"`
- * until then.
+ * documents). Chunk rows are inserted with `embedding` NULL; the embedding
+ * stage fills them and sets `indexed_at` once every chunk has a vector, and
+ * the API reports `status: "indexing"` until then.
  *
  * Idempotent by construction: the existing chunks for the review are deleted
  * and the new set inserted in one transaction, so a redelivered message
@@ -21,7 +21,7 @@
  * and `environment`, so a message can never index another tenant's review.
  */
 
-import type { SentimentClassifier } from "@proofql/ai";
+import type { EmbeddingProvider, SentimentClassifier } from "@proofql/ai";
 import {
   assertVerbatimChunks,
   type Chunk,
@@ -33,6 +33,11 @@ import {
 import { assertVerbatimSlice, type Db, schema } from "@proofql/db";
 import { and, eq } from "drizzle-orm";
 
+import type { GenerationKv } from "./cache.js";
+import {
+  type EmbedResult,
+  embedChunks as realEmbedChunks,
+} from "./embed-chunks.js";
 import { log as defaultLog, type Logger } from "./log.js";
 
 const { reviews, reviewChunks } = schema;
@@ -43,20 +48,22 @@ export type SentimentSource = NonNullable<ReviewRow["sentimentSource"]>;
 
 /**
  * The embedding stage (#24): receives the review and the chunk rows just
- * written (with their ids) and is expected to fill `embedding` and set
- * `reviews.indexed_at`. The default does nothing.
+ * written (with their ids), fills `embedding`, and sets `reviews.indexed_at`
+ * once every chunk has a vector. Tests substitute a fake to isolate the
+ * chunking stage; production uses `embedChunks` from src/embed-chunks.ts.
  */
 export type EmbedChunks = (
   ctx: IndexContext,
   input: { review: ReviewRow; chunks: ChunkRow[] },
-) => Promise<void>;
-
-/** TODO(#24): replace with the bge-m3 embedding step. */
-export const noopEmbedChunks: EmbedChunks = async () => {};
+) => Promise<EmbedResult>;
 
 export interface IndexContext {
   db: Db;
   classifier: SentimentClassifier;
+  /** bge-m3 in preview/prod, the deterministic fake locally (`createEmbedder`). */
+  embedder: EmbeddingProvider;
+  /** `env.CACHE`: the project's query-cache generation is bumped on index. */
+  cache: GenerationKv;
   log?: Logger;
   embedChunks?: EmbedChunks;
 }
@@ -69,6 +76,10 @@ export type IndexOutcome =
       reviewId: string;
       chunks: number;
       windows: number;
+      /** Chunks embedded by this run (0 when every chunk already had one). */
+      embedded: number;
+      /** Whether this run flipped `indexed_at` from null to set. */
+      newlyIndexed: boolean;
       sentiment: Sentiment;
       sentimentSource: SentimentSource;
     }
@@ -81,15 +92,15 @@ const UUID_RE =
  * Index the review a message names. Resolves to an outcome for anything
  * that is a property of the review (missing, hidden, empty) — those are
  * logged and acknowledged, since redelivery cannot change them — and
- * rejects on infrastructure failures (database, classifier) so the handler
- * retries.
+ * rejects on infrastructure failures (database, classifier, embedding
+ * provider) so the handler retries.
  */
 export async function indexReview(
   ctx: IndexContext,
   message: IngestMessage,
 ): Promise<IndexOutcome> {
   const log = ctx.log ?? defaultLog;
-  const embedChunks = ctx.embedChunks ?? noopEmbedChunks;
+  const embedChunks = ctx.embedChunks ?? realEmbedChunks;
   const { reviewId, projectId, environment } = message;
 
   const review = await loadReview(ctx.db, message);
@@ -157,15 +168,22 @@ export async function indexReview(
     return { written, updated: updated ?? review };
   });
 
-  await embedChunks(ctx, { review: updated, chunks: written });
+  const embedding = await embedChunks(ctx, {
+    review: updated,
+    chunks: written,
+  });
 
   const windows = written.filter((c) => c.kind === "window").length;
+  // The one line per review: chunking and embedding figures together.
   log("review.indexed", {
     reviewId,
     projectId,
     environment,
     chunks: written.length,
     windows,
+    embedded: embedding.embedded,
+    embeddingMs: embedding.embeddingMs,
+    newlyIndexed: embedding.newlyIndexed,
     sentiment,
     sentimentSource,
   });
@@ -174,6 +192,8 @@ export async function indexReview(
     reviewId,
     chunks: written.length,
     windows,
+    embedded: embedding.embedded,
+    newlyIndexed: embedding.newlyIndexed,
     sentiment,
     sentimentSource,
   };
