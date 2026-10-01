@@ -132,10 +132,17 @@ async function sweepOrphans(maintenance: Maintenance): Promise<void> {
   }
 }
 
-/** The creation epoch a harness database name carries; null when the name
- * does not follow the scheme (treated as old — droppable). */
+/**
+ * The creation epoch a harness database name carries; null when the name
+ * does not follow the scheme (treated as old — droppable). The tail is any
+ * identifier, not just the per-file counter: the fresh-database migration
+ * test names its database `test_<epoch>_<pid>_fresh`, and several
+ * workspaces' integration suites run their globalSetup concurrently under
+ * turbo, so a sweep that misparsed that name would drop a sibling run's
+ * database between its CREATE and its first (lazy) connection.
+ */
 function parseCreatedEpoch(datname: string): number | null {
-  const match = /^test_(\d{10,})_\d+_\d+$/.exec(datname);
+  const match = /^test_(\d{10,})_\d+_[a-z0-9]+$/.exec(datname);
   if (!match?.[1]) return null;
   const epoch = Number(match[1]);
   return Number.isFinite(epoch) ? epoch : null;

@@ -148,9 +148,18 @@ importers:
 
   workers/pipeline:
     dependencies:
+      '@proofql/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@proofql/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@proofql/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      drizzle-orm:
+        specifier: ^0.45.3
+        version: 0.45.3(@cloudflare/workers-types@5.20261001.1)(postgres@3.4.9)
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^5.20260711.1
@@ -158,6 +167,9 @@ importers:
       '@proofql/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
+      '@types/node':
+        specifier: ^26.6.3
+        version: 26.6.3
       typescript:
         specifier: ^5.9.2
         version: 5.9.3

@@ -217,6 +217,11 @@ describe("my feature", () => {
 });
 ```
 
+Other workspaces import the same harness from `@proofql/db/test` (the
+pipeline worker does) and point their Vitest integration project's
+`globalSetup` at `@proofql/db/test/globalSetup`; see
+`workers/pipeline/vitest.config.ts` for the layout.
+
 How it works: `test/globalSetup.ts` builds `proofql_template` once per run
 by running the real migrations (skipped when the stored fingerprint of the
 migrations folder still matches), and `setupTestDb()` clones it with

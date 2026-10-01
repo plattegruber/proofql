@@ -1,4 +1,10 @@
 {
   "extends": "@proofql/tsconfig/worker.json",
-  "include": ["src"]
+  "compilerOptions": {
+    // `node` alongside the Workers types: the integration tests import the
+    // DB harness from `@proofql/db/test`, which is Node-only (fs, crypto,
+    // process). Runtime code under src/ still targets workerd.
+    "types": ["@cloudflare/workers-types", "node"]
+  },
+  "include": ["src", "test", "vitest.config.ts"]
 }
