@@ -1,0 +1,11 @@
+# Deliberate exceptions to the Redocly rules (redocly.yaml), one per entry:
+# review each when touching the spec rather than regenerating the file.
+docs/api/openapi.yaml:
+  # Unauthenticated and bodiless: `GET /health` and the CORS preflight have
+  # no 4xx of their own (an unknown route is a 404 before any operation).
+  operation-4xx-response:
+    - '#/paths/~1health/get/responses'
+    - '#/paths/~1v1~1query/options/responses'
+  # The second server is `wrangler dev` on localhost, on purpose.
+  no-server-example.com:
+    - '#/servers/1/url'

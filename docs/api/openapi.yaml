@@ -1,0 +1,1640 @@
+openapi: 3.1.0
+
+# The public API contract (scope.md §3), and the source of truth for it:
+# `workers/api/src/openapi.contract.integration.test.ts` drives the real
+# worker and validates every response body and header against this file,
+# so a change to the code and a change here land in the same PR or CI goes
+# red. See docs/api/README.md for how to lint and how the tests work.
+
+info:
+  title: ProofQL API
+  version: "1.0.0"
+  summary: Semantic search over a business's reviews, served at the edge.
+  description: |
+    ProofQL turns a business's reviews into a semantically searchable corpus so
+    a website can show the reviews relevant to each page. This document covers
+    the public `/v1` API: pushing reviews in, managing them, and querying them.
+
+    ## Conventions
+
+    - JSON everywhere (`Content-Type: application/json`). Field names are
+      `snake_case`. Timestamps are ISO 8601 / RFC 3339 in UTC. Ids are UUIDs.
+    - Versioned by path prefix (`/v1`).
+    - Every response carries an `x-request-id` header. Quote it in a support
+      request; it is also inside every error envelope as `error.request_id`.
+    - Unknown fields anywhere — body or query string — are a `422
+      validation_failed` naming the field, never silently ignored.
+
+    ## Errors
+
+    Every non-2xx response is one envelope:
+
+    ```json
+    { "error": { "code": "validation_failed", "message": "…", "doc_url": "https://docs.proofql.com/errors#validation_failed",
+                 "request_id": "…", "details": [{ "path": "0.rating", "message": "…" }] } }
+    ```
+
+    `code` is a short, stable string to switch on (the full list is the
+    `ErrorCode` schema); `message` is for a human and may change; `details`
+    is present only for validation failures. A request for a route that does
+    not exist is a `404 not_found` in the same envelope.
+
+    ## Keys
+
+    Two kinds, both per project, both prefixed so a leaked key's blast radius
+    is obvious:
+
+    | Prefix | Kind | Can | Lives |
+    |---|---|---|---|
+    | `pq_sk_live_…` / `pq_sk_test_…` | Secret | Everything: ingest, manage, query | Servers only |
+    | `pq_pk_live_…` / `pq_pk_test_…` | Publishable | `/v1/query` only, CORS-restricted to the project's allowed origins | Browsers, the snippet |
+
+    Send either kind as `Authorization: Bearer <key>`. On `/v1/query` a
+    **publishable** key may instead ride in the URL as `?key=pq_pk_…`; secret
+    keys are never accepted from the URL (URLs land in logs and referrers). A
+    publishable key on a secret-only route is a `403 forbidden`. A test key
+    reads and writes only `test` rows of its project; a live key only `live`
+    rows.
+
+    ## Rate limits
+
+    Every authenticated request is counted against its key: **300 requests
+    per 60 s** for a secret key, **120 per 60 s** for a publishable key. Every
+    authenticated response advertises the limit in `RateLimit-Policy` and
+    `RateLimit-Limit` (IETF draft ratelimit headers); a refused request is a
+    `429 rate_limited` with `Retry-After`. Separately, `/v1/query` is subject
+    to the project's monthly quota of **uncached** queries (free tier:
+    50,000); at the quota a cache miss is a `429 query_quota_exceeded` with
+    `Retry-After` set to the seconds until the next UTC month, while cached
+    answers keep being served.
+
+    ## CORS
+
+    A publishable key is public by design, so the page's origin is what
+    scopes it: a `/v1/query` request with a publishable key must carry an
+    `Origin` header that is in the project's allowed origins, compared as a
+    whole origin (scheme, host, port; no wildcards), or it is a
+    `403 forbidden`. `OPTIONS /v1/query` answers browser preflights. The
+    snippet's form — `GET /v1/query?key=pq_pk_…&q=…` with no custom headers —
+    is a CORS *simple request*, so browsers send it without any preflight.
+  contact:
+    name: ProofQL
+    url: https://proofql.com
+  license:
+    name: Proprietary
+    url: https://proofql.com/terms
+
+servers:
+  - url: https://api.proofql.com
+    description: Production.
+  - url: http://localhost:8797
+    description: Local `wrangler dev` (see infra/environments.md).
+
+tags:
+  - name: Health
+    description: Liveness.
+  - name: Reviews
+    description: |
+      Push reviews in and manage them. Secret key only. Every call is scoped
+      to the key's project and environment; a review in another project or
+      the other environment is a `404`, indistinguishable from one that never
+      existed.
+  - name: Query
+    description: |
+      Hybrid search over a project's publishable reviews. Either key kind.
+      The publication policy (`hidden_at IS NULL`, `rating >= min_rating`,
+      unrated reviews not `negative`) and the relevance floor are applied in
+      the same SQL as the ranking, so a hidden or low-rated review can never
+      appear, however well it matches.
+
+security:
+  - secretKey: []
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Liveness check
+      description: "Always `{ \"ok\": true }` when the worker is up. No authentication."
+      security: []
+      responses:
+        "200":
+          description: The worker is serving requests.
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              examples:
+                ok:
+                  value: { ok: true }
+
+  /v1/reviews:
+    post:
+      tags: [Reviews]
+      operationId: ingestReviews
+      summary: Push one review or a batch
+      description: |
+        The push API. Body is one review object or an array of 1 to 100.
+        Upsert keyed on `(project, environment, source, external_id)`, where
+        project and environment come from the key, never the body:
+
+        - new review → inserted with `status: "indexing"` and queued for the
+          pipeline (chunk, embed, sentiment); queryable within seconds.
+        - existing, `text` changed (or `rating` removed) → updated and
+          re-indexed (`status` back to `"indexing"`).
+        - existing, `text` unchanged → the other fields are updated; `status`
+          is unchanged.
+
+        Repeats of one `(source, external_id)` inside a batch collapse to the
+        last occurrence. The response lists the stored rows in request order.
+
+        The plan's review cap (free: 5,000 per project) is checked before
+        anything is written, so a batch either lands whole or not at all
+        (`422 review_limit_reached`). The request body may be at most 1 MiB
+        (`413 payload_too_large`); 100 maximal reviews fit comfortably.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewIngestBody"
+            examples:
+              single:
+                summary: One review (scope.md §3 "Ingest")
+                value:
+                  external_id: accounts/1/locations/2/reviews/abc
+                  source: google
+                  rating: 5
+                  text: "Dr. Patel did my implant and I honestly forgot it wasn't my own tooth within a week."
+                  author_name: Marcus T.
+                  author_avatar_url: null
+                  occurred_at: "2026-03-14T18:20:00Z"
+                  url: "https://maps.google.com/?cid=123"
+                  language: en
+                  metadata: { location: north }
+              batch:
+                summary: A batch of two
+                value:
+                  - external_id: r-1001
+                    source: custom
+                    rating: 5
+                    text: Painless cleaning, very gentle hygienist.
+                    author_name: Dana K.
+                    occurred_at: "2026-02-01T09:00:00Z"
+                  - external_id: r-1002
+                    source: custom
+                    rating: null
+                    text: Parking behind the building was easy.
+                    author_name: J. Alvarez
+                    occurred_at: "2026-01-15T17:45:00+01:00"
+                    metadata: { location: south }
+      responses:
+        "200":
+          description: |
+            Every review in the request was stored (inserted or updated), in
+            request order. `status` is `indexing` until the pipeline has
+            embedded it, then `indexed`.
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/XRequestId"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestResponse"
+              examples:
+                single:
+                  value:
+                    reviews:
+                      - id: 2f1c9e5a-3b7d-4c1e-9f0a-6d2b8e4a1c3f
+                        external_id: accounts/1/locations/2/reviews/abc
+                        source: google
+                        status: indexing
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "422":
+          $ref: "#/components/responses/IngestUnprocessable"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    get:
+      tags: [Reviews]
+      operationId: listReviews
+      summary: List reviews
+      description: |
+        The key's project and environment, newest first, with the filters the
+        dashboard's review browser needs. Hidden reviews are included by
+        default (`hidden=all`) — this is a management call.
+
+        **Pagination** is keyset, not offset: rows are ordered by
+        `(occurred_at DESC NULLS LAST, id DESC)` and each page carries a
+        `next_cursor` for the position after its last row. Pass it back as
+        `?cursor=` (with the same filters) for the next page; `null` means the
+        last page. The cursor is opaque — its encoding may change — and a
+        tampered or truncated one is a `422 validation_failed`, never a server
+        error. A page is stable while rows are inserted or deleted ahead of it.
+      parameters:
+        - $ref: "#/components/parameters/ListCursor"
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/ListSource"
+        - $ref: "#/components/parameters/ListMinRating"
+        - $ref: "#/components/parameters/ListHidden"
+        - $ref: "#/components/parameters/ListSince"
+        - $ref: "#/components/parameters/ListIndexed"
+      responses:
+        "200":
+          description: One page.
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/XRequestId"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListReviewsResponse"
+              examples:
+                page:
+                  value:
+                    reviews:
+                      - id: 2f1c9e5a-3b7d-4c1e-9f0a-6d2b8e4a1c3f
+                        external_id: accounts/1/locations/2/reviews/abc
+                        source: google
+                        rating: 5
+                        text: "Dr. Patel did my implant and I honestly forgot it wasn't my own tooth within a week."
+                        author_name: Marcus T.
+                        author_avatar_url: null
+                        occurred_at: "2026-03-14T18:20:00.000Z"
+                        url: "https://maps.google.com/?cid=123"
+                        language: en
+                        metadata: { location: north }
+                        sentiment: positive
+                        sentiment_source: rating
+                        hidden: false
+                        status: indexed
+                        created_at: "2026-03-14T18:21:03.412Z"
+                        updated_at: "2026-03-14T18:21:03.412Z"
+                    next_cursor: eyJvIjoiMjAyNi0wMy0xNFQxODoyMDowMC4wMDBaIiwiaSI6IjJmMWM5ZTVhLTNiN2QtNGMxZS05ZjBhLTZkMmI4ZTRhMWMzZiJ9
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/reviews/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ReviewId"
+    get:
+      tags: [Reviews]
+      operationId: getReview
+      summary: Fetch one review
+      responses:
+        "200":
+          description: The review.
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/XRequestId"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewResource"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    patch:
+      tags: [Reviews]
+      operationId: updateReview
+      summary: Hide, unhide, or replace metadata
+      description: |
+        `hidden: true` removes the review from every query result (sets
+        `hidden_at`); `hidden: false` restores it. `metadata` **replaces** the
+        whole map. At least one of the two must be present. A body that
+        already describes the row changes nothing (no `updated_at` churn).
+        Any change purges the project's query cache. Body limit 64 KiB
+        (`413 payload_too_large`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewPatch"
+            examples:
+              hide:
+                value: { hidden: true }
+              metadata:
+                value: { metadata: { location: north, campaign: spring } }
+      responses:
+        "200":
+          description: The review after the change.
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/XRequestId"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewResource"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      tags: [Reviews]
+      operationId: deleteReview
+      summary: Delete a review
+      description: |
+        Removes the review and its excerpts and purges the project's query
+        cache. Not idempotent at the HTTP level: a second call is a `404`.
+      responses:
+        "204":
+          description: Deleted. No body.
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/XRequestId"
+            RateLimit-Policy:
+              $ref: "#/components/headers/RateLimitPolicy"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/query:
+    get:
+      tags: [Query]
+      operationId: queryReviewsGet
+      summary: Search (GET — the snippet's path)
+      description: |
+        **This is the form the snippet uses**, and the one to use from a
+        browser: `GET /v1/query?key=pq_pk_…&q=…` with no custom headers is a
+        CORS *simple request*, so the browser sends it with no preflight, and
+        responses are cacheable at the edge. The same request shape as
+        `POST /v1/query`, mapped onto query parameters:
+
+        | parameter | body field |
+        |---|---|
+        | `q` | `q` |
+        | `limit` | `limit` |
+        | `mode` | `mode` |
+        | `min_rating` | `filters.min_rating` |
+        | `source` (repeatable, or comma-separated) | `filters.source` |
+        | `since` | `filters.since` |
+        | `metadata.<key>` (one per key, e.g. `metadata.location=north`) | `filters.metadata.<key>` |
+        | `key` | authentication (publishable keys only), not part of the shape |
+
+        Any other parameter, or `q`/`limit`/`mode`/`min_rating`/`since` given
+        twice, is a `422 validation_failed`.
+
+        See `POST /v1/query` for the semantics of `q`, the relevance floor,
+        policy, `score`, `badge`, `cached`, and the cache.
+      security:
+        - secretKey: []
+        - publishableKey: []
+        - publishableKeyQuery: []
+      parameters:
+        - $ref: "#/components/parameters/QueryKey"
+        - $ref: "#/components/parameters/QueryQ"
+        - $ref: "#/components/parameters/QueryLimit"
+        - $ref: "#/components/parameters/QueryMode"
+        - $ref: "#/components/parameters/QueryMinRating"
+        - $ref: "#/components/parameters/QuerySource"
+        - $ref: "#/components/parameters/QuerySince"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CacheControl"
+      responses:
+        "200":
+          $ref: "#/components/responses/QueryOk"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/QueryForbidden"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "429":
+          $ref: "#/components/responses/QueryRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/EmbeddingUnavailable"
+
+    post:
+      tags: [Query]
+      operationId: queryReviews
+      summary: Search (POST)
+      description: |
+        Hybrid search over the project's publishable reviews. Either key kind;
+        a publishable key must also come from a listed `Origin` (see CORS in
+        the introduction). From a server, use a secret key.
+
+        - **`q` optional.** Without it, results are the newest publishable
+          reviews and every `score` is `null`. With it, hybrid search: the
+          query is embedded at the edge (same model as the reviews), exact
+          cosine over the project's excerpt vectors is fused with a full-text
+          rank, and candidates below the project's **relevance floor**
+          (`similarity_floor`, default 0.55 cosine, tunable per project) are
+          dropped. The endpoint returns `results: []` rather than padding —
+          empty beats irrelevant. Full-text-only hits with no vector
+          proximity above the floor are dropped too.
+        - **Policy** is applied in the same SQL as the ranking: hidden
+          reviews, reviews rated below the project's `min_rating` (default 4),
+          and unrated reviews classified `negative` never appear. A request's
+          `filters.min_rating` can only tighten the project's policy
+          (`max(project.min_rating, filters.min_rating)`), never loosen it.
+        - **`mode`**: `excerpts` (default) returns the best-matching slice of
+          each review, ideal for placement; `reviews` returns whole reviews,
+          one per review, scored by the best excerpt, with `review.text`
+          present.
+        - **`score`** is the cosine similarity between the query and the
+          returned excerpt, in `[0, 1]`, already at or above the project's
+          floor, and comparable across queries. It is *not* the fused rank the
+          results are ordered by, so it may be non-monotone when the full-text
+          branch promoted a row. `null` without `q`.
+        - **`excerpt`** is always a verbatim slice of the review's text:
+          nothing generates text.
+        - **`badge`** mirrors the project's plan: `true` means the snippet
+          must render the "Reviews by ProofQL" badge (free tier).
+        - **Cache.** Results are cached in KV, keyed on project, environment,
+          the normalized request, and the policy, and purged when a review is
+          indexed, hidden, unhidden, edited, or deleted, or the policy
+          changes. `cached: true` and `x-cache: HIT` mean `results` came from
+          the cache (`took_ms` is still this request's time). Send
+          `Cache-Control: no-cache` to bypass the lookup (`x-cache: BYPASS`;
+          the fresh result is still stored). Cached answers are free against
+          the monthly quota and are served even at quota.
+        - If the embedding service is unavailable the response is
+          `503 embedding_unavailable` — deliberately not a degraded
+          full-text-only answer, which is exactly what the floor exists to
+          prevent. Retry shortly.
+      security:
+        - secretKey: []
+        - publishableKey: []
+        - publishableKeyQuery: []
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/CacheControl"
+      requestBody:
+        required: false
+        description: |
+          Optional: an empty body is the same as `{}` (newest publishable
+          reviews). `filters` accepts metadata either nested
+          (`"metadata": { "location": "north" }`) or flat
+          (`"metadata.location": "north"`); the two are merged.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueryRequest"
+            examples:
+              scope:
+                summary: The scope document's example (flat metadata spelling)
+                value:
+                  q: dental implants
+                  limit: 5
+                  mode: excerpts
+                  filters:
+                    min_rating: 4
+                    source: [google]
+                    metadata.location: north
+                    since: "2025-01-01"
+              nested:
+                summary: Nested metadata, whole reviews
+                value:
+                  q: gentle hygienist
+                  limit: 3
+                  mode: reviews
+                  filters:
+                    metadata: { location: south }
+              newest:
+                summary: No `q` — the newest publishable reviews
+                value:
+                  limit: 3
+      responses:
+        "200":
+          $ref: "#/components/responses/QueryOk"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/QueryForbidden"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "429":
+          $ref: "#/components/responses/QueryRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/EmbeddingUnavailable"
+
+    options:
+      tags: [Query]
+      operationId: queryReviewsPreflight
+      summary: CORS preflight
+      description: |
+        Browsers send this before a `POST` or a `GET` with custom headers. It
+        runs without authentication but echoes `Access-Control-Allow-Origin`
+        only when the key it can see — `?key=` (what the snippet's URL
+        carries; browsers strip `Authorization` from preflights) or, for
+        non-browser clients, the `Authorization` header — belongs to a
+        project that lists the `Origin` (secret keys echo any origin). With
+        no resolvable key or an unlisted origin the preflight still succeeds
+        with no allow-origin header, and the browser blocks the real request
+        itself. Not needed for the snippet's simple `GET`.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/QueryKey"
+        - $ref: "#/components/parameters/Origin"
+      responses:
+        "204":
+          description: Preflight answered. No body.
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/XRequestId"
+            Vary:
+              $ref: "#/components/headers/Vary"
+            Access-Control-Allow-Origin:
+              $ref: "#/components/headers/AccessControlAllowOrigin"
+            Access-Control-Allow-Methods:
+              required: true
+              schema:
+                type: string
+                const: "GET, POST, OPTIONS"
+            Access-Control-Allow-Headers:
+              required: true
+              description: "`Cache-Control` so a page can send `no-cache` to bypass the result cache."
+              schema:
+                type: string
+                const: "Authorization, Cache-Control, Content-Type"
+            Access-Control-Max-Age:
+              required: true
+              schema:
+                type: string
+                const: "600"
+
+components:
+  securitySchemes:
+    secretKey:
+      type: http
+      scheme: bearer
+      bearerFormat: pq_sk_{live|test}_<32 base62 chars>
+      description: |
+        A secret key, `Authorization: Bearer pq_sk_live_…`. Servers only.
+        Grants everything: ingest, manage, query.
+    publishableKey:
+      type: http
+      scheme: bearer
+      bearerFormat: pq_pk_{live|test}_<32 base62 chars>
+      description: |
+        A publishable key in the `Authorization` header. Query only; the
+        request must carry an `Origin` from the project's allowed origins.
+    publishableKeyQuery:
+      type: apiKey
+      in: query
+      name: key
+      description: |
+        A publishable key in the URL (`?key=pq_pk_live_…`) — the snippet's
+        form, so the browser's `GET` needs no custom header and no preflight.
+        `/v1/query` only. A secret key here is a `401`. The `Authorization`
+        header wins when both are present.
+
+  parameters:
+    ReviewId:
+      name: id
+      in: path
+      required: true
+      description: The review's id. A value that is not a UUID is a `404`.
+      schema:
+        type: string
+        format: uuid
+      example: 2f1c9e5a-3b7d-4c1e-9f0a-6d2b8e4a1c3f
+
+    ListCursor:
+      name: cursor
+      in: query
+      description: "`next_cursor` from the previous page. Opaque; invalid → `422`."
+      schema:
+        type: string
+        minLength: 1
+        pattern: "^[A-Za-z0-9_-]+$"
+    ListLimit:
+      name: limit
+      in: query
+      description: Page size.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      example: 20
+    ListSource:
+      name: source
+      in: query
+      schema:
+        $ref: "#/components/schemas/ReviewSource"
+    ListMinRating:
+      name: min_rating
+      in: query
+      description: "`rating >= min_rating`. Unrated reviews are excluded when set."
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 5
+      example: 4
+    ListHidden:
+      name: hidden
+      in: query
+      description: "`true` only hidden, `false` only visible, `all` (default) both."
+      schema:
+        type: string
+        enum: ["true", "false", "all"]
+        default: all
+    ListSince:
+      name: since
+      in: query
+      description: "`occurred_at >= since`; a full ISO 8601 datetime or a bare `YYYY-MM-DD`."
+      schema:
+        $ref: "#/components/schemas/DateOrDateTime"
+      example: "2025-01-01"
+    ListIndexed:
+      name: indexed
+      in: query
+      description: "`true` only indexed (queryable) reviews, `false` only those still indexing."
+      schema:
+        type: string
+        enum: ["true", "false"]
+
+    QueryKey:
+      name: key
+      in: query
+      description: |
+        A **publishable** key, as an alternative to the `Authorization`
+        header (see the `publishableKeyQuery` security scheme). Not part of
+        the request shape.
+      schema:
+        type: string
+        pattern: "^pq_pk_(live|test)_[0-9A-Za-z]{32}$"
+    QueryQ:
+      name: q
+      in: query
+      description: The search text. Omit for the newest publishable reviews.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 500
+      example: dental implants
+    QueryLimit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 20
+        default: 5
+      example: 3
+    QueryMode:
+      name: mode
+      in: query
+      schema:
+        $ref: "#/components/schemas/QueryMode"
+    QueryMinRating:
+      name: min_rating
+      in: query
+      description: Tightens the project's `min_rating` for this request; cannot loosen it.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 5
+      example: 4
+    QuerySource:
+      name: source
+      in: query
+      description: Repeat the parameter or comma-separate values; at most 20.
+      style: form
+      explode: true
+      schema:
+        type: array
+        maxItems: 20
+        items:
+          type: string
+          minLength: 1
+          maxLength: 64
+      example: [google, yelp]
+    QuerySince:
+      name: since
+      in: query
+      description: "`occurred_at >= since`; `YYYY-MM-DD` or a full ISO 8601 timestamp."
+      schema:
+        $ref: "#/components/schemas/DateOrDateTime"
+      example: "2025-01-01"
+
+    Origin:
+      name: Origin
+      in: header
+      description: |
+        Set by the browser. **Required with a publishable key** and must be
+        one of the project's allowed origins (exact scheme, host, and port),
+        else `403 forbidden`. Ignored for secret keys (echoed if present).
+      schema:
+        type: string
+        format: uri
+      example: https://shop.example
+    CacheControl:
+      name: Cache-Control
+      in: header
+      description: "`no-cache` skips the result-cache lookup (the response says `x-cache: BYPASS`). Costs one uncached query."
+      schema:
+        type: string
+      example: no-cache
+
+  headers:
+    XRequestId:
+      description: |
+        This request's id, on every response. Reuses the caller's
+        `x-request-id` when sent (up to 128 chars), else Cloudflare's ray id,
+        else a fresh UUID. Also inside every error envelope.
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    RateLimitPolicy:
+      description: |
+        The key's rate-limit policy as `<limit>;w=<window seconds>` (IETF
+        draft ratelimit headers), e.g. `300;w=60` for a secret key,
+        `120;w=60` for a publishable key. Present once the key is known.
+      required: true
+      schema:
+        type: string
+        pattern: "^[0-9]+;w=[0-9]+$"
+    RateLimitLimit:
+      description: The request limit per window for this key's kind.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    RetryAfter:
+      description: |
+        Whole seconds to wait. For `rate_limited`, until the current window
+        ends; for `query_quota_exceeded`, until the next UTC month begins.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    XCache:
+      description: |
+        Whether `results` came from the KV cache: `HIT` (served from cache,
+        `cached: true`), `MISS` (computed and stored), or `BYPASS` (the request
+        sent `Cache-Control: no-cache`; computed and stored).
+      required: true
+      schema:
+        type: string
+        enum: [HIT, MISS, BYPASS]
+    Vary:
+      description: Always `Origin` on `/v1/query`, so a shared cache never serves one origin's CORS headers to another.
+      required: true
+      schema:
+        type: string
+        const: Origin
+    AccessControlAllowOrigin:
+      description: |
+        The request's `Origin`, echoed when a publishable key's project lists
+        it or when the key is secret. Absent otherwise (the browser then
+        blocks the response).
+      required: false
+      schema:
+        type: string
+
+  responses:
+    QueryOk:
+      description: |
+        The matches in rank order — possibly none: below-floor candidates are
+        dropped, never padded.
+      headers:
+        x-request-id:
+          $ref: "#/components/headers/XRequestId"
+        RateLimit-Policy:
+          $ref: "#/components/headers/RateLimitPolicy"
+        RateLimit-Limit:
+          $ref: "#/components/headers/RateLimitLimit"
+        x-cache:
+          $ref: "#/components/headers/XCache"
+        Vary:
+          $ref: "#/components/headers/Vary"
+        Access-Control-Allow-Origin:
+          $ref: "#/components/headers/AccessControlAllowOrigin"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/QueryResponse"
+          examples:
+            excerpts:
+              summary: "`mode=excerpts` for `q=dental implants`"
+              value:
+                results:
+                  - score: 0.83
+                    excerpt: "Dr. Patel did my implant and I honestly forgot it wasn't my own tooth within a week."
+                    excerpt_id: 7c2e4b9a-1d3f-4a5b-8c6d-0e9f1a2b3c4d
+                    review:
+                      id: 2f1c9e5a-3b7d-4c1e-9f0a-6d2b8e4a1c3f
+                      rating: 5
+                      author_name: Marcus T.
+                      author_avatar_url: null
+                      source: google
+                      occurred_at: "2026-03-14T18:20:00.000Z"
+                      url: "https://maps.google.com/?cid=123"
+                      metadata: { location: north }
+                took_ms: 12
+                cached: false
+                badge: true
+            empty:
+              summary: Nothing above the floor
+              value:
+                results: []
+                took_ms: 9
+                cached: false
+                badge: true
+
+    Unauthorized:
+      description: |
+        `unauthorized`: no `Authorization` header (and no `?key=` where that
+        is allowed), a header that is not `Bearer <key>`, a key that does not
+        look like `pq_(sk|pk)_(live|test)_…`, a secret key in the URL, or an
+        unknown or revoked key. Rate-limit headers are absent (the key was not
+        resolved).
+      headers:
+        x-request-id:
+          $ref: "#/components/headers/XRequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/UnauthorizedError"
+          examples:
+            missing:
+              value:
+                error:
+                  code: unauthorized
+                  message: "Missing Authorization header. Send `Authorization: Bearer <api key>`."
+                  doc_url: https://docs.proofql.com/errors#unauthorized
+                  request_id: 1b7c3d9e-2f4a-4b6c-8d0e-1f2a3b4c5d6e
+
+    Forbidden:
+      description: |
+        `forbidden`: a publishable key (`pq_pk_…`) on a route that requires a
+        secret key. Decided before the key is looked up, so rate-limit
+        headers are absent.
+      headers:
+        x-request-id:
+          $ref: "#/components/headers/XRequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ForbiddenError"
+
+    QueryForbidden:
+      description: |
+        `forbidden`: a publishable key with no `Origin` header, or with an
+        `Origin` that is not in the project's allowed origins. The message
+        names the origin and where to add it. (A publishable key never gets
+        a 403 for the key kind here — both kinds may query.)
+      headers:
+        x-request-id:
+          $ref: "#/components/headers/XRequestId"
+        RateLimit-Policy:
+          $ref: "#/components/headers/RateLimitPolicy"
+        RateLimit-Limit:
+          $ref: "#/components/headers/RateLimitLimit"
+        Vary:
+          $ref: "#/components/headers/Vary"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ForbiddenError"
+
+    NotFound:
+      description: |
+        `not_found`: no review with this id in the key's project and
+        environment (another project's or environment's review looks the
+        same as a nonexistent one), or an id that is not a UUID.
+      headers:
+        x-request-id:
+          $ref: "#/components/headers/XRequestId"
+        RateLimit-Policy:
+          $ref: "#/components/headers/RateLimitPolicy"
+        RateLimit-Limit:
+          $ref: "#/components/headers/RateLimitLimit"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/NotFoundError"
+
+    PayloadTooLarge:
+      description: |
+        `payload_too_large`: the body exceeds the route's limit (1 MiB for
+        `POST /v1/reviews`, 64 KiB for `PATCH`). Checked before
+        authentication, so rate-limit headers are absent.
+      headers:
+        x-request-id:
+          $ref: "#/components/headers/XRequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/PayloadTooLargeError"
+
+    ValidationFailed:
+      description: |
+        `validation_failed`: the body or query string is not valid JSON, does
+        not match the schema, or carries an unknown field. `details` lists
+        every issue with a dotted `path` (`"0.rating"`, `"filters.limt"`;
+        `""` or `"(body)"` for the body as a whole).
+      headers:
+        x-request-id:
+          $ref: "#/components/headers/XRequestId"
+        RateLimit-Policy:
+          $ref: "#/components/headers/RateLimitPolicy"
+        RateLimit-Limit:
+          $ref: "#/components/headers/RateLimitLimit"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ValidationError"
+          examples:
+            unknownField:
+              value:
+                error:
+                  code: validation_failed
+                  message: "Invalid request: limt is not a recognized field."
+                  doc_url: https://docs.proofql.com/errors#validation_failed
+                  request_id: 1b7c3d9e-2f4a-4b6c-8d0e-1f2a3b4c5d6e
+                  details:
+                    - path: limt
+                      message: is not a recognized field
+
+    IngestUnprocessable:
+      description: |
+        `validation_failed` (see the other routes), or `review_limit_reached`:
+        the batch would push the project past its plan's review cap. Nothing
+        was written; the message says how many remain.
+      headers:
+        x-request-id:
+          $ref: "#/components/headers/XRequestId"
+        RateLimit-Policy:
+          $ref: "#/components/headers/RateLimitPolicy"
+        RateLimit-Limit:
+          $ref: "#/components/headers/RateLimitLimit"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/IngestUnprocessableError"
+
+    RateLimited:
+      description: "`rate_limited`: over this key's per-minute limit. Wait `Retry-After` seconds."
+      headers:
+        x-request-id:
+          $ref: "#/components/headers/XRequestId"
+        RateLimit-Policy:
+          $ref: "#/components/headers/RateLimitPolicy"
+        RateLimit-Limit:
+          $ref: "#/components/headers/RateLimitLimit"
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/RateLimitedError"
+
+    QueryRateLimited:
+      description: |
+        `rate_limited` (over the key's per-minute limit; `Retry-After` is
+        seconds to the window end) or `query_quota_exceeded` (the project is
+        at its monthly quota of uncached queries; `Retry-After` is seconds to
+        the next UTC month). Cached answers are still served at quota.
+      headers:
+        x-request-id:
+          $ref: "#/components/headers/XRequestId"
+        RateLimit-Policy:
+          $ref: "#/components/headers/RateLimitPolicy"
+        RateLimit-Limit:
+          $ref: "#/components/headers/RateLimitLimit"
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/QueryRateLimitedError"
+
+    EmbeddingUnavailable:
+      description: "`embedding_unavailable`: `q` could not be embedded. Retryable; never a degraded full-text-only answer."
+      headers:
+        x-request-id:
+          $ref: "#/components/headers/XRequestId"
+        RateLimit-Policy:
+          $ref: "#/components/headers/RateLimitPolicy"
+        RateLimit-Limit:
+          $ref: "#/components/headers/RateLimitLimit"
+        Vary:
+          $ref: "#/components/headers/Vary"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/EmbeddingUnavailableError"
+
+    InternalError:
+      description: "`internal`: something unexpected. The message carries the request id and nothing about the cause."
+      headers:
+        x-request-id:
+          $ref: "#/components/headers/XRequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/InternalError"
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [ok]
+      additionalProperties: false
+      properties:
+        ok:
+          type: boolean
+          const: true
+
+    ErrorCode:
+      type: string
+      description: |
+        Stable error codes. Status by code: `unauthorized` 401, `forbidden`
+        403, `not_found` 404, `payload_too_large` 413, `validation_failed`
+        422, `review_limit_reached` 422, `rate_limited` 429,
+        `query_quota_exceeded` 429, `internal` 500, `embedding_unavailable`
+        503.
+      enum:
+        - unauthorized
+        - forbidden
+        - validation_failed
+        - review_limit_reached
+        - not_found
+        - payload_too_large
+        - rate_limited
+        - embedding_unavailable
+        - query_quota_exceeded
+        - internal
+
+    ValidationIssue:
+      type: object
+      required: [path, message]
+      additionalProperties: false
+      properties:
+        path:
+          type: string
+          description: "Dotted path to the offending field (`\"0.rating\"`, `\"filters.since\"`); `\"\"` or `\"(body)\"` for the whole body."
+        message:
+          type: string
+
+    ErrorEnvelope:
+      type: object
+      description: The one shape every non-2xx response has.
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required: [code, message, doc_url, request_id]
+          additionalProperties: false
+          properties:
+            code:
+              $ref: "#/components/schemas/ErrorCode"
+            message:
+              type: string
+              description: For humans; may change between releases. Switch on `code`.
+            doc_url:
+              type: string
+              format: uri
+              description: "`https://docs.proofql.com/errors#<code>`."
+            request_id:
+              type: string
+              description: Same value as the `x-request-id` header.
+            details:
+              type: array
+              description: Present for `validation_failed` only.
+              items:
+                $ref: "#/components/schemas/ValidationIssue"
+
+    # Per-status narrowings of the envelope: the contract tests check that a
+    # 401 really says `unauthorized`, and so on.
+    UnauthorizedError:
+      allOf:
+        - $ref: "#/components/schemas/ErrorEnvelope"
+        - $ref: "#/components/schemas/_CodeUnauthorized"
+    ForbiddenError:
+      allOf:
+        - $ref: "#/components/schemas/ErrorEnvelope"
+        - $ref: "#/components/schemas/_CodeForbidden"
+    NotFoundError:
+      allOf:
+        - $ref: "#/components/schemas/ErrorEnvelope"
+        - $ref: "#/components/schemas/_CodeNotFound"
+    PayloadTooLargeError:
+      allOf:
+        - $ref: "#/components/schemas/ErrorEnvelope"
+        - $ref: "#/components/schemas/_CodePayloadTooLarge"
+    ValidationError:
+      allOf:
+        - $ref: "#/components/schemas/ErrorEnvelope"
+        - $ref: "#/components/schemas/_CodeValidationFailed"
+    IngestUnprocessableError:
+      allOf:
+        - $ref: "#/components/schemas/ErrorEnvelope"
+        - $ref: "#/components/schemas/_CodeIngestUnprocessable"
+    RateLimitedError:
+      allOf:
+        - $ref: "#/components/schemas/ErrorEnvelope"
+        - $ref: "#/components/schemas/_CodeRateLimited"
+    QueryRateLimitedError:
+      allOf:
+        - $ref: "#/components/schemas/ErrorEnvelope"
+        - $ref: "#/components/schemas/_CodeQueryRateLimited"
+    EmbeddingUnavailableError:
+      allOf:
+        - $ref: "#/components/schemas/ErrorEnvelope"
+        - $ref: "#/components/schemas/_CodeEmbeddingUnavailable"
+    InternalError:
+      allOf:
+        - $ref: "#/components/schemas/ErrorEnvelope"
+        - $ref: "#/components/schemas/_CodeInternal"
+
+    _CodeUnauthorized:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { const: unauthorized }
+    _CodeForbidden:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { const: forbidden }
+    _CodeNotFound:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { const: not_found }
+    _CodePayloadTooLarge:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { const: payload_too_large }
+    _CodeValidationFailed:
+      type: object
+      properties:
+        error:
+          type: object
+          required: [details]
+          properties:
+            code: { const: validation_failed }
+            details: { type: array }
+    _CodeIngestUnprocessable:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { enum: [validation_failed, review_limit_reached] }
+    _CodeRateLimited:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { const: rate_limited }
+    _CodeQueryRateLimited:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { enum: [rate_limited, query_quota_exceeded] }
+    _CodeEmbeddingUnavailable:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { const: embedding_unavailable }
+    _CodeInternal:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { const: internal }
+
+    ReviewSource:
+      type: string
+      description: "Where the review came from. `custom` is the escape hatch for anything not listed."
+      enum: [google, yelp, facebook, trustpilot, custom]
+
+    ReviewStatus:
+      type: string
+      description: "`indexing` until the pipeline has embedded the review (seconds), then `indexed` and queryable."
+      enum: [indexing, indexed]
+
+    Sentiment:
+      type: string
+      enum: [positive, neutral, negative]
+
+    SentimentSource:
+      type: string
+      description: "`rating` when derived from the star rating (5–4 positive, 3 neutral, 2–1 negative), `model` when classified for an unrated review."
+      enum: [rating, model]
+
+    QueryMode:
+      type: string
+      description: "`excerpts`: the best-matching slice per review. `reviews`: whole reviews, with `review.text`."
+      enum: [excerpts, reviews]
+      default: excerpts
+
+    DateOrDateTime:
+      type: string
+      description: "`YYYY-MM-DD` (midnight UTC) or a full ISO 8601 timestamp with `Z` or offset."
+      anyOf:
+        - format: date
+        - format: date-time
+      examples: ["2025-01-01", "2025-01-01T00:00:00Z"]
+
+    Metadata:
+      type: object
+      description: |
+        Flat string-to-string map the customer can filter on at query time.
+        At most 32 entries; keys 1–64 characters, values up to 512. Nested
+        objects, arrays, numbers, and booleans are rejected, not coerced.
+      maxProperties: 32
+      propertyNames:
+        minLength: 1
+        maxLength: 64
+      additionalProperties:
+        type: string
+        maxLength: 512
+
+    ReviewInput:
+      type: object
+      description: One review as the push API accepts it. Unknown keys are rejected.
+      required: [external_id, source, text, author_name, occurred_at]
+      additionalProperties: false
+      properties:
+        external_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: The source's own id for the review; the upsert key together with `source`.
+        source:
+          $ref: "#/components/schemas/ReviewSource"
+        rating:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 5
+          default: null
+          description: Stars. `null` or omitted for sources without stars; sentiment is then classified at ingest.
+        text:
+          type: string
+          minLength: 1
+          maxLength: 20000
+          description: The review text, verbatim. Trimmed; must be non-empty afterwards.
+        author_name:
+          type: string
+          minLength: 1
+          maxLength: 256
+        author_avatar_url:
+          type: [string, "null"]
+          format: uri
+          default: null
+        occurred_at:
+          type: string
+          format: date-time
+          description: When the review was written. A full timestamp with `Z` or offset; a bare date is not enough to order reviews.
+        url:
+          type: [string, "null"]
+          format: uri
+          default: null
+          description: Where the review lives at the source.
+        language:
+          type: string
+          minLength: 2
+          maxLength: 35
+          description: BCP 47 tag, e.g. `en`, `pt-BR`.
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+
+    ReviewIngestBody:
+      description: One review, or an array of 1 to 100.
+      oneOf:
+        - $ref: "#/components/schemas/ReviewInput"
+        - type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/ReviewInput"
+
+    IngestedReview:
+      type: object
+      required: [id, external_id, source, status]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        external_id:
+          type: string
+        source:
+          $ref: "#/components/schemas/ReviewSource"
+        status:
+          $ref: "#/components/schemas/ReviewStatus"
+
+    IngestResponse:
+      type: object
+      required: [reviews]
+      additionalProperties: false
+      properties:
+        reviews:
+          type: array
+          description: One entry per review in the request, in request order.
+          items:
+            $ref: "#/components/schemas/IngestedReview"
+
+    ReviewResource:
+      type: object
+      description: A stored review, as the management routes return it.
+      required:
+        - id
+        - external_id
+        - source
+        - rating
+        - text
+        - author_name
+        - author_avatar_url
+        - occurred_at
+        - url
+        - language
+        - metadata
+        - sentiment
+        - sentiment_source
+        - hidden
+        - status
+        - created_at
+        - updated_at
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        external_id:
+          type: string
+        source:
+          $ref: "#/components/schemas/ReviewSource"
+        rating:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 5
+        text:
+          type: string
+        author_name:
+          type: [string, "null"]
+        author_avatar_url:
+          type: [string, "null"]
+        occurred_at:
+          type: [string, "null"]
+          format: date-time
+        url:
+          type: [string, "null"]
+        language:
+          type: [string, "null"]
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        sentiment:
+          oneOf:
+            - $ref: "#/components/schemas/Sentiment"
+            - type: "null"
+          description: "`null` for an unrated review the pipeline has not classified yet."
+        sentiment_source:
+          oneOf:
+            - $ref: "#/components/schemas/SentimentSource"
+            - type: "null"
+        hidden:
+          type: boolean
+          description: Hidden reviews never appear in query results.
+        status:
+          $ref: "#/components/schemas/ReviewStatus"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ListReviewsResponse:
+      type: object
+      required: [reviews, next_cursor]
+      additionalProperties: false
+      properties:
+        reviews:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewResource"
+        next_cursor:
+          type: [string, "null"]
+          description: Pass back as `?cursor=` for the next page; `null` on the last page.
+
+    ReviewPatch:
+      type: object
+      description: At least one of `hidden`, `metadata`.
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        hidden:
+          type: boolean
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+
+    QueryFilters:
+      type: object
+      description: |
+        Narrow the candidates. `metadata` may be nested
+        (`"metadata": { "location": "north" }`) or flat
+        (`"metadata.location": "north"`); both are accepted and merged.
+      additionalProperties: false
+      properties:
+        min_rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: Tightens the project's `min_rating` for this request; cannot loosen it.
+        source:
+          description: One source or a list of up to 20.
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 64
+            - type: array
+              maxItems: 20
+              items:
+                type: string
+                minLength: 1
+                maxLength: 64
+        since:
+          $ref: "#/components/schemas/DateOrDateTime"
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+      patternProperties:
+        "^metadata\\.[^.]+$":
+          type: string
+          maxLength: 512
+          description: "The flat spelling of one metadata filter, e.g. `\"metadata.location\": \"north\"`."
+
+    QueryRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        q:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: The search text. Omit for the newest publishable reviews (every `score` is then `null`).
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 20
+          default: 5
+        mode:
+          $ref: "#/components/schemas/QueryMode"
+        filters:
+          $ref: "#/components/schemas/QueryFilters"
+
+    QueryResultReview:
+      type: object
+      required: [id, rating, author_name, author_avatar_url, source, occurred_at, url, metadata]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        rating:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 5
+        author_name:
+          type: [string, "null"]
+        author_avatar_url:
+          type: [string, "null"]
+        source:
+          $ref: "#/components/schemas/ReviewSource"
+        occurred_at:
+          type: [string, "null"]
+          format: date-time
+        url:
+          type: [string, "null"]
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        text:
+          type: string
+          description: The whole review text. Present in `mode=reviews` only.
+
+    QueryResult:
+      type: object
+      required: [score, excerpt, excerpt_id, review]
+      additionalProperties: false
+      properties:
+        score:
+          type: [number, "null"]
+          minimum: 0
+          maximum: 1
+          description: |
+            Cosine similarity between the query and this excerpt, in
+            `[0, 1]`, already at or above the project's relevance floor
+            (default 0.55), and comparable across queries. Not the fused rank
+            the results are ordered by, so it may be non-monotone down the
+            list. `null` when the request had no `q`.
+        excerpt:
+          type: string
+          description: A verbatim slice of the review's text — the best-matching chunk.
+        excerpt_id:
+          type: string
+          format: uuid
+          description: Stable id of the excerpt (chunk).
+        review:
+          $ref: "#/components/schemas/QueryResultReview"
+
+    QueryResponse:
+      type: object
+      required: [results, took_ms, cached, badge]
+      additionalProperties: false
+      properties:
+        results:
+          type: array
+          description: In rank order. Empty when nothing clears the floor.
+          items:
+            $ref: "#/components/schemas/QueryResult"
+        took_ms:
+          type: integer
+          minimum: 0
+          description: Server time for this request, cached or not.
+        cached:
+          type: boolean
+          description: "`true` when `results` were served from the KV cache (`x-cache: HIT`)."
+        badge:
+          type: boolean
+          description: "`true` means the snippet must render the \"Reviews by ProofQL\" badge (free tier). Mirrors the project's plan on every response, cached or not."

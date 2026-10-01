@@ -1,0 +1,22 @@
+# Redocly CLI config for `pnpm openapi:lint` (docs/api/README.md).
+# The spec is the public API contract; the contract tests in
+# workers/api/src/openapi.contract.integration.test.ts hold it to the code.
+apis:
+  proofql@v1:
+    root: docs/api/openapi.yaml
+extends:
+  - recommended
+rules:
+  # Every operation must enumerate its error responses with the envelope.
+  # /health and the CORS preflight genuinely have no 4xx; see .redocly.lint-ignore.yaml.
+  operation-4xx-response: error
+  operation-operationId: error
+  no-unused-components: error
+  security-defined: error
+  # Our schemas say `additionalProperties: false` wherever the wire shape is
+  # closed; the rule's default pretends every schema is closed, which breaks
+  # the per-status `allOf` narrowings of the error envelope.
+  no-invalid-media-type-examples:
+    severity: error
+    allowAdditionalProperties: true
+telemetry: "off"
