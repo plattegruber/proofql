@@ -1,0 +1,93 @@
+// Wrangler configuration for the ProofQL dashboard (`proofql-dashboard-<env>`).
+//
+// !! Bindings are NOT inherited across envs — edit all three sections !!
+// Wrangler environments only inherit a small set of top-level keys (main,
+// compatibility_date, etc.). Every KV/Hyperdrive binding below must be
+// repeated in full inside `env.preview` and `env.prod`. If you add, rename,
+// or remove a binding, update the top-level (local) block AND both env blocks.
+//
+// Today `main` is a placeholder fetch handler (src/worker.ts). React Router v7
+// on Workers lands in #36: it swaps `main` for the framework server entry,
+// adds an `assets` block for the client build (`./build/client`), and the dev
+// server becomes Vite via @cloudflare/vite-plugin, which consumes this file —
+// pin the same port in vite.config.ts `server.port` when that happens.
+//
+// Environment matrix, ports, and binding names: see infra/environments.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+
+  "name": "proofql-dashboard-local",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+
+  // Fixed ports so `pnpm dev` can run every worker side by side.
+  "dev": {
+    "port": 8799,
+    "inspector_port": 9241
+  },
+
+  "vars": {
+    "ENVIRONMENT": "local",
+    // Browser-visible origin of the api worker (the playground calls it from
+    // the browser).
+    "API_URL": "http://localhost:8797"
+  },
+
+  "kv_namespaces": [
+    // Same namespace as workers/api: the dashboard purges a project's cached
+    // query results when its publication policy changes.
+    // <TBD>: real namespace id — provisioned with the Cloudflare account (M0).
+    { "binding": "CACHE", "id": "TBD-provision-in-m0" }
+  ],
+
+  "hyperdrive": [
+    // See workers/api/wrangler.jsonc for how local dev resolves this.
+    // <TBD>: real Hyperdrive config id — provisioned with the Neon project (M0).
+    {
+      "binding": "HYPERDRIVE",
+      "id": "TBD-provision-in-m0",
+      "localConnectionString": "postgres://proofql:proofql@localhost:54323/proofql"
+    }
+  ],
+
+  "env": {
+    "preview": {
+      "name": "proofql-dashboard-preview",
+      "vars": {
+        "ENVIRONMENT": "preview",
+        // <TBD>: the proofql-api-preview public origin.
+        "API_URL": "TBD-provision-in-m0"
+      },
+      "kv_namespaces": [
+        // <TBD>: id of KV namespace `proofql-cache-preview`.
+        { "binding": "CACHE", "id": "TBD-provision-in-m0" }
+      ],
+      "hyperdrive": [
+        // <TBD>: id of Hyperdrive config `proofql-hyperdrive-preview`.
+        { "binding": "HYPERDRIVE", "id": "TBD-provision-in-m0" }
+      ]
+    },
+    "prod": {
+      "name": "proofql-dashboard-prod",
+      "vars": {
+        "ENVIRONMENT": "prod",
+        // <TBD>: the proofql-api-prod public origin.
+        "API_URL": "TBD-provision-in-m0"
+      },
+      "kv_namespaces": [
+        // <TBD>: id of KV namespace `proofql-cache-prod`.
+        { "binding": "CACHE", "id": "TBD-provision-in-m0" }
+      ],
+      "hyperdrive": [
+        // <TBD>: id of Hyperdrive config `proofql-hyperdrive-prod`.
+        { "binding": "HYPERDRIVE", "id": "TBD-provision-in-m0" }
+      ]
+    }
+  }
+}

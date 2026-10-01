@@ -1,0 +1,10 @@
+# Worker runtime vars/secrets for `wrangler dev` in apps/dashboard. Copy to
+# `.dev.vars` (done for you by `pnpm run setup`); `.dev.vars` is gitignored
+# and never committed.
+#
+# Nothing is required yet: ENVIRONMENT comes from `vars` in wrangler.jsonc and
+# ProofQL has no third-party secrets (embeddings run on Workers AI, no key).
+# The file still exists on purpose: when `.dev.vars` is absent, wrangler loads
+# this directory's `.env` as runtime vars instead, leaking the wrangler-side
+# Hyperdrive connection string into `env`. Add real secrets here as they
+# arrive, one `KEY=value` per line.
