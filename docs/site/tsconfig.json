@@ -1,0 +1,17 @@
+{
+  // Astro's base (module resolution for `astro:*` virtual modules) under the
+  // shared strictness; the shared config is listed last so it wins.
+  "extends": ["astro/tsconfigs/base", "@proofql/tsconfig/base.json"],
+  "compilerOptions": {
+    // The link checker is plain ESM JavaScript with JSDoc; check it as
+    // strictly as the TypeScript.
+    "checkJs": true,
+    "types": ["node"]
+  },
+  // astro.config.mjs is deliberately not here: it imports starlight-openapi,
+  // which ships TypeScript source rather than .d.ts, so `tsc` would type
+  // check that package under our strictness and fail on its code. Astro
+  // validates the config itself on every `astro build`/`astro sync`.
+  "include": [".astro/types.d.ts", "src/**/*", "scripts/**/*.mjs"],
+  "exclude": ["dist"]
+}

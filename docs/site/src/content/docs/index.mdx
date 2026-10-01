@@ -1,0 +1,43 @@
+---
+title: ProofQL documentation
+description: Review search as an API. Push your reviews in, ask a question, render the ones that answer it on any page of your site.
+---
+
+import { LinkCard, CardGrid } from "@astrojs/starlight/components";
+
+ProofQL turns a business's reviews into a semantically searchable corpus. Your implants page shows implant reviews, your pricing page shows reviews about value, your location page shows the ones that mention parking. Nothing is tagged by hand; matching is by meaning, and when nothing matches well enough the result is empty rather than wrong.
+
+```http
+GET /v1/query?key=pq_pk_live_…&q=dental+implants&limit=3
+```
+
+```json
+{
+  "results": [
+    {
+      "score": 0.91,
+      "excerpt": "Dr. Patel did my implant and I honestly forgot it wasn't my own tooth within a week.",
+      "excerpt_id": "…",
+      "review": { "id": "…", "rating": 5, "author_name": "Marcus T.", "source": "google", "occurred_at": "2026-03-14T18:20:00.000Z", "url": "https://maps.google.com/…", "author_avatar_url": null, "metadata": {} }
+    }
+  ],
+  "took_ms": 12,
+  "cached": false,
+  "badge": true
+}
+```
+
+<CardGrid>
+  <LinkCard title="Getting started" description="Sign up, import reviews, paste one tag. Ten minutes." href="/getting-started" />
+  <LinkCard title="Snippet" description="One script tag and one div. Attributes, styling variables, your own markup." href="/snippet" />
+  <LinkCard title="API reference" description="Every route, generated from the OpenAPI spec." href="/api" />
+  <LinkCard title="Relevance and the floor" description="What score means, why empty beats irrelevant, how to tune." href="/relevance" />
+  <LinkCard title="Imports" description="CSV, the push API, and the Google connector." href="/imports" />
+  <LinkCard title="Errors and limits" description="Every error code with a fix, and the free tier's numbers." href="/errors" />
+</CardGrid>
+
+## How it fits together
+
+1. **Ingest.** Reviews arrive through the push API, a CSV upload in the dashboard, or (soon) the Google connector, in one normalized shape.
+2. **Index.** Every review is embedded whole; longer reviews also get sentence-window excerpts, so a review that covers four topics matches four queries. Vectors and a full-text index live in Postgres. No LLM touches your reviews.
+3. **Serve.** `/v1/query` runs hybrid search, applies a relevance floor and your publication policy in one SQL statement, and returns ranked excerpts with their parent reviews. The snippet renders them.

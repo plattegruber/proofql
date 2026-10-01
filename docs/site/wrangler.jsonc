@@ -1,0 +1,63 @@
+// Wrangler configuration for the ProofQL docs site (`proofql-docs-<env>`).
+//
+// An assets-only Worker: no script, no bindings — `astro build` writes dist/
+// and Workers Static Assets serves it. Pages are files (`errors.html`) and
+// `auto-trailing-slash` serves `/errors` directly, so an error envelope's
+// `doc_url` (`https://docs.proofql.com/errors#validation_failed`) resolves
+// with no redirect in front of the fragment. Unknown paths get Starlight's
+// 404 page.
+//
+// Nothing here is per-environment except the name, so the env blocks are
+// tiny — but `assets` is NOT inherited across envs (same rule as every other
+// wrangler.jsonc in this repo: bindings-like keys repeat in full).
+//
+// Environment matrix and ports: infra/environments.md. Custom domain
+// `docs.proofql.com`: the TODO in env.prod and infra/provisioning.md
+// "Custom domains" (scope §7.6).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+
+  "name": "proofql-docs-local",
+  "compatibility_date": "2026-09-01",
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+
+  // Fixed ports so `pnpm dev` can run every worker side by side
+  // (infra/environments.md; the cdn worker takes 8800 / 9242).
+  "dev": {
+    "port": 8801,
+    "inspector_port": 9243
+  },
+
+  "assets": {
+    "directory": "./dist",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+
+  "env": {
+    "preview": {
+      "name": "proofql-docs-preview",
+      "assets": {
+        "directory": "./dist",
+        "html_handling": "auto-trailing-slash",
+        "not_found_handling": "404-page"
+      }
+    },
+    "prod": {
+      "name": "proofql-docs-prod",
+      // TODO(docs.proofql.com): once the zone is on this account, add
+      // "routes": [{ "pattern": "docs.proofql.com", "custom_domain": true }]
+      // (infra/provisioning.md "Custom domains"). The api's doc_url and the
+      // dashboard's relevance link already point at that hostname.
+      "assets": {
+        "directory": "./dist",
+        "html_handling": "auto-trailing-slash",
+        "not_found_handling": "404-page"
+      }
+    }
+  }
+}

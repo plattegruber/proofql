@@ -1,0 +1,177 @@
+/* ProofQL docs theme: the product tokens applied through Starlight's hooks.
+ *
+ * Same system as apps/dashboard/app/styles/tokens and the snippet's default
+ * stylesheet: ink, cool grays, one signal green, Space Grotesk for text and
+ * IBM Plex Mono for code and labels, fully square corners, structure from
+ * hairline rules rather than shadows. Starlight names its palette from the
+ * dark theme's point of view (`--sl-color-white` is the text colour,
+ * `--sl-color-black` the page) and flips the meaning under
+ * `[data-theme='light']`, so both blocks below are written in its terms.
+ */
+
+:root {
+  --sl-font: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --sl-font-mono: "IBM Plex Mono", "SF Mono", Menlo, monospace;
+
+  /* Dark: ink page, light text. */
+  --sl-color-white: #f5f7f6;
+  --sl-color-gray-1: #e3e6e4;
+  --sl-color-gray-2: #c6cbc8;
+  --sl-color-gray-3: #9ca3a0;
+  --sl-color-gray-4: #575f5b;
+  --sl-color-gray-5: #313a37;
+  --sl-color-gray-6: #1b211f;
+  --sl-color-black: #0c0f0e;
+
+  /* The one accent. */
+  --sl-color-accent-low: #00623c;
+  --sl-color-accent: #00915a;
+  --sl-color-accent-high: #aee7cc;
+  --sl-color-text-accent: #0cab6d;
+
+  /* Starlight's own green (tips, badges) is the same green. Its blue and
+     purple (note asides, badges) are off-palette: notes are neutral ink.
+     Orange and red are the two semantic status hues from the tokens. */
+  --sl-hue-green: 157;
+  --sl-color-green-low: #00623c;
+  --sl-color-green: #0cab6d;
+  --sl-color-green-high: #aee7cc;
+  --sl-color-blue-low: #1b211f;
+  --sl-color-blue: #9ca3a0;
+  --sl-color-blue-high: #e3e6e4;
+  --sl-color-purple-low: #1b211f;
+  --sl-color-purple: #9ca3a0;
+  --sl-color-purple-high: #e3e6e4;
+  --sl-color-orange-low: #3d2c05;
+  --sl-color-orange: #d9a62a;
+  --sl-color-orange-high: #f9efd2;
+  --sl-color-red-low: #4a1a10;
+  --sl-color-red: #e06a52;
+  --sl-color-red-high: #fce7e2;
+
+  /* Flat surfaces: no shadows anywhere. */
+  --sl-shadow-sm: none;
+  --sl-shadow-md: none;
+  --sl-shadow-lg: none;
+
+  --sl-line-height: 1.6;
+}
+
+:root[data-theme="light"],
+[data-theme="light"] ::backdrop {
+  --sl-color-white: #0c0f0e;
+  --sl-color-gray-1: #1b211f;
+  --sl-color-gray-2: #313a37;
+  --sl-color-gray-3: #575f5b;
+  --sl-color-gray-4: #9ca3a0;
+  --sl-color-gray-5: #c6cbc8;
+  --sl-color-gray-6: #e3e6e4;
+  --sl-color-gray-7: #f7f8f7;
+  --sl-color-black: #ffffff;
+
+  --sl-color-accent-low: #d9f4e7;
+  --sl-color-accent: #00915a;
+  --sl-color-accent-high: #00623c;
+  --sl-color-text-accent: #007a4a;
+
+  --sl-color-green-low: #d9f4e7;
+  --sl-color-green: #00915a;
+  --sl-color-green-high: #00623c;
+  --sl-color-blue-low: #eff1f0;
+  --sl-color-blue: #575f5b;
+  --sl-color-blue-high: #1b211f;
+  --sl-color-purple-low: #eff1f0;
+  --sl-color-purple: #575f5b;
+  --sl-color-purple-high: #1b211f;
+  --sl-color-orange-low: #f9efd2;
+  --sl-color-orange: #96690b;
+  --sl-color-orange-high: #5c4007;
+  --sl-color-red-low: #fce7e2;
+  --sl-color-red: #c2402a;
+  --sl-color-red-high: #7a2618;
+
+  --sl-color-bg-nav: #ffffff;
+  --sl-color-bg-sidebar: #ffffff;
+}
+
+/* Fully square corners. One rule, because Starlight sets a radius in some
+   twenty places and the design system allows none (dashboard tokens keep
+   `--radius-full` only for knobs, avatars, and dots, none of which exist
+   here). Starlight's own styles live in `@layer starlight.*`, so this
+   unlayered rule wins without `!important`; code blocks (Expressive Code)
+   are squared through `styleOverrides` in astro.config.mjs. */
+*,
+*::before,
+*::after {
+  border-radius: 0;
+}
+
+/* Headings in the display face with the house tracking; sentence case is a
+   content rule, not a CSS one. */
+.sl-markdown-content :is(h1, h2, h3, h4, h5),
+.content-panel h1,
+.hero h1 {
+  font-family: var(--sl-font);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+/* Labels, overlines, and the sidebar group headings read like the
+   dashboard's mono labels. */
+.sidebar-content details > summary .group-label > .large,
+.right-sidebar h2 {
+  font-family: var(--sl-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Hairline rules for structure: tables, asides, cards, code. */
+.sl-markdown-content table {
+  border-collapse: collapse;
+}
+.sl-markdown-content :is(th, td) {
+  border: 1px solid var(--sl-color-hairline-light);
+}
+.sl-markdown-content .starlight-aside {
+  border-inline-start-width: 2px;
+}
+.card {
+  box-shadow: none;
+  border: 1px solid var(--sl-color-hairline-light);
+}
+
+/* Links: accent, hairline underline on hover only. */
+.sl-markdown-content a:not(:where(.not-content *)) {
+  text-decoration: none;
+  border-bottom: 1px solid var(--sl-color-hairline-light);
+}
+.sl-markdown-content a:not(:where(.not-content *)):hover {
+  border-bottom-color: currentColor;
+}
+
+/* starlight-openapi paints each HTTP method a different hue; the system
+   allows one accent, so method badges are ink with a hairline border and
+   the method name does the work. The plugin's stylesheet is appended after
+   this one and sets the same variables on `:root`, hence the doubled
+   selector to outrank it. */
+:root:root,
+:root:root[data-theme="light"] {
+  --sl-openapi-method-bg-get: var(--sl-color-gray-6);
+  --sl-openapi-method-bg-post: var(--sl-color-gray-6);
+  --sl-openapi-method-bg-put: var(--sl-color-gray-6);
+  --sl-openapi-method-bg-patch: var(--sl-color-gray-6);
+  --sl-openapi-method-bg-delete: var(--sl-color-gray-6);
+  --sl-openapi-method-bg-options: var(--sl-color-gray-6);
+  --sl-openapi-method-bg-head: var(--sl-color-gray-6);
+  --sl-openapi-method-bg-trace: var(--sl-color-gray-6);
+  --sl-openapi-method-border-get: var(--sl-color-gray-4);
+  --sl-openapi-method-border-post: var(--sl-color-gray-4);
+  --sl-openapi-method-border-put: var(--sl-color-gray-4);
+  --sl-openapi-method-border-patch: var(--sl-color-gray-4);
+  --sl-openapi-method-border-delete: var(--sl-color-gray-4);
+  --sl-openapi-method-border-options: var(--sl-color-gray-4);
+  --sl-openapi-method-border-head: var(--sl-color-gray-4);
+  --sl-openapi-method-border-trace: var(--sl-color-gray-4);
+}
