@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ALWAYS_MERGE_ABBREVIATIONS,
   assertVerbatimChunks,
   type Chunk,
   ChunkInvariantError,
   chunkReview,
   DEFAULT_CHUNK_OPTIONS,
+  SENTENCE_ABBREVIATIONS,
   segmentSentences,
 } from "./chunking.js";
 
@@ -269,6 +271,154 @@ describe("segmentSentences", () => {
   it("uses the default locale when none is given", () => {
     expect(DEFAULT_CHUNK_OPTIONS.locale).toBe("en");
     expect(segmentSentences("A. B.")).toEqual(segmentSentences("A. B.", "en"));
+  });
+
+  describe("abbreviations (#77)", () => {
+    const texts = (text: string, locale?: string) =>
+      segmentSentences(text, locale).map((s) => text.slice(s.start, s.end));
+
+    it("the always-merge set is a subset of the abbreviation list", () => {
+      for (const abbreviation of ALWAYS_MERGE_ABBREVIATIONS) {
+        expect(SENTENCE_ABBREVIATIONS).toContain(abbreviation);
+      }
+    });
+
+    it.each([
+      ...ALWAYS_MERGE_ABBREVIATIONS,
+    ])("does not split after %s. even when a capital follows", (abbreviation) => {
+      // Title-case the token the way it appears in prose ("Dr.", "E.g.").
+      const shown =
+        abbreviation.charAt(0).toUpperCase() + abbreviation.slice(1);
+      const text = `I went with ${shown}. Patel today. It was fine.`;
+      // Sanity: the raw segmenter does split here, so the merge is doing
+      // the work (except for e.g./i.e., where engines vary).
+      expect(texts(text)).toEqual([
+        `I went with ${shown}. Patel today.`,
+        "It was fine.",
+      ]);
+      // Case-insensitive: the lowercase/uppercase spellings merge too.
+      expect(
+        texts(`I went with ${abbreviation.toUpperCase()}. Patel today.`),
+      ).toHaveLength(1);
+    });
+
+    it("Dr. Patel did my implant. It was painless. → two sentences", () => {
+      expect(texts("Dr. Patel did my implant. It was painless.")).toEqual([
+        "Dr. Patel did my implant.",
+        "It was painless.",
+      ]);
+    });
+
+    it("still splits after an unlisted abbreviation followed by a capital", () => {
+      expect(texts("I waited 20 min. Then left.")).toEqual([
+        "I waited 20 min.",
+        "Then left.",
+      ]);
+    });
+
+    it("etc. followed by a capital letter is a real sentence end", () => {
+      expect(
+        texts(
+          "They do cleanings, fillings, and so on, etc. The staff were kind.",
+        ),
+      ).toEqual([
+        "They do cleanings, fillings, and so on, etc.",
+        "The staff were kind.",
+      ]);
+    });
+
+    it.each([
+      "etc",
+      "inc",
+      "no",
+      "co",
+      "rd",
+    ])("%s. merges only when lowercase follows", (abbreviation) => {
+      const shown =
+        abbreviation.charAt(0).toUpperCase() + abbreviation.slice(1);
+      expect(texts(`Acme ${shown}. opened a new office.`)).toHaveLength(1);
+      expect(texts(`Acme ${shown}. Opened a new office.`)).toHaveLength(2);
+    });
+
+    it("Acme Inc. opened a new office. → one sentence", () => {
+      expect(texts("Acme Inc. opened a new office.")).toEqual([
+        "Acme Inc. opened a new office.",
+      ]);
+    });
+
+    it("merges initials: J. R. Smith was great. → one sentence", () => {
+      expect(texts("J. R. Smith was great.")).toEqual([
+        "J. R. Smith was great.",
+      ]);
+      // An initial after an honorific keeps merging through to the surname.
+      expect(texts("Thanks to Dr. J. Smith. Great visit.")).toEqual([
+        "Thanks to Dr. J. Smith.",
+        "Great visit.",
+      ]);
+    });
+
+    it("repeats the merge across consecutive abbreviations", () => {
+      expect(texts("Dr. Mr. Smith came by. Then left.")).toEqual([
+        "Dr. Mr. Smith came by.",
+        "Then left.",
+      ]);
+    });
+
+    it("only matches the abbreviation as a whole word", () => {
+      // "ladder." ends in "dr" but is not the abbreviation.
+      expect(texts("He fell off the ladder. Then got up.")).toHaveLength(2);
+      // "Elm St." merges; a sentence ending in "first." does not.
+      expect(texts("We parked on Elm St. Then walked.")).toHaveLength(1);
+      expect(texts("We came first. Then walked.")).toHaveLength(2);
+    });
+
+    it("never merges the last span and keeps spans trimmed and verbatim", () => {
+      const text = "  Dr.   Patel was great.  See Dr.  ";
+      const spans = segmentSentences(text);
+      expect(spans.map((s) => text.slice(s.start, s.end))).toEqual([
+        "Dr.   Patel was great.",
+        "See Dr.",
+      ]);
+      for (const span of spans) {
+        expect(span.start).toBeLessThan(span.end);
+        expect(
+          /^\S[\s\S]*\S$|^\S$/.test(text.slice(span.start, span.end)),
+        ).toBe(true);
+      }
+    });
+
+    it("Dr. no longer pushes a short review over the window threshold", () => {
+      // Three sentences to a reader; four to the raw segmenter before #77.
+      const text =
+        "Dr. Patel did my implant. Zero pain after day two. Would recommend.";
+      expect(segmentSentences(text)).toHaveLength(3);
+      expect(chunkReview(text)).toEqual([
+        { kind: "full", text, startOffset: 0 },
+      ]);
+    });
+
+    it("windows never end in a bare honorific", () => {
+      const text =
+        "First visit was with Dr. Patel. She was gentle. Dr. Kim did my scan. " +
+        "Carla booked the follow-up. Parking was easy. Five stars.";
+      const chunks = chunkReview(text);
+      expectVerbatim(text, chunks);
+      for (const w of windows(chunks)) {
+        expect(w.text).not.toMatch(/\bDr\.$/);
+        expect(w.text).not.toMatch(/^(Patel|Kim)\b/);
+      }
+    });
+
+    it("leaves CJK text with the ja locale unaffected", () => {
+      const text = "こんにちは。元気ですか？はい。元気です。また来ます。";
+      expect(texts(text, "ja")).toEqual([
+        "こんにちは。",
+        "元気ですか？",
+        "はい。",
+        "元気です。",
+        "また来ます。",
+      ]);
+    });
   });
 });
 

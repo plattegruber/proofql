@@ -98,12 +98,11 @@ describe("demo review fixtures", () => {
     expect(Math.max(...days)).toBeLessThanOrEqual(548);
   });
 
-  it("varies length as the chunker sees it: a third short, half medium, a tenth long", () => {
+  it("varies length as the chunker sees it: ~60% short, ~30% medium, ~10% long", () => {
     // Sentences are counted the way `chunkReview` counts them (UAX #29 via
-    // `Intl.Segmenter`), which is what decides whether a review gets window
-    // chunks. That is stricter than a reader's count: "Dr. Patel did my
-    // implant." is two sentences to the segmenter, so the ~60% of reviews a
-    // reader would call one-or-two sentences shows up here as ~35%.
+    // `Intl.Segmenter` plus the abbreviation merge from #77), which is what
+    // decides whether a review gets window chunks. Since #77 that matches a
+    // reader's count: "Dr. Patel did my implant." is one sentence, not two.
     const lengths = DEMO_LIVE_REVIEWS.map(
       (f) => segmentSentences(f.text, demoLanguage(f)).length,
     );
@@ -111,12 +110,23 @@ describe("demo review fixtures", () => {
     const medium = lengths.filter((n) => n >= 3 && n <= 5).length;
     const long = lengths.filter((n) => n >= 6).length;
     const total = DEMO_LIVE_REVIEWS.length;
-    expect(short / total).toBeGreaterThanOrEqual(0.3);
-    expect(medium / total).toBeGreaterThanOrEqual(0.5);
+    expect(short / total).toBeGreaterThanOrEqual(0.5);
+    expect(medium / total).toBeGreaterThanOrEqual(0.25);
     expect(long / total).toBeGreaterThanOrEqual(0.08);
   });
 
-  it("chunks to 90 full + 49 window chunks, windows on 18 live and 1 test review", () => {
+  it("no review text splits on an honorific once chunked", () => {
+    // The reason for seed v3 (#77): before the abbreviation merge, 19 of 90
+    // reviews produced a sentence that was just "Dr." or began mid-name.
+    for (const f of DEMO_REVIEW_FIXTURES) {
+      const spans = segmentSentences(f.text, demoLanguage(f));
+      for (const s of spans) {
+        expect(f.text.slice(s.start, s.end), f.key).not.toMatch(/\bDr\.$/);
+      }
+    }
+  });
+
+  it("chunks to 90 full + 30 window chunks, windows on 10 live and 1 test review", () => {
     // Pinned output of `chunkReview` over the corpus — the same numbers
     // `runSeed` reports and the integration test checks against the DB. A
     // change here is a change to the dataset: bump SEED_VERSION with it.
@@ -128,12 +138,12 @@ describe("demo review fixtures", () => {
       c.filter((chunk) => chunk.kind === "window").length;
 
     expect(all.every(({ chunks }) => chunks[0]?.kind === "full")).toBe(true);
-    expect(all.reduce((n, { chunks }) => n + windows(chunks), 0)).toBe(49);
+    expect(all.reduce((n, { chunks }) => n + windows(chunks), 0)).toBe(30);
 
     const withWindows = all.filter(({ chunks }) => windows(chunks) > 0);
     expect(
       withWindows.filter((e) => e.fixture.environment === "live"),
-    ).toHaveLength(18);
+    ).toHaveLength(10);
     expect(
       withWindows.filter((e) => e.fixture.environment === "test"),
     ).toHaveLength(1);

@@ -23,7 +23,10 @@
  * "sentence"`, which is Unicode UAX #29 sentence segmentation and needs no
  * per-language rule tables. The review's BCP 47 `language` is passed as the
  * locale when present; an unknown or malformed tag falls back to `"en"`
- * rather than failing the review.
+ * rather than failing the review. UAX #29 knows nothing about English
+ * abbreviations — `"Dr."` is a sentence to it — so a small merge pass
+ * ({@link SENTENCE_ABBREVIATIONS}, #77) rejoins a span that ends in a
+ * known abbreviation or an initial with the span that follows it.
  *
  * Pure: no I/O, no database. The pipeline (#23) calls `chunkReview` and the
  * demo seed (#20) is meant to switch to it.
@@ -122,10 +125,91 @@ export function chunkReview(text: string, options: ChunkOptions = {}): Chunk[] {
 }
 
 /**
+ * Abbreviations that `Intl.Segmenter` wrongly treats as sentence ends when
+ * followed by a period (compared case-insensitively, letters only, with the
+ * inner dots of `e.g`/`i.e`). A span ending in one of these is merged with
+ * the span after it by {@link segmentSentences}; see
+ * {@link ALWAYS_MERGE_ABBREVIATIONS} for the two merge rules.
+ */
+export const SENTENCE_ABBREVIATIONS = [
+  "dr",
+  "mr",
+  "mrs",
+  "ms",
+  "jr",
+  "sr",
+  "st",
+  "mt",
+  "vs",
+  "prof",
+  "inc",
+  "ltd",
+  "co",
+  "corp",
+  "e.g",
+  "i.e",
+  "etc",
+  "approx",
+  "dept",
+  "est",
+  "no",
+  "vol",
+  "ave",
+  "blvd",
+  "rd",
+] as const;
+
+export type SentenceAbbreviation = (typeof SENTENCE_ABBREVIATIONS)[number];
+
+/**
+ * The subset of {@link SENTENCE_ABBREVIATIONS} that essentially never ends
+ * a sentence, so a span ending in one is merged with the next span no
+ * matter how that span begins:
+ *
+ *     "Dr. Patel did my implant."   → one sentence
+ *     "Prof. Lee vs. Dr. Kim."      → one sentence (repeated merge)
+ *
+ * Every other abbreviation in the list is ambiguous at a real sentence end
+ * ("…and so on, etc. The staff were kind." — `etc.` closes a sentence
+ * there), so it merges only when the following span starts with a
+ * lowercase letter, which a new sentence would not:
+ *
+ *     "Acme Inc. opened an office."         → one sentence
+ *     "…and so on, etc. The staff were…"    → two sentences
+ *     "I waited 20 min. Then left."         → two sentences (`min` unlisted)
+ *
+ * (UAX #29 itself already avoids breaking before a lowercase letter, so the
+ * lowercase rule is mostly belt-and-braces for engines that differ.)
+ */
+export const ALWAYS_MERGE_ABBREVIATIONS: ReadonlySet<SentenceAbbreviation> =
+  new Set<SentenceAbbreviation>([
+    "dr",
+    "mr",
+    "mrs",
+    "ms",
+    "prof",
+    "st",
+    "mt",
+    "vs",
+    "e.g",
+    "i.e",
+  ]);
+
+const ABBREVIATION_SET: ReadonlySet<string> = new Set(SENTENCE_ABBREVIATIONS);
+
+/**
  * Split `text` into sentence spans with `Intl.Segmenter`. Leading and
  * trailing whitespace of each sentence is excluded by moving the span's
  * bounds; whitespace-only segments are dropped. Spans are in text order and
  * never overlap. Text with no sentence boundary is one span.
+ *
+ * A span that ends in a known abbreviation ({@link SENTENCE_ABBREVIATIONS})
+ * or is a lone initial (`"J."`) is merged with the span that follows it —
+ * repeatedly, so `"Dr. J. R. Smith was great."` is one span. Merging keeps
+ * spans verbatim: the merged span is `{ start: first.start, end: last.end }`
+ * and still excludes surrounding whitespace. The final span is never merged
+ * (there is nothing after it). The abbreviation list is English; text in
+ * other scripts has no `"Dr."` and passes through untouched.
  */
 export function segmentSentences(
   text: string,
@@ -137,7 +221,7 @@ export function segmentSentences(
     const span = trimSpan(text, index, index + segment.length);
     if (span) spans.push(span);
   }
-  return spans;
+  return mergeAbbreviationSpans(text, spans);
 }
 
 /**
@@ -172,6 +256,61 @@ export function assertVerbatimChunks(
       );
     }
   }
+}
+
+/**
+ * Rejoin spans that `Intl.Segmenter` split after an abbreviation or an
+ * initial. The decision looks at the most recently appended *original* span
+ * (not the running merge), so `"Dr. J. Smith"` — where the merged span
+ * `"Dr. J."` ends in an initial rather than a listed abbreviation — keeps
+ * merging through to `"Smith"`.
+ */
+function mergeAbbreviationSpans(
+  text: string,
+  spans: readonly SentenceSpan[],
+): SentenceSpan[] {
+  const merged: SentenceSpan[] = [];
+  let i = 0;
+  while (i < spans.length) {
+    const first = spans[i];
+    if (!first) break; // unreachable: i < spans.length
+    let last = first;
+    let j = i + 1;
+    while (j < spans.length) {
+      const next = spans[j];
+      if (!next || !shouldMergeSpans(text, last, next)) break;
+      last = next;
+      j++;
+    }
+    merged.push(last === first ? first : { start: first.start, end: last.end });
+    i = j;
+  }
+  return merged;
+}
+
+/** Letters (optionally dotted, as in `e.g`) ending the span, before its period. */
+const TRAILING_ABBREVIATION = /(?:^|[^\p{L}.])(\p{L}+(?:\.\p{L}+)*)\.$/u;
+/** A span that is exactly one capital letter and a period: an initial. */
+const LONE_INITIAL = /^\p{Lu}\.$/u;
+const STARTS_LOWERCASE = /^\p{Ll}/u;
+
+/**
+ * True when `a` ends in a listed abbreviation or is a lone initial, per the
+ * rules documented on {@link ALWAYS_MERGE_ABBREVIATIONS}.
+ */
+function shouldMergeSpans(
+  text: string,
+  a: SentenceSpan,
+  b: SentenceSpan,
+): boolean {
+  const ending = text.slice(a.start, a.end);
+  if (LONE_INITIAL.test(ending)) return true;
+  const token = TRAILING_ABBREVIATION.exec(ending)?.[1]?.toLowerCase();
+  if (token === undefined || !ABBREVIATION_SET.has(token)) return false;
+  if (ALWAYS_MERGE_ABBREVIATIONS.has(token as SentenceAbbreviation)) {
+    return true;
+  }
+  return STARTS_LOWERCASE.test(text.slice(b.start, b.end));
 }
 
 interface WindowPlan {
