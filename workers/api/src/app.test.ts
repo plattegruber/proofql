@@ -1,3 +1,4 @@
+import { recordingSink } from "@proofql/core";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "./app.js";
@@ -52,5 +53,31 @@ describe("api app", () => {
       headers: { "x-request-id": "x".repeat(129) },
     });
     expect(res.headers.get(REQUEST_ID_HEADER)).not.toBe("x".repeat(129));
+  });
+
+  it("every log line emitted during a request carries its request_id", async () => {
+    const out = recordingSink();
+    const logged = createApp({ logSink: out.sink });
+
+    const res = await logged.request("/nope", {
+      headers: { [REQUEST_ID_HEADER]: "req-log-1" },
+    });
+
+    expect(res.status).toBe(404);
+    expect(out.records.length).toBeGreaterThan(0);
+    for (const record of out.records) {
+      expect(record).toMatchObject({
+        service: "api",
+        request_id: "req-log-1",
+        method: "GET",
+        path: "/nope",
+      });
+    }
+    expect(out.only("request.rejected")).toMatchObject({
+      code: "not_found",
+      status: 404,
+      // No bindings were passed to app.request(), so the environment is unknown.
+      environment: "unknown",
+    });
   });
 });

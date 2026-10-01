@@ -47,6 +47,7 @@ import { createMiddleware } from "hono/factory";
 import type { AppEnv } from "./bindings.js";
 import { waitUntil } from "./db.js";
 import { ApiError } from "./errors.js";
+import { logFor } from "./request-id.js";
 
 /** `YYYY-MM-01` for the UTC month containing `now` — the `usage.month` key. */
 export function monthStart(now: Date = new Date()): string {
@@ -149,7 +150,22 @@ export async function enforceQueryQuota(c: Context<AppEnv>): Promise<void> {
     monthStart(now),
   );
   if (quota.uncached < quota.limit) return;
-  c.header("Retry-After", String(secondsToMonthEnd(now)));
+  const retryAfter = secondsToMonthEnd(now);
+  c.header("Retry-After", String(retryAfter));
+  // docs/observability.md `quota.rejected`: the plan ceiling and where the
+  // project stands against it, so "who is at quota" is one filter.
+  logFor(c).log("quota.rejected", {
+    level: "warn",
+    project_id: auth.projectId,
+    key_environment: auth.environment,
+    key_kind: auth.kind,
+    plan: quota.plan,
+    limit: quota.limit,
+    uncached: quota.uncached,
+    queries: quota.queries,
+    cache_hits: quota.cacheHits,
+    retry_after: retryAfter,
+  });
   throw new ApiError(
     "query_quota_exceeded",
     `This project has used its ${quota.plan} plan quota of ${quota.limit.toLocaleString("en-US")} uncached queries for the month (cached queries are free). The quota resets at the start of next month (UTC); upgrade the account's plan in the dashboard to raise it.`,

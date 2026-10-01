@@ -2,15 +2,15 @@
  * Review CRUD against the real schema: the @proofql/db harness gives this
  * file a private database, `createApp({ db })` injects it, and a Map-backed
  * fake stands in for the KV cache so the generation counter can be
- * asserted (see ../cache-purge.ts).
+ * asserted (`bumpProjectGeneration` in `@proofql/core`).
  */
 
 import { FakeEmbeddingProvider, fakeEmbed } from "@proofql/ai";
+import { generationKey } from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
 import { chunk, project, review, setupTestDb } from "@proofql/db/test";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-
 import {
   type FakeKv,
   fakeKv,
@@ -20,7 +20,6 @@ import {
 } from "../../test/helpers.js";
 import { createApp } from "../app.js";
 import type { ApiBindings } from "../bindings.js";
-import { generationKey } from "../cache-purge.js";
 import type { QueryResponse } from "../query/route.js";
 import { REQUEST_ID_HEADER } from "../request-id.js";
 import type { ListReviewsResponse, ReviewResource } from "./reviews-crud.js";

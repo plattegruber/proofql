@@ -11,7 +11,7 @@
  */
 
 import { FakeEmbeddingProvider, fakeEmbed } from "@proofql/ai";
-import { generateApiKey } from "@proofql/core";
+import { generateApiKey, recordingSink } from "@proofql/core";
 import type { Db } from "@proofql/db";
 import {
   type ApiKey,
@@ -650,6 +650,145 @@ describe("/v1/query", () => {
         Authorization: `Bearer ${f.secret}`,
       });
       expect(res.headers.get("Access-Control-Allow-Origin")).toBe(OTHER_ORIGIN);
+    });
+  });
+
+  describe("logging (#30, docs/observability.md)", () => {
+    function loggedApp() {
+      const out = recordingSink();
+      return {
+        app: createApp({
+          db: t.db,
+          embedder: new FakeEmbeddingProvider(),
+          logSink: out.sink,
+        }),
+        out,
+      };
+    }
+
+    it("one query.completed line per answered query, with the documented fields and never the text", async () => {
+      const { app: logged, out } = loggedApp();
+      const res = await post(
+        logged,
+        f.secret,
+        { q: "implant tooth", limit: 3 },
+        { "x-request-id": "req-q-1", "Cache-Control": "no-cache" },
+      );
+      expect(res.status).toBe(200);
+
+      const line = out.only("query.completed");
+      expect(line).toEqual({
+        ts: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+        service: "api",
+        environment: "test",
+        event: "query.completed",
+        level: "info",
+        request_id: "req-q-1",
+        method: "POST",
+        path: "/v1/query",
+        project_id: f.project.id,
+        key_kind: "secret",
+        key_environment: "live",
+        mode: "excerpts",
+        has_q: true,
+        q_length: "implant tooth".length,
+        limit: 3,
+        min_rating: 4,
+        similarity_floor: 0.55,
+        returned: 1,
+        cached: "BYPASS",
+        took_ms: expect.any(Number),
+        embedding_ms: expect.any(Number),
+        search_ms: expect.any(Number),
+      });
+      expect(line.search_ms).toBeGreaterThanOrEqual(0);
+      // No review text, excerpt, or query text anywhere in the line.
+      const raw = JSON.stringify(line);
+      expect(raw).not.toContain("implant");
+      expect(raw).not.toContain(IMPLANT);
+      expect(
+        out.records.filter((r) => r.event.startsWith("query.")),
+      ).toHaveLength(1);
+    });
+
+    it("a cache hit logs cached: HIT with zero embedding and search time; GET carries key_kind publishable", async () => {
+      const { app: logged, out } = loggedApp();
+      // limit=4 keeps this request distinct from the one the previous test
+      // stored (BYPASS still writes), so the first call here is a real miss.
+      await get(logged, `key=${f.publishable}&q=implant+tooth&limit=4`, {
+        Origin: ORIGIN,
+      });
+      const second = await get(
+        logged,
+        `key=${f.publishable}&q=implant+tooth&limit=4`,
+        { Origin: ORIGIN },
+      );
+      expect(second.headers.get("x-cache")).toBe("HIT");
+
+      const lines = out.find("query.completed");
+      expect(lines.map((l) => l.cached)).toEqual(["MISS", "HIT"]);
+      expect(lines[1]).toMatchObject({
+        method: "GET",
+        key_kind: "publishable",
+        key_environment: "live",
+        environment: "test",
+        embedding_ms: 0,
+        search_ms: 0,
+        returned: 1,
+      });
+      // A URL-borne key never reaches the log: `path` excludes the query string.
+      expect(JSON.stringify(out.records)).not.toContain(f.publishable);
+    });
+
+    it("a refused query is one query.rejected line with the code", async () => {
+      const { app: logged, out } = loggedApp();
+      const res = await post(logged, f.secret, { limt: 3 });
+      expect(res.status).toBe(422);
+
+      expect(out.only("query.rejected")).toMatchObject({
+        level: "warn",
+        code: "validation_failed",
+        status: 422,
+        project_id: f.project.id,
+        key_kind: "secret",
+        request_id: res.headers.get("x-request-id"),
+      });
+      expect(out.find("query.completed")).toEqual([]);
+
+      const unauthorized = await post(logged, "pq_sk_live_short", {});
+      expect(unauthorized.status).toBe(401);
+      expect(out.find("query.rejected")[1]).toMatchObject({
+        code: "unauthorized",
+        status: 401,
+      });
+      expect(out.find("query.rejected")[1]).not.toHaveProperty("project_id");
+    });
+
+    it("an embedding outage is query.embedding_failed at level error, without the query text", async () => {
+      const out = recordingSink();
+      const failing = createApp({
+        db: t.db,
+        logSink: out.sink,
+        embedder: new FakeEmbeddingProvider({
+          shouldFail: () => new Error("Workers AI is down"),
+        }),
+      });
+      const res = await post(
+        failing,
+        f.secret,
+        { q: "implant tooth" },
+        { "Cache-Control": "no-cache" },
+      );
+      expect(res.status).toBe(503);
+
+      expect(out.only("query.embedding_failed")).toMatchObject({
+        level: "error",
+        project_id: f.project.id,
+        q_length: "implant tooth".length,
+        error: { name: "Error", message: "Workers AI is down" },
+      });
+      expect(JSON.stringify(out.records)).not.toContain("implant tooth");
+      expect(out.only("query.rejected").code).toBe("embedding_unavailable");
     });
   });
 });

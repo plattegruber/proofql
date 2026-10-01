@@ -19,9 +19,10 @@
  *
  * Anything that can change what a query returns — hide, unhide, metadata
  * (filterable), delete — bumps the project's cache generation after the
- * transaction commits (see ../cache-purge.ts and #28).
+ * transaction commits (`bumpProjectGeneration` in `@proofql/core`; #28).
  */
 
+import { bumpProjectGeneration } from "@proofql/core";
 import { schema } from "@proofql/db";
 import {
   and,
@@ -40,7 +41,6 @@ import { bodyLimit } from "hono/body-limit";
 
 import { requireSecretKey } from "../auth.js";
 import type { AppEnv, AuthContext } from "../bindings.js";
-import { bumpProjectGeneration } from "../cache-purge.js";
 import { ApiError } from "../errors.js";
 import { flattenIssues, type ReviewStatus } from "./reviews.js";
 import {
@@ -191,7 +191,7 @@ reviewsCrudRoutes.patch(
     });
 
     // After commit: hidden and metadata both affect what a query returns.
-    if (changed) await bumpProjectGeneration(c.env, auth.projectId);
+    if (changed) await bumpProjectGeneration(c.env.CACHE, auth.projectId);
 
     return c.json(toResource(row), 200);
   },
@@ -223,7 +223,7 @@ reviewsCrudRoutes.delete("/:id", requireSecretKey, async (c) => {
     if (deleted.length === 0) throw notFound(id);
   });
 
-  await bumpProjectGeneration(c.env, auth.projectId);
+  await bumpProjectGeneration(c.env.CACHE, auth.projectId);
 
   return c.body(null, 204);
 });

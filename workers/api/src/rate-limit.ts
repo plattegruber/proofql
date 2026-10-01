@@ -37,6 +37,7 @@ import { createMiddleware } from "hono/factory";
 
 import type { ApiBindings, AppEnv } from "./bindings.js";
 import { ApiError } from "./errors.js";
+import { logFor } from "./request-id.js";
 
 export interface RateLimiter {
   /** Count one request for `key`; `success: false` means refuse it. */
@@ -260,6 +261,19 @@ export async function enforceRateLimit(c: Context<AppEnv>): Promise<void> {
 
   const retryAfter = secondsToNextPeriod(config.period);
   c.header("Retry-After", String(retryAfter));
+  // The refusal itself (docs/observability.md `ratelimit.rejected`): which
+  // key, how hard the wall is. The 429 also produces a `*.rejected` line
+  // from onError; this one carries the limiter's own numbers.
+  logFor(c).log("ratelimit.rejected", {
+    level: "warn",
+    project_id: auth.projectId,
+    key_environment: auth.environment,
+    key_kind: auth.kind,
+    api_key_id: auth.apiKeyId,
+    limit: config.limit,
+    period: config.period,
+    retry_after: retryAfter,
+  });
   throw new ApiError(
     "rate_limited",
     `Rate limit of ${config.limit} requests per ${config.period} seconds reached for this ${auth.kind} key. Retry after ${retryAfter} seconds.`,

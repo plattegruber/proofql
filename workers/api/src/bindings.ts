@@ -10,6 +10,7 @@ import type {
   ApiKeyEnvironment,
   ApiKeyKind,
   IngestMessage,
+  Logger,
 } from "@proofql/core";
 import type { Db } from "@proofql/db";
 
@@ -74,6 +75,11 @@ export interface AuthContext {
 export interface AppVariables {
   /** Echoed as `x-request-id` on every response; in every error envelope. */
   requestId: string;
+  /**
+   * This request's structured logger, bound to `request_id`, `method`, and
+   * `path` (see src/request-id.ts). The only way route code logs.
+   */
+  log: Logger;
   /** Lazily opens the database for this request (see src/db.ts). */
   getDb: () => Db;
   /** Lazily resolves the query embedder for this request (see src/embedder.ts). */

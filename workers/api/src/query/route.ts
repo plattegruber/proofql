@@ -40,6 +40,17 @@
  * is logged and treated as a miss: the cache can slow the endpoint down,
  * never take it down.
  *
+ * ## Logging (#30; docs/observability.md)
+ *
+ * Exactly one `query.completed` line per answered query, hit or miss, with
+ * the knobs that shaped the result (`similarity_floor`, `min_rating`,
+ * `limit`, `mode`, `has_q`, `q_length`) and what came of them (`returned`,
+ * `cached`, `took_ms`, `embedding_ms`, `search_ms`) — the data the floor is
+ * tuned from. Never the query text, never an excerpt. Refused requests are
+ * one `query.rejected` line from `onError` (`../errors.ts`); an embedding
+ * outage is `query.embedding_failed`; a KV fault is `query.cache_error`.
+ * Every line carries `request_id` via the per-request logger.
+ *
  * ## Response
  *
  * ```json
@@ -64,13 +75,13 @@
  * `results` came from KV. (#42: copy this block into OpenAPI.)
  */
 
+import { readProjectGeneration } from "@proofql/core";
 import type { SearchFilters, SearchResult } from "@proofql/db";
 import { searchChunks } from "@proofql/db";
 import { type Context, type Handler, Hono } from "hono";
 
 import { lookupApiKey, presentedToken, requireQueryKey } from "../auth.js";
 import type { AppEnv } from "../bindings.js";
-import { readProjectGeneration } from "../cache-purge.js";
 import {
   applyCorsHeaders,
   corsOriginFor,
@@ -79,8 +90,8 @@ import {
 } from "../cors.js";
 import { waitUntil } from "../db.js";
 import { ApiError } from "../errors.js";
-import { log } from "../log.js";
 import { enforceQueryQuota, markCacheHit, queryQuota } from "../quota.js";
+import { logFor } from "../request-id.js";
 import {
   CACHE_HEADER,
   type CacheOutcome,
@@ -187,9 +198,12 @@ const handleQuery: Handler<AppEnv> = async (c) => {
   if (cache.hit !== null) {
     markCacheHit(c);
     const tookMs = Math.round(performance.now() - started);
-    logServed(c, request, policy, cache.hit.length, tookMs, {
-      cached: true,
-      embed_ms: 0,
+    logCompleted(c, request, policy, {
+      returned: cache.hit.length,
+      cached: cache.outcome,
+      took_ms: tookMs,
+      embedding_ms: 0,
+      search_ms: 0,
     });
     return respond(c, cache.hit, tookMs, true, cache.outcome);
   }
@@ -207,14 +221,13 @@ const handleQuery: Handler<AppEnv> = async (c) => {
       queryEmbedding = await c.get("getEmbedder")().embedText(request.q);
     } catch (error) {
       // No FTS-only fallback — see the module doc for why.
-      log("query.embedding_failed", {
-        request_id: c.get("requestId"),
+      logFor(c).log("query.embedding_failed", {
         project_id: auth.projectId,
-        environment: auth.environment,
-        error:
-          error instanceof Error
-            ? `${error.name}: ${error.message}`
-            : String(error),
+        key_environment: auth.environment,
+        key_kind: auth.kind,
+        q_length: request.q.length,
+        embedding_ms: Math.round(performance.now() - embedStarted),
+        error,
       });
       throw new ApiError(
         "embedding_unavailable",
@@ -225,6 +238,7 @@ const handleQuery: Handler<AppEnv> = async (c) => {
     embedMs = performance.now() - embedStarted;
   }
 
+  const searchStarted = performance.now();
   const rows = await searchChunks(c.get("getDb")(), {
     projectId: auth.projectId,
     environment: auth.environment,
@@ -235,6 +249,7 @@ const handleQuery: Handler<AppEnv> = async (c) => {
     filters: toSearchFilters(request.filters),
     mode: request.mode,
   });
+  const searchMs = performance.now() - searchStarted;
   const results = rows.map((r) => toResponseResult(r, request.mode));
 
   if (cache.key !== null) {
@@ -249,9 +264,12 @@ const handleQuery: Handler<AppEnv> = async (c) => {
   }
 
   const tookMs = Math.round(performance.now() - started);
-  logServed(c, request, policy, results.length, tookMs, {
-    cached: false,
-    embed_ms: Math.round(embedMs),
+  logCompleted(c, request, policy, {
+    returned: results.length,
+    cached: cache.outcome,
+    took_ms: tookMs,
+    embedding_ms: Math.round(embedMs),
+    search_ms: Math.round(searchMs),
   });
   return respond(c, results, tookMs, false, cache.outcome);
 };
@@ -274,7 +292,7 @@ async function lookupCache(
   const kv = c.env.CACHE;
   const fresh = wantsFresh(c.req.header("Cache-Control"));
   try {
-    const generation = await readProjectGeneration(c.env, auth.projectId);
+    const generation = await readProjectGeneration(kv, auth.projectId);
     const key = await cacheKey({
       projectId: auth.projectId,
       environment: auth.environment,
@@ -313,45 +331,54 @@ function respond(
   return c.json(body);
 }
 
-function logServed(
+/** What `query.completed` reports beyond the request's own knobs. */
+interface QueryOutcome {
+  returned: number;
+  cached: CacheOutcome;
+  took_ms: number;
+  embedding_ms: number;
+  search_ms: number;
+}
+
+/**
+ * The one line per answered query (module doc "Logging"). `q_length`
+ * stands in for the text; `similarity_floor` with `returned` is what the
+ * floor is tuned from (docs/observability.md).
+ */
+function logCompleted(
   c: Context<AppEnv>,
   request: QueryRequest,
   policy: { minRating: number; similarityFloor: number },
-  resultCount: number,
-  tookMs: number,
-  extra: { cached: boolean; embed_ms: number },
+  outcome: QueryOutcome,
 ): void {
   const auth = c.get("auth");
-  log("query.served", {
-    request_id: c.get("requestId"),
+  logFor(c).log("query.completed", {
     project_id: auth.projectId,
-    environment: auth.environment,
+    key_environment: auth.environment,
     key_kind: auth.kind,
-    method: c.req.method,
     mode: request.mode,
     has_q: request.q !== undefined,
+    q_length: request.q?.length ?? 0,
     limit: request.limit,
     min_rating: policy.minRating,
     similarity_floor: policy.similarityFloor,
-    result_count: resultCount,
-    took_ms: tookMs,
-    ...extra,
+    ...outcome,
   });
 }
 
+/** A KV fault is a slower request, not a failed one: warn, never error. */
 function logCacheError(
   c: Context<AppEnv>,
   op: "get" | "put",
   error: unknown,
 ): void {
-  log("query.cache_error", {
-    request_id: c.get("requestId"),
-    project_id: c.get("auth").projectId,
+  const auth = c.get("auth");
+  logFor(c).log("query.cache_error", {
+    level: "warn",
+    project_id: auth.projectId,
+    key_environment: auth.environment,
     op,
-    error:
-      error instanceof Error
-        ? `${error.name}: ${error.message}`
-        : String(error),
+    error,
   });
 }
 

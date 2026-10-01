@@ -4,10 +4,9 @@
  * Map-backed fake KV, and the `Cache-Control` parse. No database.
  */
 
+import { generationKey } from "@proofql/core";
 import { describe, expect, it } from "vitest";
-
 import { fakeKv } from "../../test/helpers.js";
-import { generationKey } from "../cache-purge.js";
 import {
   CACHE_TTL_SECONDS,
   cacheIdentity,
@@ -262,10 +261,9 @@ describe("wantsFresh", () => {
 describe("onProjectPolicyChanged", () => {
   it("bumps the project's generation, orphaning every key built on the old one", async () => {
     const kv = fakeKv();
-    const env = { CACHE: kv };
     const before = await keyFor({ q: "implants" }, { generation: 0 });
 
-    await expect(onProjectPolicyChanged(env, PROJECT)).resolves.toBe(1);
+    await expect(onProjectPolicyChanged(kv, PROJECT)).resolves.toBe(1);
     expect(kv.peek(generationKey(PROJECT))).toBe("1");
 
     const after = await keyFor({ q: "implants" }, { generation: 1 });

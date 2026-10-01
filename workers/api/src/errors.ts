@@ -12,13 +12,21 @@
  * Anything else that is thrown becomes a 500 `internal` whose body carries
  * the request id and nothing about the cause — stack traces and driver
  * messages never leave the worker.
+ *
+ * Logging (docs/observability.md): every `ApiError` is one
+ * `<route>.rejected` line (`query.rejected`, `reviews.rejected`, else
+ * `request.rejected`) with `code` and `status`, so 4xx rates per route and
+ * per code are a filter away; an unhandled error is one `request.failed`
+ * line at level error with the cause — the only place it is recorded.
  */
 
+import { errorFields } from "@proofql/core";
 import type { Context, ErrorHandler, NotFoundHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 import type { AppEnv } from "./bindings.js";
+import { logFor } from "./request-id.js";
 
 /** Base of every `doc_url`; placeholder domain until the docs site exists. */
 export const ERROR_DOCS_BASE_URL = "https://docs.proofql.com/errors";
@@ -140,16 +148,52 @@ function fromHttpException(error: HTTPException): ApiError {
   }
 }
 
+/** `query.rejected` for `/v1/query`, `reviews.rejected` for `/v1/reviews…`, else `request.rejected`. */
+export function rejectionEvent(path: string): string {
+  if (path === "/v1/query" || path.startsWith("/v1/query/")) {
+    return "query.rejected";
+  }
+  if (path === "/v1/reviews" || path.startsWith("/v1/reviews/")) {
+    return "reviews.rejected";
+  }
+  return "request.rejected";
+}
+
+/** One line per refused request (module doc). Auth fields when auth ran. */
+function logRejected(c: Context<AppEnv>, error: ApiError): void {
+  const auth = c.get("auth");
+  logFor(c).log(rejectionEvent(c.req.path), {
+    level: error.status >= 500 ? "error" : "warn",
+    code: error.code,
+    status: error.status,
+    ...(auth === undefined
+      ? {}
+      : {
+          project_id: auth.projectId,
+          key_environment: auth.environment,
+          key_kind: auth.kind,
+        }),
+  });
+}
+
 /** `app.onError(onError)`: `ApiError` → its envelope; anything else → 500. */
 export const onError: ErrorHandler<AppEnv> = (error, c) => {
-  if (error instanceof ApiError) return errorResponse(c, error);
-  if (error instanceof HTTPException) {
-    return errorResponse(c, fromHttpException(error));
+  if (error instanceof ApiError) {
+    logRejected(c, error);
+    return errorResponse(c, error);
   }
-  // Workers Logs capture console output per invocation; this is the one
-  // place the real cause is recorded. Nothing from it reaches the client.
-  // biome-ignore lint/suspicious/noConsole: deliberate server-side error log
-  console.error(`[${c.get("requestId")}] unhandled error`, error);
+  if (error instanceof HTTPException) {
+    const mapped = fromHttpException(error);
+    logRejected(c, mapped);
+    return errorResponse(c, mapped);
+  }
+  // The one place the real cause is recorded (Workers Logs); nothing from
+  // it reaches the client. The stack is kept here, and only here, because a
+  // 500 with no stack is undiagnosable — it never carries user content.
+  logFor(c).log("request.failed", {
+    error: errorFields(error),
+    stack: error instanceof Error ? error.stack?.slice(0, 2000) : undefined,
+  });
   return errorResponse(
     c,
     new ApiError(
@@ -159,9 +203,12 @@ export const onError: ErrorHandler<AppEnv> = (error, c) => {
   );
 };
 
-/** `app.notFound(notFound)`: unknown routes get the envelope too. */
-export const notFound: NotFoundHandler<AppEnv> = (c) =>
-  errorResponse(
-    c,
-    new ApiError("not_found", `No route for ${c.req.method} ${c.req.path}.`),
+/** `app.notFound(notFound)`: unknown routes get the envelope, and a `*.rejected` line, too. */
+export const notFound: NotFoundHandler<AppEnv> = (c) => {
+  const error = new ApiError(
+    "not_found",
+    `No route for ${c.req.method} ${c.req.path}.`,
   );
+  logRejected(c, error);
+  return errorResponse(c, error);
+};
