@@ -6,13 +6,13 @@
  */
 
 import { FakeEmbeddingProvider, FakeSentimentClassifier } from "@proofql/ai";
-import type { IngestMessage } from "@proofql/core";
+import { type IngestMessage, MemoryKv } from "@proofql/core";
 import { schema } from "@proofql/db";
 import { project, review, setupTestDb } from "@proofql/db/test";
 import { eq } from "drizzle-orm";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { MemoryKv } from "./cache.js";
+import { testLogger } from "../test/log.js";
 import { indexReview, type ReviewRow } from "./index-review.js";
 import {
   DEFAULT_MAX_INDEX_ATTEMPTS,
@@ -66,9 +66,9 @@ async function reload(reviewId: string): Promise<ReviewRow> {
 }
 
 function sweep(queue: FakeQueue, options: { limit?: number } = {}) {
-  const log = vi.fn();
+  const { log, out } = testLogger();
   return {
-    log,
+    out,
     run: () =>
       sweepUnindexed(
         { db: t.db, queue, log },
@@ -84,7 +84,7 @@ describe("sweepUnindexed", () => {
     const hidden = await stale({ hiddenAt: new Date() });
     const indexed = await stale({ indexedAt: minutesAgo(9) });
     const queue = new FakeQueue();
-    const { run, log } = sweep(queue);
+    const { run, out } = sweep(queue);
 
     const result = await run();
 
@@ -101,11 +101,17 @@ describe("sweepUnindexed", () => {
     for (const r of [fresh, hidden, indexed]) {
       expect((await reload(r.id)).indexAttempts).toBe(0);
     }
-    expect(log).toHaveBeenCalledWith(
-      "sweep.completed",
-      expect.objectContaining({ enqueued: 1, exhausted: 0, batches: 1 }),
-    );
-    expect(log).not.toHaveBeenCalledWith("sweep.exhausted", expect.anything());
+    expect(out.only("sweep.completed")).toMatchObject({
+      service: "pipeline",
+      level: "info",
+      older_than_minutes: 5,
+      limit: 500,
+      enqueued: 1,
+      exhausted: 0,
+      batches: 1,
+      review_ids: [stuck.id],
+    });
+    expect(out.find("sweep.exhausted")).toEqual([]);
   });
 
   it("skips a review at the attempt cap and warns with its id; one below the cap is sent", async () => {
@@ -116,7 +122,7 @@ describe("sweepUnindexed", () => {
       indexAttempts: DEFAULT_MAX_INDEX_ATTEMPTS - 1,
     });
     const queue = new FakeQueue();
-    const { run, log } = sweep(queue);
+    const { run, out } = sweep(queue);
 
     const result = await run();
 
@@ -128,15 +134,12 @@ describe("sweepUnindexed", () => {
     expect((await reload(lastChance.id)).indexAttempts).toBe(
       DEFAULT_MAX_INDEX_ATTEMPTS,
     );
-    expect(log).toHaveBeenCalledWith(
-      "sweep.exhausted",
-      expect.objectContaining({
-        level: "warn",
-        count: 1,
-        reviewIds: [exhausted.id],
-        maxAttempts: DEFAULT_MAX_INDEX_ATTEMPTS,
-      }),
-    );
+    expect(out.only("sweep.exhausted")).toMatchObject({
+      level: "warn",
+      count: 1,
+      review_ids: [exhausted.id],
+      max_attempts: DEFAULT_MAX_INDEX_ATTEMPTS,
+    });
 
     // Next tick: the one that just hit the cap is now exhausted too.
     const again = await run();
@@ -156,7 +159,7 @@ describe("sweepUnindexed", () => {
         classifier: new FakeSentimentClassifier(),
         embedder: new FakeEmbeddingProvider(),
         cache: new MemoryKv(),
-        log: vi.fn(),
+        log: testLogger().log,
       },
       {
         type: "review.index",

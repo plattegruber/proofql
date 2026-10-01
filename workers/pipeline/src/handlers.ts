@@ -24,6 +24,14 @@
  * - Messages are processed sequentially within a batch. Batches are small
  *   (max 10) and the work is per-review; ordering is deterministic and a
  *   failure never affects a sibling's ack/retry decision.
+ *
+ * Logging (#30; docs/observability.md): the batch's logger is the worker's
+ * base logger (`@proofql/core` `createLogger`, service `pipeline`). Every
+ * message gets a child bound to `queue`, `message_id`, `attempt`, and —
+ * once the body parses — `review_id`, `project_id`, `environment`, so the
+ * `review.indexed` line the indexer emits and the `ingest.message.*`
+ * decision here share those fields without passing them around. Filtering
+ * on one `message_id` shows one delivery end to end.
  */
 
 import {
@@ -34,7 +42,12 @@ import {
   FakeSentimentClassifier,
   type SentimentClassifier,
 } from "@proofql/ai";
-import { type IngestMessage, ingestMessageSchema } from "@proofql/core";
+import {
+  createLogger,
+  type IngestMessage,
+  ingestMessageSchema,
+  type Logger,
+} from "@proofql/core";
 import { createDb } from "@proofql/db";
 
 import type { PipelineBindings } from "./bindings.js";
@@ -43,7 +56,6 @@ import {
   type IndexOutcome,
   indexReview,
 } from "./index-review.js";
-import { log as defaultLog, errorFields } from "./log.js";
 import { type SweepResult, sweepUnindexed } from "./sweep.js";
 
 /** The subset of a Queues `Message` the handler reads and decides on. */
@@ -74,20 +86,19 @@ export async function handleQueueBatch(
   ctx: QueueContext,
   options: QueueHandlerOptions = {},
 ): Promise<void> {
-  const log = ctx.log ?? defaultLog;
   const index = options.index ?? indexReview;
 
   for (const message of batch.messages) {
-    const base = {
+    const delivery = ctx.log.child({
       queue: batch.queue,
-      messageId: message.id,
-      attempts: message.attempts,
-    };
+      message_id: message.id,
+      attempt: message.attempts,
+    });
 
     const parsed = ingestMessageSchema.safeParse(message.body);
     if (!parsed.success) {
-      log("ingest.message.invalid", {
-        ...base,
+      delivery.log("ingest.message.invalid", {
+        level: "warn",
         issues: parsed.error.issues.map((issue) => ({
           path: issue.path.join("."),
           message: issue.message,
@@ -97,19 +108,36 @@ export async function handleQueueBatch(
       continue;
     }
 
+    const log = delivery.child({
+      review_id: parsed.data.reviewId,
+      project_id: parsed.data.projectId,
+      environment: parsed.data.environment,
+    });
     try {
-      const outcome = await index(ctx, parsed.data);
-      log("ingest.message.processed", { ...base, ...outcome });
+      const outcome = await index({ ...ctx, log }, parsed.data);
+      log.log("ingest.message.processed", outcomeFields(outcome));
       message.ack();
     } catch (error) {
-      log("ingest.message.failed", {
-        ...base,
-        reviewId: parsed.data.reviewId,
-        error: errorFields(error),
-      });
+      log.log("ingest.message.failed", { error });
       message.retry({ delaySeconds: retryDelaySeconds(message.attempts) });
     }
   }
+}
+
+/** An outcome as snake_case log fields (`review_id` is already bound). */
+function outcomeFields(outcome: IndexOutcome): Record<string, unknown> {
+  if (outcome.status === "skipped") {
+    return { status: outcome.status, reason: outcome.reason };
+  }
+  return {
+    status: outcome.status,
+    chunks: outcome.chunks,
+    windows: outcome.windows,
+    embedded: outcome.embedded,
+    newly_indexed: outcome.newlyIndexed,
+    sentiment: outcome.sentiment,
+    sentiment_source: outcome.sentimentSource,
+  };
 }
 
 /** First retry after 30s; doubles per attempt; never more than five minutes. */
@@ -131,15 +159,20 @@ export function retryDelaySeconds(attempts: number): number {
 }
 
 /**
- * Workers AI when bound (preview/prod), the deterministic fake otherwise
- * (local dev and CI have no `AI` binding — infra/environments.md).
+ * distilbert over Workers AI when bound (preview/prod). Locally — and only
+ * locally — the deterministic fake stands in (#81: the same rule as
+ * `createEmbedder`, for the same reason). The classifier only decides the
+ * sentiment of *unrated* reviews, so a fake in production would be quieter
+ * than fake vectors — but it would still publish or hide real reviews on a
+ * lexicon's say-so, silently, which is exactly the kind of drift a missing
+ * binding must not be allowed to cause.
  */
 export function createClassifier(
-  env: Pick<PipelineBindings, "AI">,
+  env: Pick<PipelineBindings, "AI" | "ENVIRONMENT">,
 ): SentimentClassifier {
-  return env.AI
-    ? createWorkersAiSentimentClassifier(env.AI)
-    : new FakeSentimentClassifier();
+  if (env.AI) return createWorkersAiSentimentClassifier(env.AI);
+  if (env.ENVIRONMENT === "local") return new FakeSentimentClassifier();
+  throw missingAiBinding(env.ENVIRONMENT);
 }
 
 /**
@@ -154,17 +187,28 @@ export function createEmbedder(
 ): EmbeddingProvider {
   if (env.AI) return createWorkersAiEmbedder(env.AI);
   if (env.ENVIRONMENT === "local") return new FakeEmbeddingProvider();
-  throw new Error(
-    `AI binding is not bound in environment "${env.ENVIRONMENT}" — add it to wrangler.jsonc (infra/environments.md)`,
+  throw missingAiBinding(env.ENVIRONMENT);
+}
+
+function missingAiBinding(environment: string): Error {
+  return new Error(
+    `AI binding is not bound in environment "${environment}" — add it to wrangler.jsonc (infra/environments.md)`,
   );
+}
+
+/** The worker's base logger for an invocation. */
+export function createPipelineLogger(
+  env: Pick<PipelineBindings, "ENVIRONMENT">,
+): Logger {
+  return createLogger({ service: "pipeline", environment: env.ENVIRONMENT });
 }
 
 /**
  * Wire a batch's dependencies from the worker `env`: a fresh database client
  * (per invocation, as Hyperdrive wants), the classifier, the embedder (once
- * per batch, shared by every message in it), and the KV cache. The caller
- * must `close()` once the batch is handled so the isolate does not leak
- * sockets.
+ * per batch, shared by every message in it), the KV cache, and the logger.
+ * The caller must `close()` once the batch is handled so the isolate does
+ * not leak sockets.
  */
 export function createQueueContext(env: PipelineBindings): {
   ctx: QueueContext;
@@ -177,6 +221,7 @@ export function createQueueContext(env: PipelineBindings): {
       classifier: createClassifier(env),
       embedder: createEmbedder(env),
       cache: env.CACHE,
+      log: createPipelineLogger(env),
     },
     close: () => sql.end(),
   };
@@ -192,12 +237,16 @@ export const SWEEP_LIMIT = 500;
  * queue handler does, and closes it when the sweep is done.
  */
 export async function handleScheduled(
-  env: Pick<PipelineBindings, "HYPERDRIVE" | "INGEST_QUEUE">,
+  env: Pick<PipelineBindings, "HYPERDRIVE" | "INGEST_QUEUE" | "ENVIRONMENT">,
 ): Promise<SweepResult> {
   const { db, sql } = createDb(env.HYPERDRIVE.connectionString);
   try {
     return await sweepUnindexed(
-      { db, queue: env.INGEST_QUEUE },
+      {
+        db,
+        queue: env.INGEST_QUEUE,
+        log: createPipelineLogger(env).child({ trigger: "cron" }),
+      },
       { olderThanMinutes: SWEEP_OLDER_THAN_MINUTES, limit: SWEEP_LIMIT },
     );
   } finally {

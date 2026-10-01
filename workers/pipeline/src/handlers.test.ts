@@ -5,11 +5,15 @@ import {
   FakeEmbeddingProvider,
   FakeSentimentClassifier,
 } from "@proofql/ai";
-import type { IngestMessage } from "@proofql/core";
+import {
+  type IngestMessage,
+  MemoryKv,
+  type RecordingSink,
+} from "@proofql/core";
 import type { Db } from "@proofql/db";
 import { describe, expect, it, vi } from "vitest";
 
-import { MemoryKv } from "./cache.js";
+import { testLogger } from "../test/log.js";
 import {
   createClassifier,
   createEmbedder,
@@ -36,13 +40,15 @@ function fakeMessage(body: unknown, id = "m1"): QueueMessage {
 }
 
 /** A context whose `db` is never touched: the indexer is always substituted. */
-function fakeContext(): QueueContext & { log: ReturnType<typeof vi.fn> } {
+function fakeContext(): QueueContext & { out: RecordingSink } {
+  const { log, out } = testLogger();
   return {
     db: {} as Db,
     classifier: new FakeSentimentClassifier(),
     embedder: new FakeEmbeddingProvider(),
     cache: new MemoryKv(),
-    log: vi.fn(),
+    log,
+    out,
   };
 }
 
@@ -69,13 +75,63 @@ describe("handleQueueBatch", () => {
       { index },
     );
 
-    expect(index).toHaveBeenCalledWith(ctx, validBody);
+    // The indexer gets the caller's context with a per-message child logger.
+    expect(index).toHaveBeenCalledWith(
+      expect.objectContaining({ db: ctx.db, cache: ctx.cache }),
+      validBody,
+    );
     expect(message.ack).toHaveBeenCalledOnce();
     expect(message.retry).not.toHaveBeenCalled();
-    expect(ctx.log).toHaveBeenCalledWith(
-      "ingest.message.processed",
-      expect.objectContaining({ messageId: "m1", status: "indexed" }),
+    expect(ctx.out.only("ingest.message.processed")).toMatchObject({
+      service: "pipeline",
+      level: "info",
+      queue: "proofql-ingest",
+      message_id: "m1",
+      attempt: 1,
+      review_id: REVIEW_ID,
+      project_id: PROJECT_ID,
+      environment: "live",
+      status: "indexed",
+      chunks: 1,
+      newly_indexed: true,
+      sentiment_source: "rating",
+    });
+  });
+
+  it("binds the message to the indexer's logger, so review.indexed carries message_id", async () => {
+    const ctx = fakeContext();
+    const index = vi.fn(async (c: QueueContext) => {
+      c.log.log("review.indexed", { chunks: 2 });
+      return indexed;
+    });
+    const message: QueueMessage = {
+      ...fakeMessage(validBody, "m9"),
+      attempts: 3,
+    };
+
+    await handleQueueBatch(
+      { queue: "proofql-ingest", messages: [message] },
+      ctx,
+      { index },
     );
+
+    expect(ctx.out.only("review.indexed")).toMatchObject({
+      queue: "proofql-ingest",
+      message_id: "m9",
+      attempt: 3,
+      review_id: REVIEW_ID,
+      project_id: PROJECT_ID,
+      environment: "live",
+      chunks: 2,
+    });
+    // The context the indexer received is the caller's plus the child logger.
+    expect(index.mock.calls[0]?.[0]).toMatchObject({
+      db: ctx.db,
+      cache: ctx.cache,
+    });
+    expect(index.mock.calls[0]?.[0].log.bindings).toMatchObject({
+      message_id: "m9",
+    });
   });
 
   it("acks (never retries) a message that fails validation, and logs why", async () => {
@@ -99,11 +155,12 @@ describe("handleQueueBatch", () => {
       expect(message.ack).toHaveBeenCalledOnce();
       expect(message.retry).not.toHaveBeenCalled();
     }
-    expect(ctx.log).toHaveBeenCalledTimes(messages.length);
-    expect(ctx.log).toHaveBeenCalledWith(
-      "ingest.message.invalid",
+    expect(ctx.out.records).toHaveLength(messages.length);
+    expect(ctx.out.find("ingest.message.invalid")).toContainEqual(
       expect.objectContaining({
-        messageId: "m1",
+        level: "warn",
+        message_id: "m1",
+        attempt: 1,
         issues: [expect.objectContaining({ path: "environment" })],
       }),
     );
@@ -123,13 +180,12 @@ describe("handleQueueBatch", () => {
     expect(message.retry).toHaveBeenCalledOnce();
     expect(message.retry).toHaveBeenCalledWith({ delaySeconds: 30 });
     expect(message.ack).not.toHaveBeenCalled();
-    expect(ctx.log).toHaveBeenCalledWith(
-      "ingest.message.failed",
-      expect.objectContaining({
-        reviewId: REVIEW_ID,
-        error: { name: "Error", message: "connection reset" },
-      }),
-    );
+    expect(ctx.out.only("ingest.message.failed")).toMatchObject({
+      level: "error",
+      message_id: "m1",
+      review_id: REVIEW_ID,
+      error: { name: "Error", message: "connection reset" },
+    });
   });
 
   it("retries embedding-provider errors with a longer delay on later attempts", async () => {
@@ -150,13 +206,10 @@ describe("handleQueueBatch", () => {
 
     expect(message.retry).toHaveBeenCalledWith({ delaySeconds: 60 });
     expect(message.ack).not.toHaveBeenCalled();
-    expect(ctx.log).toHaveBeenCalledWith(
-      "ingest.message.failed",
-      expect.objectContaining({
-        attempts: 2,
-        error: expect.objectContaining({ name: "AiResponseError" }),
-      }),
-    );
+    expect(ctx.out.only("ingest.message.failed")).toMatchObject({
+      attempt: 2,
+      error: expect.objectContaining({ name: "AiResponseError" }),
+    });
   });
 
   it("decides per message, in order: one failure does not affect its siblings", async () => {
@@ -214,7 +267,7 @@ describe("handleQueueBatch", () => {
         index: vi.fn(),
       }),
     ).resolves.toBeUndefined();
-    expect(ctx.log).not.toHaveBeenCalled();
+    expect(ctx.out.records).toEqual([]);
   });
 });
 
@@ -255,13 +308,26 @@ describe("createEmbedder", () => {
 });
 
 describe("createClassifier", () => {
-  it("uses the deterministic fake when AI is not bound (local, CI)", () => {
-    expect(createClassifier({})).toBeInstanceOf(FakeSentimentClassifier);
+  it("uses the deterministic fake only when AI is unbound in local", () => {
+    expect(createClassifier({ ENVIRONMENT: "local" })).toBeInstanceOf(
+      FakeSentimentClassifier,
+    );
   });
 
-  it("uses Workers AI distilbert when AI is bound", () => {
+  it("throws when AI is unbound outside local — the same rule as the embedder (#81)", () => {
+    for (const ENVIRONMENT of ["preview", "prod", "staging", ""]) {
+      expect(() => createClassifier({ ENVIRONMENT })).toThrow(
+        /AI binding is not bound/,
+      );
+    }
+  });
+
+  it("uses Workers AI distilbert when AI is bound, whatever the environment", () => {
     const run = vi.fn();
-    const classifier = createClassifier({ AI: { run } as unknown as Ai });
+    const classifier = createClassifier({
+      ENVIRONMENT: "prod",
+      AI: { run } as unknown as Ai,
+    });
 
     expect(classifier.model).toBe(DISTILBERT_SST2_MODEL);
     expect(classifier).not.toBeInstanceOf(FakeSentimentClassifier);
