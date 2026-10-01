@@ -23,6 +23,9 @@ export default [
     route("app/projects/:slug", "routes/app.projects.$slug.tsx", [
       index("routes/app.projects.$slug._index.tsx"),
       route("reviews", "routes/app.projects.$slug.reviews.tsx"),
+      // Review detail (#39); a sibling, not a child, so the table does not
+      // render above it — the Reviews tab stays active by prefix.
+      route("reviews/:id", "routes/app.projects.$slug.reviews.$id.tsx"),
       route("playground", "routes/app.projects.$slug.playground.tsx"),
       route("keys", "routes/app.projects.$slug.keys.tsx"),
       route("settings", "routes/app.projects.$slug.settings.tsx"),
