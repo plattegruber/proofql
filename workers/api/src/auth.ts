@@ -28,6 +28,10 @@
  * ride. Secret keys are never accepted from the URL: URLs land in logs and
  * referrers. The Authorization header wins when both are present.
  *
+ * Once the key is known the request is counted against its per-key rate
+ * limit (`enforceRateLimit`, src/rate-limit.ts) — here rather than per
+ * route, so no route can forget it.
+ *
  * `last_used_at` is refreshed at most once per key per minute, after the
  * response, via `waitUntil` — a dashboard hint, never on the hot path.
  */
@@ -41,6 +45,7 @@ import { createMiddleware } from "hono/factory";
 import type { AppEnv, AuthContext } from "./bindings.js";
 import { waitUntil } from "./db.js";
 import { ApiError } from "./errors.js";
+import { enforceRateLimit } from "./rate-limit.js";
 
 /** How stale `last_used_at` may be before a request refreshes it. */
 export const LAST_USED_REFRESH_MS = 60_000;
@@ -206,6 +211,7 @@ export function requireApiKey(options: RequireApiKeyOptions = {}) {
       throw new ApiError("unauthorized", "Unknown or revoked API key.");
     }
     c.set("auth", found.auth);
+    await enforceRateLimit(c);
 
     const now = Date.now();
     if (

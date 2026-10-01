@@ -53,12 +53,18 @@ identical across workers and environments.
 | `INGEST_QUEUE` | Queue producer    | yes      | —        | —         | `proofql-ingest` (Miniflare)                       | `proofql-ingest-<env>`                           |
 | (consumer)     | Queue consumer    | —        | yes      | —         | `proofql-ingest`, DLQ `proofql-ingest-dlq`         | `proofql-ingest-<env>`, DLQ `proofql-ingest-dlq-<env>` |
 | `AI`           | Workers AI        | yes      | yes      | —         | **not bound** — no simulator; code must treat `env.AI` as optional and use the deterministic fake provider | account-level, no id |
+| `RL_SECRET`    | Rate limit        | yes      | —        | —         | Miniflare simulator, 300 req / 60 s per key        | namespace `1001`, 300 req / 60 s per key         |
+| `RL_PUBLISHABLE` | Rate limit      | yes      | —        | —         | Miniflare simulator, 120 req / 60 s per key        | namespace `1002`, 120 req / 60 s per key         |
 | `ENVIRONMENT`  | var               | yes      | yes      | yes       | `"local"`                                          | `"preview"` / `"prod"`                           |
+| `RATE_LIMITS`  | var (optional)    | yes      | —        | —         | unset                                              | unset; JSON override of the advertised per-kind limits, must mirror the `ratelimits` entries when set |
 | `API_URL`      | var               | —        | —        | yes       | `http://localhost:8797`                            | the api worker's public origin                   |
 
 Why the split: the api embeds queries (AI), reads/writes Postgres (HYPERDRIVE),
-serves from and fills the cache (CACHE), and enqueues ingested reviews
-(INGEST_QUEUE). The pipeline consumes the queue, embeds and classifies (AI),
+serves from and fills the cache (CACHE), enqueues ingested reviews
+(INGEST_QUEUE), and counts requests per API key (RL_SECRET / RL_PUBLISHABLE —
+`namespace_id` is an account-unique integer we pick, nothing is provisioned;
+code treats both as optional and falls back to an in-memory limiter, see
+`workers/api/src/rate-limit.ts`). The pipeline consumes the queue, embeds and classifies (AI),
 writes Postgres, and purges the cache for the project it just indexed. The
 dashboard reads/writes Postgres for projects, keys, and policy, and purges the
 cache on policy change; it never embeds.

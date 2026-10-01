@@ -4,7 +4,10 @@
  * one with `createApp({ db })` and drive it with `app.request()` under Node.
  *
  * Middleware order matters: request id first (every response, including
- * errors, carries one), then lazy database access, then routes.
+ * errors, carries one), then lazy database access, then the rate limiters
+ * (installed here, enforced by `requireApiKey` once the key is known), then
+ * routes. The monthly query quota (src/quota.ts) is route-level middleware
+ * on `/v1/query`, mounted after that route's auth.
  */
 
 import type { EmbeddingProvider } from "@proofql/ai";
@@ -26,6 +29,14 @@ import {
 } from "./embedder.js";
 import { notFound, onError } from "./errors.js";
 import { queryRoutes } from "./query/route.js";
+import {
+  bindingProvider,
+  injectedProvider as injectedRateLimiters,
+  type RateLimiter,
+  type RateLimiterProvider,
+  type RateLimiters,
+  rateLimitMiddleware,
+} from "./rate-limit.js";
 import { requestId } from "./request-id.js";
 import { reviewsRoutes } from "./routes/reviews.js";
 import { reviewsCrudRoutes } from "./routes/reviews-crud.js";
@@ -39,6 +50,10 @@ export interface CreateAppOptions {
   embedder?: EmbeddingProvider;
   /** Full control over how a request obtains its embedder. */
   embedderProvider?: EmbedderProvider;
+  /** Tests: use this limiter (one for both kinds, or one per kind). */
+  rateLimiter?: RateLimiter | Partial<RateLimiters>;
+  /** Full control over how a request obtains its rate limiters. */
+  rateLimiterProvider?: RateLimiterProvider;
 }
 
 export function createApp(options: CreateAppOptions = {}): Hono<AppEnv> {
@@ -49,6 +64,11 @@ export function createApp(options: CreateAppOptions = {}): Hono<AppEnv> {
   const embedder =
     options.embedderProvider ??
     (options.embedder ? injectedEmbedder(options.embedder) : workersAiEmbedder);
+  const rateLimiters =
+    options.rateLimiterProvider ??
+    (options.rateLimiter
+      ? injectedRateLimiters(options.rateLimiter)
+      : bindingProvider);
 
   const app = new Hono<AppEnv>();
   app.onError(onError);
@@ -56,6 +76,7 @@ export function createApp(options: CreateAppOptions = {}): Hono<AppEnv> {
   app.use(requestId);
   app.use(dbMiddleware(provider));
   app.use(embedderMiddleware(embedder));
+  app.use(rateLimitMiddleware(rateLimiters));
 
   app.get("/health", (c) => c.json({ ok: true }));
   app.route("/v1/reviews", reviewsRoutes);
