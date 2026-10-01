@@ -114,7 +114,7 @@ node scripts/check-provisioning.mjs | grep -c kv_namespaces     # expect 0
 **Rollback:** `wrangler kv namespace delete --namespace-id <id>` (empty
 namespaces, nothing lost).
 
-## 4. Queues
+## 4. Queues and R2
 
 Four queues: the ingest queue and its dead-letter queue, per environment.
 Names are already in the configs (api produces, pipeline consumes), so there
@@ -144,6 +144,30 @@ Four queues, zero consumers (consumers appear after step 11).
 **Rollback:** `$W queues delete <name>` (fails while a consumer is attached;
 deploy-time consumers go away with `wrangler delete --env <env>` from
 `workers/pipeline`).
+
+### R2 bucket for uploads
+
+The dashboard stores uploaded review exports (CSV import, #38) in an R2
+bucket per environment — the `UPLOADS` binding, referenced by name, so
+again nothing to paste:
+
+```sh
+$W r2 bucket create proofql-uploads-preview
+$W r2 bucket create proofql-uploads-prod
+```
+
+Objects live under `uploads/<projectId>/<ingestRunId>.<csv|json>` with the
+import's mapping and error report beside them; nothing is public. (R2 needs
+to be enabled once on the account: Dashboard → R2 → "Purchase R2" — the
+free tier covers this.)
+
+**Verify**
+
+```sh
+$W r2 bucket list
+```
+
+**Rollback:** `$W r2 bucket delete <name>` (must be empty).
 
 ## 5. workers.dev subdomain
 
@@ -271,6 +295,7 @@ Resources"):
 | --- | --- | --- |
 | Workers Scripts | Edit | `wrangler deploy` |
 | Workers KV Storage | Edit | the `CACHE` binding |
+| Workers R2 Storage | Edit | the dashboard's `UPLOADS` bucket binding |
 | Queues | Edit | attaching the pipeline consumer at deploy |
 | Hyperdrive | Edit | the `HYPERDRIVE` binding (Read is enough for deploy; Edit lets a future workflow rotate the Neon string) |
 | Workers AI | Read | the `AI` binding |
@@ -445,6 +470,7 @@ watch it, then approve `deploy-prod`. Smoke-check
 ## Done when
 
 - [ ] `node scripts/check-provisioning.mjs` prints `All bindings provisioned.`
+- [ ] `$W r2 bucket list` shows `proofql-uploads-preview` and `proofql-uploads-prod`
 - [ ] `gh secret list` shows the three repository secrets; `--env production` shows the fourth
 - [ ] `/health` on preview api and pipeline returns `{"ok":true}` from the workers.dev URLs
 - [ ] `DEPLOY_ENABLED=true` and one green manual run of `deploy.yml` for preview

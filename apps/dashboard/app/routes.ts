@@ -29,6 +29,18 @@ export default [
       route("playground", "routes/app.projects.$slug.playground.tsx"),
       route("keys", "routes/app.projects.$slug.keys.tsx"),
       route("settings", "routes/app.projects.$slug.settings.tsx"),
+      // CSV / JSON import (#38): upload → map columns → run/result (+ the
+      // error report as a resource route).
+      route("import", "routes/app.projects.$slug.import._index.tsx"),
+      route(
+        "import/:runId/map",
+        "routes/app.projects.$slug.import.$runId.map.tsx",
+      ),
+      route("import/:runId", "routes/app.projects.$slug.import.$runId.tsx"),
+      route(
+        "import/:runId/errors.csv",
+        "routes/app.projects.$slug.import.$runId.errors.ts",
+      ),
     ]),
   ]),
   // Resource routes (no component).

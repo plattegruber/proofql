@@ -48,6 +48,7 @@ export default function ProjectShell({ loaderData }: Route.ComponentProps) {
         className="mb-6"
         tabs={[
           { to: `${base}/reviews`, label: "Reviews" },
+          { to: `${base}/import`, label: "Import" },
           { to: `${base}/playground`, label: "Playground" },
           { to: `${base}/keys`, label: "Keys" },
           { to: `${base}/settings`, label: "Settings" },
