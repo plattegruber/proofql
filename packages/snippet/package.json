@@ -3,21 +3,18 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
-    }
-  },
+  "description": "The embeddable ProofQL snippet: one script tag renders relevant reviews on any site.",
   "scripts": {
-    "build": "tsc",
-    "test": "vitest run",
+    "build": "node scripts/build.mjs",
+    "size": "node scripts/size.mjs",
+    "test": "vitest run && pnpm size",
     "lint": "biome check .",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@proofql/tsconfig": "workspace:*",
+    "esbuild": "^0.25.12",
+    "jsdom": "^30.1.1",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   }
