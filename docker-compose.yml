@@ -1,0 +1,42 @@
+# Local development Postgres (with pgvector).
+#
+# Managed for you by `pnpm run setup` (scripts/setup.sh); manual controls:
+#   docker compose up -d --wait   # start and block until healthy
+#   docker compose down           # stop (data survives in the named volume)
+#   docker compose down -v        # stop AND wipe the data volume
+#
+# Canonical local connection string (used verbatim in docs, .env.example files,
+# wrangler.jsonc, and test config — change it here, change it everywhere):
+#   postgres://proofql:proofql@localhost:54323/proofql
+#
+# No `version:` key — it is obsolete in compose v2.
+# Explicit project name so container/volume names don't depend on the
+# checkout directory (worktrees, renamed clones).
+name: proofql
+
+services:
+  db:
+    # Exact image matters: plain `postgres:16` lacks the pgvector extension,
+    # which the first migration enables (CREATE EXTENSION vector).
+    image: pgvector/pgvector:pg16
+    ports:
+      # Deliberately non-default host port so we never collide with a system
+      # Postgres (5432) or another project's compose file (well-regarded
+      # uses 54322).
+      - "54323:5432"
+    environment:
+      # Local-only credentials; fine to commit.
+      POSTGRES_USER: proofql
+      POSTGRES_PASSWORD: proofql
+      POSTGRES_DB: proofql
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      # `docker compose up --wait` blocks on this, so setup scripts can rely
+      # on readiness instead of sleeping.
+      test: ["CMD-SHELL", "pg_isready -U proofql -d proofql"]
+      interval: 2s
+      retries: 15
+
+volumes:
+  db-data:

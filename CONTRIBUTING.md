@@ -19,7 +19,7 @@ Two levels, from cheapest to most expensive.
 | Level | How to run |
 |---|---|
 | Unit | `pnpm test` — Vitest, colocated `*.test.ts` files in every workspace; excludes `*.integration.test.ts`; needs no services |
-| Integration | `pnpm test:integration` — Vitest against a real local Postgres (docker compose, #11); file convention `*.integration.test.ts`; harness arrives with the `db` package (#15) |
+| Integration | `pnpm test:integration` — Vitest against the real local Postgres from `pnpm run setup` (docker compose); set `DATABASE_URL=postgres://proofql:proofql@localhost:54323/proofql` (the root `.env.example` carries it); file convention `*.integration.test.ts`; harness arrives with the `db` package (#15) |
 
 The split is by file glob and nothing else:
 
