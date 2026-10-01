@@ -1,20 +1,27 @@
 /**
- * The DoD check for #15: the migration applies to a brand-new database, and
- * running it again is a no-op (drizzle records applied migrations by hash).
+ * The DoD check for #15: every migration applies to a brand-new database, and
+ * running them again is a no-op (drizzle records applied migrations by hash).
  * This bypasses the template on purpose — the template proves the warm
  * path, this proves `pnpm db:migrate` against an empty server.
  */
 
+import { readdirSync } from "node:fs";
+
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { runMigrations } from "../scripts/migrate.js";
+import { MIGRATIONS_DIR, runMigrations } from "../scripts/migrate.js";
 import { withMaintenance } from "./harness.js";
 import {
   assertSafeIdentifier,
   requireDatabaseUrl,
   withDatabase,
 } from "./support.js";
+
+/** Every `*.sql` in the migrations folder; the migrator must apply them all. */
+const MIGRATION_COUNT = readdirSync(MIGRATIONS_DIR).filter((f) =>
+  f.endsWith(".sql"),
+).length;
 
 describe("scripts/migrate.ts against a fresh database", () => {
   const databaseUrl = requireDatabaseUrl();
@@ -36,7 +43,7 @@ describe("scripts/migrate.ts against a fresh database", () => {
     });
   });
 
-  it("applies 0001 to an empty database and is idempotent on re-run", async () => {
+  it("applies every migration to an empty database and is idempotent on re-run", async () => {
     await runMigrations(freshUrl);
     await runMigrations(freshUrl); // second run: nothing to do, no error
 
@@ -45,7 +52,7 @@ describe("scripts/migrate.ts against a fresh database", () => {
       const [applied] = await sql<{ n: number }[]>`
         SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations
       `;
-      expect(applied?.n).toBe(1);
+      expect(applied?.n).toBe(MIGRATION_COUNT);
 
       const [ext] = await sql`
         SELECT extname FROM pg_extension WHERE extname = 'vector'

@@ -1,6 +1,6 @@
 /**
  * Schema-level constraints from scope.md §4, exercised against the real
- * migration: the reviews upsert key, cascades, the verbatim-slice invariant
+ * migrations: project slugs unique per account, the reviews upsert key, cascades, the verbatim-slice invariant
  * at the write path, environment and project isolation, the halfvec
  * roundtrip with cosine distance, the generated tsvector, and the usage
  * primary key.
@@ -15,6 +15,7 @@ import { reviews } from "../src/schema/reviews.js";
 import { projects } from "../src/schema/tenancy.js";
 import { usage } from "../src/schema/usage.js";
 import {
+  account,
   apiKey,
   chunk,
   DEFAULT_REVIEW_TEXT,
@@ -28,6 +29,42 @@ import {
   setupTestDb,
   UNIQUE_VIOLATION,
 } from "./harness.js";
+
+describe("projects: unique (account_id, slug) — per account, not global (#63)", () => {
+  const t = setupTestDb();
+
+  it("lets two accounts use the same slug", async () => {
+    const a = await account(t.db);
+    const b = await account(t.db);
+    await project(t.db, { accountId: a.id, slug: "website" });
+    await project(t.db, { accountId: b.id, slug: "website" });
+    const rows = await t.db
+      .select()
+      .from(projects)
+      .where(eq(projects.slug, "website"));
+    expect(rows.map((p) => p.accountId).sort()).toEqual([a.id, b.id].sort());
+  });
+
+  it("rejects the same slug twice within one account", async () => {
+    const a = await account(t.db);
+    await project(t.db, { accountId: a.id, slug: "website" });
+    const { code, message } = await pgError(
+      project(t.db, { accountId: a.id, slug: "website" }),
+    );
+    expect(code).toBe(UNIQUE_VIOLATION);
+    expect(message).toContain("projects_account_id_slug_unique");
+  });
+
+  it("no longer carries the global projects_slug_unique constraint", async () => {
+    const rows = await t.sql<{ conname: string }[]>`
+      SELECT conname FROM pg_constraint
+      WHERE conrelid = 'projects'::regclass AND contype = 'u'
+    `;
+    expect(rows.map((r) => r.conname)).toEqual([
+      "projects_account_id_slug_unique",
+    ]);
+  });
+});
 
 describe("reviews: unique (project_id, environment, source, external_id)", () => {
   const t = setupTestDb();

@@ -8,6 +8,13 @@
       "when": 1790842793037,
       "tag": "0001_proofql_data_model",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790843636703,
+      "tag": "0002_projects_slug_per_account",
+      "breakpoints": true
     }
   ]
 }
