@@ -6,13 +6,18 @@
 // be repeated in full inside `env.preview` and `env.prod`. If you add, rename,
 // or remove a binding, update the top-level (local) block AND both env blocks.
 //
-// One queue: workers/api produces to `proofql-ingest`, this worker consumes
-// (deterministic chunking, bge-m3 embeddings, sentiment for unrated sources,
-// KV cache purge). Batch tuning: volumes are small, correctness beats
-// throughput — max_batch_size 10 / max_batch_timeout 5s. Retries back off
-// exponentially (handler-supplied delay; `retry_delay` is the floor) and
-// messages that fail three times land in `proofql-ingest-dlq`, which nothing
-// consumes yet — #72's sweep re-enqueues stuck reviews from the database.
+// Two queues, one worker: workers/api produces to `proofql-ingest`, this
+// worker consumes (deterministic chunking, bge-m3 embeddings, sentiment for
+// unrated sources, KV cache purge). Batch tuning: volumes are small,
+// correctness beats throughput — max_batch_size 10 / max_batch_timeout 5s.
+// Retries back off exponentially (handler-supplied delay; `retry_delay` is
+// the floor) and messages that fail three times land in `proofql-ingest-dlq`,
+// which this same worker also consumes (#82, src/dlq.ts): one `ingest_runs`
+// failed row per dead letter, so the dashboard can show a stuck review with
+// a reason. That consumer never retries (`max_retries: 0`) and has no DLQ of
+// its own — a dead letter that cannot be recorded is logged and acked.
+// Recovery is #72's sweep, which re-enqueues stuck reviews from the database.
+// `src/handlers.ts` routes on `batch.queue` (the `dlq` name segment).
 //
 // Environment matrix, ports, and binding names: see infra/environments.md.
 {
@@ -62,6 +67,14 @@
         "max_batch_size": 10,
         "max_batch_timeout": 5,
         "dead_letter_queue": "proofql-ingest-dlq"
+      },
+      {
+        // Dead letters: record, never retry, no further DLQ (#82).
+        // Larger, slower batches — one row insert per message, no AI calls.
+        "queue": "proofql-ingest-dlq",
+        "max_retries": 0,
+        "max_batch_size": 25,
+        "max_batch_timeout": 30
       }
     ]
   },
@@ -104,6 +117,12 @@
             "max_batch_size": 10,
             "max_batch_timeout": 5,
             "dead_letter_queue": "proofql-ingest-dlq-preview"
+          },
+          {
+            "queue": "proofql-ingest-dlq-preview",
+            "max_retries": 0,
+            "max_batch_size": 25,
+            "max_batch_timeout": 30
           }
         ]
       },
@@ -133,6 +152,12 @@
             "max_batch_size": 10,
             "max_batch_timeout": 5,
             "dead_letter_queue": "proofql-ingest-dlq-prod"
+          },
+          {
+            "queue": "proofql-ingest-dlq-prod",
+            "max_retries": 0,
+            "max_batch_size": 25,
+            "max_batch_timeout": 30
           }
         ]
       },

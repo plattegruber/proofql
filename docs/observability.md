@@ -64,7 +64,7 @@ assert that the query line never contains the query.
 | Context | Binding | Where it comes from |
 |---|---|---|
 | `workers/api` request | `request_id`, `method`, `path` | `requestContext` middleware ([`request-id.ts`](../workers/api/src/request-id.ts)), first in the chain. The id honours an inbound `x-request-id` (≤128 chars), else Cloudflare's `cf-ray`, else `crypto.randomUUID()`. Echoed on every response as `x-request-id` and inside every error envelope as `request_id`, so a support ticket quotes one string. `path` excludes the query string, so a `?key=` never lands in a line. |
-| `workers/pipeline` queue message | `queue`, `message_id`, `attempt`, then `review_id`, `project_id`, `environment` once the body parses | `handleQueueBatch` ([`handlers.ts`](../workers/pipeline/src/handlers.ts)) creates one child per message and hands it to `indexReview` in the context, so `review.indexed` and the `ingest.message.*` decision carry the same ids without passing them around. |
+| `workers/pipeline` queue message | `queue`, `message_id`, `attempt`, then `review_id`, `project_id`, `environment` once the body parses | `handleQueueBatch` ([`handlers.ts`](../workers/pipeline/src/handlers.ts)) creates one child per message and hands it to `indexReview` in the context, so `review.indexed` and the `ingest.message.*` decision carry the same ids without passing them around. `handleDeadLetters` ([`dlq.ts`](../workers/pipeline/src/dlq.ts)) binds the same fields for `proofql-ingest-dlq` deliveries; `queue` tells the two apart. |
 | `workers/pipeline` cron | `trigger: "cron"` | `handleScheduled`. |
 
 Route and indexer code never adds these fields itself: it logs through the
@@ -122,10 +122,13 @@ wire) and bind it in `handleQueueBatch`.
 | `ingest.message.invalid` | warn | `issues[]` (`path`, `message`) | The body failed `ingestMessageSchema`. Acked, never retried. |
 | `ingest.message.processed` | info | `status` (`indexed` \| `skipped`), and for `indexed`: `chunks`, `windows`, `embedded`, `newly_indexed`, `sentiment`, `sentiment_source`; for `skipped`: `reason` | The handler's ack decision for one delivery. |
 | `ingest.message.failed` | error | `error` | `indexReview` threw; the message is retried with backoff (`attempt` says which delivery this was), then DLQ'd by Queues after `max_retries`. |
+| `ingest.dlq.recorded` | info | `review_found`, `max_attempts` | A dead-lettered message was written to `ingest_runs` as a failed `api` run with `error: index.dead_lettered: review <id> exhausted <attempts> queue retries`, and the review's `index_attempts` was raised to `max_attempts` so the sweep stops re-sending it ([`dlq.ts`](../workers/pipeline/src/dlq.ts), #82). `review_found: false` means the review row is gone; the run row is still written under the message's `project_id`. Acked. |
+| `ingest.dlq.unparseable` | warn | `issues[]` (`path`, `message`) | A DLQ body failed `ingestMessageSchema`. Acked; the ingest consumer would have acked it too, so one arriving here means the wire shape changed between the two consumers. |
+| `ingest.dlq.failed` | error | `error` | The `ingest_runs` insert or `reviews` update threw (database down, or the project is gone and the foreign key refused the row). Acked anyway: the DLQ consumer runs with `max_retries: 0` and no further DLQ, so a retry would only drop the message silently. This line is the record of last resort — a non-empty count here is the one DLQ signal that did not reach the dashboard. |
 | `review.indexed` | info | `chunks`, `windows`, `embedded`, `embedding_ms`, `newly_indexed`, `sentiment`, `sentiment_source` | The one line per indexed review, from `indexReview`. `newly_indexed` is whether this run flipped `indexed_at` (and therefore bumped the project's cache generation). |
 | `review.skipped` | info | `reason` (`not_found` \| `hidden` \| `empty_text`) | A property of the review that redelivery cannot change. Acked. |
 | `sweep.completed` | info | `older_than_minutes`, `limit`, `enqueued`, `exhausted`, `batches`, `review_ids[]` | Every cron tick ([`sweep.ts`](../workers/pipeline/src/sweep.ts)). |
-| `sweep.exhausted` | warn | `max_attempts`, `count`, `review_ids[]` | Reviews stuck past the attempt cap, listed once per tick and not re-sent. A non-empty one is a review the pipeline cannot index: look at its last `ingest.message.failed`. |
+| `sweep.exhausted` | warn | `max_attempts`, `count`, `review_ids[]` | Reviews stuck past the attempt cap, listed once per tick and not re-sent. A non-empty one is a review the pipeline cannot index: look at its last `ingest.message.failed`, or its `ingest.dlq.recorded` (a dead letter sets the counter to the cap directly). |
 
 ## Tuning the similarity floor
 
@@ -234,6 +237,10 @@ prints the lines straight to the terminal (`environment: "local"`).
 - `workers/pipeline/src/handlers.test.ts` and
   `index-review.integration.test.ts` assert `review.indexed` carries the
   message's `message_id` / `attempt` as well as the review's ids.
+- `workers/pipeline/src/dlq.test.ts` and `dlq.integration.test.ts` assert
+  the `ingest.dlq.*` lines carry the same bindings, that `recorded` matches
+  the `ingest_runs` row written, and that `failed` is emitted (and the
+  message still acked) when the database refuses the row.
 
 Tests inject `recordingSink()` from `@proofql/core` (`createApp({ logSink
 })` in the api; `ctx.log` in the pipeline) and assert on parsed records, so
