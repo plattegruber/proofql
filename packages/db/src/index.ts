@@ -11,6 +11,18 @@ export {
 } from "./chunks.js";
 export { createDb, type Db, type Sql } from "./client.js";
 export {
+  dedupeLastWins,
+  type IngestedReview,
+  ProjectNotFoundError,
+  ReviewLimitError,
+  type ReviewLimitPolicy,
+  type ReviewStatus,
+  type UpsertReviewsParams,
+  type UpsertReviewsResult,
+  upsertKey,
+  upsertReviews,
+} from "./ingest/upsertReviews.js";
+export {
   type Fused,
   fuseRanked,
   maxRrfScore,
