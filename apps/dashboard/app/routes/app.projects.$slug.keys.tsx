@@ -42,6 +42,10 @@ import { originSchema } from "~/lib/projects";
 import { setAllowedOrigins } from "~/lib/projects.server";
 import type { Route } from "./+types/app.projects.$slug.keys";
 
+/** The embed tag and its attributes (packages/snippet, #32/#33). */
+const SNIPPET_README_URL =
+  "https://github.com/plattegruber/proofql/blob/main/packages/snippet/README.md#usage";
+
 export async function loader(args: Route.LoaderArgs) {
   const { account } = await requireAccount(args);
   return withRequestDb(args.context, async (db) => {
@@ -266,7 +270,11 @@ function CreateKey({ keyCount }: { keyCount: number }) {
           </dt>
           <dd className="m-0 mt-1">
             Can only query, and only from the allowed origins below, so they are
-            safe in the snippet and other browser code.
+            safe in{" "}
+            <a href={SNIPPET_README_URL} className="text-link">
+              the snippet
+            </a>{" "}
+            and other browser code.
           </dd>
         </div>
       </dl>
