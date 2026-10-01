@@ -1,3 +1,9 @@
-// The embeddable JS snippet: a pure client of GET /v1/query that renders on any site.
-// Placeholder from the monorepo scaffold (#10); real code arrives with its issue.
-export const PACKAGE_NAME = "@proofql/snippet";
+// Entry point of dist/v1.js: everything is inside one guard so a bug here can
+// never surface as an exception on the host page.
+import { boot, debug } from "./snippet.js";
+
+try {
+  boot(window);
+} catch (error) {
+  debug("failed to start", error);
+}
