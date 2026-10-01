@@ -38,10 +38,10 @@ import {
   uploadOptionsSchema,
 } from "~/lib/csv.server";
 import { withRequestDb } from "~/lib/db.server";
+import { SOURCE_LABELS } from "~/lib/import-labels";
 import { importPath, importRunPath } from "~/lib/import-paths";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/app.projects.$slug.import.$runId.map";
-import { SOURCE_LABELS } from "./app.projects.$slug.import._index";
 
 function rethrow(error: unknown): never {
   if (error instanceof ImportError)

@@ -16,7 +16,7 @@ import ImportMap from "./app.projects.$slug.import.$runId.map";
 
 /** Value of a <select> found by label; typed loosely because the worker
  * runtime types shadow the DOM's HTMLSelectElement in this project. */
-function valueOf(element: HTMLElement): string {
+function controlValue(element: HTMLElement): string {
   return (element as unknown as { value: string }).value;
 }
 
@@ -107,10 +107,12 @@ describe("import step 2", () => {
     ).toBeTruthy();
     expect(screen.getByText(/50 rows, 6 columns/)).toBeTruthy();
 
-    expect(valueOf(screen.getByLabelText(/^Review text/))).toBe("Review Text");
-    expect(valueOf(screen.getByLabelText(/^Date/))).toBe("Date");
-    expect(valueOf(screen.getByLabelText(/^Rating/))).toBe("Rating");
-    expect(valueOf(screen.getByLabelText(/^Review URL/))).toBe("");
+    expect(controlValue(screen.getByLabelText(/^Review text/))).toBe(
+      "Review Text",
+    );
+    expect(controlValue(screen.getByLabelText(/^Date/))).toBe("Date");
+    expect(controlValue(screen.getByLabelText(/^Rating/))).toBe("Rating");
+    expect(controlValue(screen.getByLabelText(/^Review URL/))).toBe("");
 
     // Location is unmapped → offered as metadata, off by default.
     const meta = screen.getByLabelText("Location") as HTMLInputElement;

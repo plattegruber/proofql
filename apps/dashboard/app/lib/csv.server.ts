@@ -52,6 +52,10 @@ import { type Db, schema, upsertReviews } from "@proofql/db";
 import { and, eq, gte, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
+import { formatBytes } from "./import-labels";
+
+export { formatBytes };
+
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 export const PREVIEW_ROWS = 20;
 export const IMPORT_BATCH_SIZE = 100;
@@ -182,12 +186,6 @@ export async function createUpload(
     artifactKey,
   });
   return { runId, artifactKey, kind };
-}
-
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // ---------------------------------------------------------------------------

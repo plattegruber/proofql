@@ -1,7 +1,7 @@
 // Import step 1 (#38): choose the file, the environment and the export
 // format. The action stores the file in R2, opens the `ingest_runs` row
 // and sends the user on to the mapping step.
-import { CSV_PROFILES, REVIEW_SOURCES } from "@proofql/core";
+import { REVIEW_SOURCES } from "@proofql/core";
 import { Upload } from "lucide-react";
 import { data, Form, redirect, useNavigation } from "react-router";
 
@@ -14,27 +14,18 @@ import { findProjectBySlug } from "~/lib/accounts";
 import { getCloudflare } from "~/lib/context";
 import {
   createUpload,
-  formatBytes,
   ImportError,
   MAX_UPLOAD_BYTES,
   uploadOptionsSchema,
 } from "~/lib/csv.server";
 import { withRequestDb } from "~/lib/db.server";
+import {
+  formatBytes,
+  PROFILE_OPTIONS,
+  SOURCE_LABELS,
+} from "~/lib/import-labels";
 import { importMapPath } from "~/lib/import-paths";
 import type { Route } from "./+types/app.projects.$slug.import._index";
-
-export const PROFILE_OPTIONS = CSV_PROFILES.map((p) => ({
-  value: p.id,
-  label: p.label,
-}));
-
-export const SOURCE_LABELS: Record<(typeof REVIEW_SOURCES)[number], string> = {
-  google: "Google",
-  yelp: "Yelp",
-  facebook: "Facebook",
-  trustpilot: "Trustpilot",
-  custom: "Custom",
-};
 
 export async function loader(args: Route.LoaderArgs) {
   const { account } = await requireAccount(args);

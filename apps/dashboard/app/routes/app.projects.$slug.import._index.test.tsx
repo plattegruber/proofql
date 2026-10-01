@@ -7,11 +7,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import ImportUpload from "./app.projects.$slug.import._index";
 
-/** Value of a <select>/<input> found by label; typed loosely because the
- * worker runtime types shadow the DOM's HTMLSelectElement in this project. */
-function valueOf(element: HTMLElement): string {
-  return (element as unknown as { value: string }).value;
-}
+/** The <option>s of a <select> found by label (the worker runtime types
+ * shadow the DOM's HTMLSelectElement in this project, so no casts). */
 function optionsOf(element: HTMLElement): { value: string; label: string }[] {
   return [...element.querySelectorAll("option")].map((o) => ({
     value: o.getAttribute("value") ?? "",
