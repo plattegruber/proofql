@@ -1,16 +1,16 @@
-// Overview (#36): the account, its plan, and its projects. Project creation
-// arrives with #37; until then the list is read-only and the empty state
-// says so.
+// Overview (#36): the account, its plan, and its projects. "New project"
+// leads to the create form (#37), which enforces the plan's project limit.
 import { FolderOpen } from "lucide-react";
 import { Link } from "react-router";
 
 import { Overline, PageHeader } from "~/components/shell/page-header";
 import { Badge } from "~/components/ui/badge";
-import { Button } from "~/components/ui/button";
+import { buttonVariants } from "~/components/ui/button";
 import { Card } from "~/components/ui/card";
 import { requireAccount } from "~/lib/account.server";
 import { listProjectsForAccount } from "~/lib/accounts";
 import { withRequestDb } from "~/lib/db.server";
+import { cn } from "~/lib/utils";
 import type { Route } from "./+types/app._index";
 
 export async function loader(args: Route.LoaderArgs) {
@@ -59,11 +59,15 @@ export default function Overview({ loaderData }: Route.ComponentProps) {
           </span>
         }
         action={
-          <span title="Coming in #37" className="inline-flex">
-            <Button variant="secondary" size="sm" disabled>
-              New project
-            </Button>
-          </span>
+          <Link
+            to="/app/projects/new"
+            className={cn(
+              buttonVariants({ variant: "secondary", size: "sm" }),
+              "no-underline",
+            )}
+          >
+            New project
+          </Link>
         }
       />
 
@@ -84,8 +88,17 @@ export default function Overview({ loaderData }: Route.ComponentProps) {
             </h2>
             <p className="mx-auto mt-2.5 mb-0 max-w-130 text-small text-gray-600">
               A project is one website or business: its reviews, API keys and
-              publication policy. Creating one arrives with #37.
+              publication policy.
             </p>
+            <Link
+              to="/app/projects/new"
+              className={cn(
+                buttonVariants({ variant: "primary", size: "sm" }),
+                "mt-5 no-underline",
+              )}
+            >
+              Create your first project
+            </Link>
           </div>
         ) : (
           <ul className="m-0 grid list-none grid-cols-1 gap-4 p-0 md:grid-cols-2">
