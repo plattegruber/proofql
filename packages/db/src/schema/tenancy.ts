@@ -23,6 +23,7 @@ import {
   pgTable,
   smallint,
   text,
+  unique,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -51,8 +52,12 @@ export const projects = pgTable(
       .notNull()
       .references(() => accounts.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    /** URL-safe handle, unique across all accounts; used in dashboard routes. */
-    slug: text("slug").notNull().unique(),
+    /**
+     * URL-safe handle used in dashboard routes. Unique per account, not
+     * globally (migration 0002, #63): two accounts can both call a project
+     * `website`; one account cannot have two.
+     */
+    slug: text("slug").notNull(),
     /**
      * Origins a publishable key may be used from (CORS). Empty means the
      * project has not configured any yet and publishable keys are refused
@@ -77,5 +82,8 @@ export const projects = pgTable(
     reviewCount: integer("review_count").notNull().default(0),
     ...timestamps,
   },
-  (table) => [index("projects_account_id_idx").on(table.accountId)],
+  (table) => [
+    index("projects_account_id_idx").on(table.accountId),
+    unique("projects_account_id_slug_unique").on(table.accountId, table.slug),
+  ],
 );
