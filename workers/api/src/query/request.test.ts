@@ -23,7 +23,7 @@ function issuesOf(fn: () => unknown): {
       return {
         status: e.status,
         code: e.code,
-        paths: (e.issues ?? []).map((i) => i.path),
+        paths: (e.details ?? []).map((i) => i.path),
       };
     }
     throw e;
@@ -151,7 +151,7 @@ describe("POST body shape", () => {
       parseQueryRequest({ q: "", limit: 99, bogus: 1 });
     } catch (e) {
       const err = e as ApiError;
-      expect(err.issues?.map((i) => i.path).sort()).toEqual([
+      expect(err.details?.map((i) => i.path).sort()).toEqual([
         "bogus",
         "limit",
         "q",

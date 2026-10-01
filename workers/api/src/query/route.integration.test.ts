@@ -27,7 +27,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { createApp } from "../app.js";
 import type { AppEnv } from "../bindings.js";
-import type { ApiErrorBody } from "../errors.js";
+import type { ErrorEnvelope } from "../errors.js";
 import type { QueryResponse } from "./route.js";
 
 const t = setupTestDb();
@@ -371,23 +371,25 @@ describe("/v1/query", () => {
     it("422 validation_failed with the envelope on an unknown field", async () => {
       const res = await post(app, f.secret, { limt: 3 });
       expect(res.status).toBe(422);
-      const body = await json<ApiErrorBody>(res);
+      const body = await json<ErrorEnvelope>(res);
       expect(body.error).toMatchObject({
         code: "validation_failed",
         doc_url: "https://docs.proofql.com/errors#validation_failed",
-        issues: [{ path: "limt", message: expect.any(String) }],
+        details: [{ path: "limt", message: expect.any(String) }],
       });
       expect(body.error.request_id).toBe(res.headers.get("X-Request-Id"));
     });
 
-    it("400 invalid_json on a malformed body", async () => {
+    it("422 validation_failed on a malformed JSON body, like /v1/reviews", async () => {
       const res = await app.request("/v1/query", {
         method: "POST",
         headers: { Authorization: `Bearer ${f.secret}` },
         body: "{not json",
       });
-      expect(res.status).toBe(400);
-      expect((await json<ApiErrorBody>(res)).error.code).toBe("invalid_json");
+      expect(res.status).toBe(422);
+      const body = await json<ErrorEnvelope>(res);
+      expect(body.error.code).toBe("validation_failed");
+      expect(body.error.message).toMatch(/not valid JSON/);
     });
 
     it("503 embedding_unavailable when embedding fails — never an FTS-only fallback", async () => {
@@ -398,7 +400,7 @@ describe("/v1/query", () => {
       );
       const res = await post(failing, f.secret, { q: "implant tooth" });
       expect(res.status).toBe(503);
-      const body = await json<ApiErrorBody>(res);
+      const body = await json<ErrorEnvelope>(res);
       expect(body.error.code).toBe("embedding_unavailable");
       expect(body.error.message).toMatch(/retry/);
 
@@ -412,7 +414,7 @@ describe("/v1/query", () => {
     it("401 unauthorized with no key, a malformed key, an unknown key, or a revoked key", async () => {
       const none = await app.request("/v1/query", { method: "POST" });
       expect(none.status).toBe(401);
-      expect((await json<ApiErrorBody>(none)).error.code).toBe("unauthorized");
+      expect((await json<ErrorEnvelope>(none)).error.code).toBe("unauthorized");
 
       const malformed = await post(app, "pq_sk_live_short", {});
       expect(malformed.status).toBe(401);
@@ -433,7 +435,7 @@ describe("/v1/query", () => {
     it("refuses a secret key in ?key= (URLs leak) but accepts a publishable one", async () => {
       const viaUrl = await get(app, `key=${f.secret}`);
       expect(viaUrl.status).toBe(401);
-      expect((await json<ApiErrorBody>(viaUrl)).error.message).toMatch(
+      expect((await json<ErrorEnvelope>(viaUrl)).error.message).toMatch(
         /Authorization header/,
       );
 
@@ -450,6 +452,23 @@ describe("/v1/query", () => {
       });
       // Secret key: no Origin needed.
       expect(res.status).toBe(200);
+    });
+  });
+
+  describe("publishable keys on other routes", () => {
+    it("POST /v1/reviews with a real publishable key is 403 forbidden", async () => {
+      const res = await app.request("/v1/reviews", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${f.publishable}`,
+          "Content-Type": "application/json",
+        },
+        body: "[]",
+      });
+      expect(res.status).toBe(403);
+      const body = await json<ErrorEnvelope>(res);
+      expect(body.error.code).toBe("forbidden");
+      expect(body.error.message).toMatch(/secret key/);
     });
   });
 
@@ -504,7 +523,7 @@ describe("/v1/query", () => {
       expect(res.status).toBe(403);
       expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
       expect(res.headers.get("Vary")).toBe("Origin");
-      const body = await json<ApiErrorBody>(res);
+      const body = await json<ErrorEnvelope>(res);
       expect(body.error.code).toBe("forbidden");
       expect(body.error.message).toMatch(/Origin header/);
     });
@@ -513,7 +532,7 @@ describe("/v1/query", () => {
       const res = await post(app, f.publishable, {}, { Origin: OTHER_ORIGIN });
       expect(res.status).toBe(403);
       expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
-      const body = await json<ApiErrorBody>(res);
+      const body = await json<ErrorEnvelope>(res);
       expect(body.error.code).toBe("forbidden");
       expect(body.error.message).toContain(OTHER_ORIGIN);
       expect(body.error.message).toMatch(/Allowed origins/);

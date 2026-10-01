@@ -34,7 +34,7 @@
 import { MAX_SEARCH_LIMIT } from "@proofql/db";
 import { z } from "zod";
 
-import { ApiError, type ApiErrorIssue } from "../errors.js";
+import { ApiError, type ValidationIssue } from "../errors.js";
 
 export const DEFAULT_LIMIT = 5;
 export const Q_MAX_LENGTH = 500;
@@ -145,7 +145,7 @@ function foldMetadataKeys(filters: unknown): unknown {
 export function parseQueryRequest(input: unknown): QueryRequest {
   const result = queryRequestSchema.safeParse(input);
   if (result.success) return result.data;
-  const issues: ApiErrorIssue[] = result.error.issues.flatMap((issue) => {
+  const details: ValidationIssue[] = result.error.issues.flatMap((issue) => {
     const base = issue.path.map(String);
     // zod reports every unknown key of one object as a single issue whose
     // path is the object; name each key so `limt` shows up as `limt`.
@@ -157,14 +157,13 @@ export function parseQueryRequest(input: unknown): QueryRequest {
     }
     return [{ path: base.join(".") || "(body)", message: issue.message }];
   });
-  const first = issues[0];
+  const first = details[0];
   throw new ApiError(
-    422,
     "validation_failed",
     first
-      ? `Invalid request: ${first.path} ${first.message}${issues.length > 1 ? ` (and ${issues.length - 1} more)` : ""}.`
+      ? `Invalid request: ${first.path} ${first.message}${details.length > 1 ? ` (and ${details.length - 1} more)` : ""}.`
       : "Invalid request.",
-    { issues },
+    { details },
   );
 }
 
@@ -218,12 +217,9 @@ export function queryParamsToRequest(params: URLSearchParams): unknown {
     }
     if (seen.has(name)) {
       throw new ApiError(
-        422,
         "validation_failed",
         `Invalid request: ${name} was given more than once.`,
-        {
-          issues: [{ path: name, message: "was given more than once" }],
-        },
+        { details: [{ path: name, message: "was given more than once" }] },
       );
     }
     seen.add(name);

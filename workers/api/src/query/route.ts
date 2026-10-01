@@ -51,14 +51,9 @@
 
 import type { SearchFilters, SearchResult } from "@proofql/db";
 import { searchChunks } from "@proofql/db";
-import type { Context, Handler, Hono } from "hono";
+import { type Context, type Handler, Hono } from "hono";
 
-import {
-  authOf,
-  createAuthMiddleware,
-  presentedKey,
-  resolveApiKey,
-} from "../auth.js";
+import { lookupApiKey, presentedToken, requireQueryKey } from "../auth.js";
 import type { AppEnv } from "../bindings.js";
 import {
   applyCorsHeaders,
@@ -107,17 +102,8 @@ export interface QueryResponse {
   badge: boolean;
 }
 
-/** Mount `OPTIONS|GET|POST /v1/query` on `app`. */
-export function registerQueryRoutes(app: Hono<AppEnv>): void {
-  app.options("/v1/query", preflight);
-  app.on(
-    ["GET", "POST"],
-    "/v1/query",
-    createAuthMiddleware({ keyParam: true }),
-    cors,
-    handleQuery,
-  );
-}
+/** Mounted at `/v1/query` by `createApp`: `OPTIONS`, `GET`, `POST`. */
+export const queryRoutes = new Hono<AppEnv>();
 
 /**
  * CORS preflight: unauthenticated, but echoes only an origin the key's
@@ -126,12 +112,15 @@ export function registerQueryRoutes(app: Hono<AppEnv>): void {
  */
 const preflight: Handler<AppEnv> = async (c) => {
   const origin = c.req.header("Origin");
-  const presented = presentedKey(c, { keyParam: true });
+  const presented = presentedToken(c);
   let allow: string | null = null;
   if (origin !== undefined && presented !== null) {
-    const auth = await resolveApiKey(c.var.db, presented.plaintext);
+    const found = await lookupApiKey(c.get("getDb")(), presented.token);
+    const auth = found?.auth;
     if (
-      auth !== null &&
+      auth !== undefined &&
+      // The real request refuses a secret key from the URL; so does preflight.
+      !(presented.fromUrl && auth.kind === "secret") &&
       (auth.kind === "secret" ||
         isAllowedOrigin(origin, auth.project.allowedOrigins))
     ) {
@@ -151,7 +140,7 @@ const cors: Handler<AppEnv> = async (c, next) => {
   // whatever response is built later, including the error envelope from
   // `onError`, so a listed origin can read a 422 as well as a 200.
   applyCorsHeaders(c, null);
-  const allow = corsOriginFor(c.req.header("Origin"), authOf(c));
+  const allow = corsOriginFor(c.req.header("Origin"), c.get("auth"));
   applyCorsHeaders(c, allow);
   await next();
 };
@@ -159,7 +148,7 @@ const cors: Handler<AppEnv> = async (c, next) => {
 /** The shared GET/POST handler (module doc). */
 const handleQuery: Handler<AppEnv> = async (c) => {
   const started = performance.now();
-  const auth = authOf(c);
+  const auth = c.get("auth");
   const request = await readRequest(c);
   const { project } = auth;
 
@@ -173,21 +162,21 @@ const handleQuery: Handler<AppEnv> = async (c) => {
   if (request.q !== undefined) {
     const embedStarted = performance.now();
     try {
-      queryEmbedding = await c.var.embedder.embedText(request.q);
+      // Resolved inside the try: an unbound AI binding is the same outage
+      // to the caller as a failed call (src/embedder.ts).
+      queryEmbedding = await c.get("getEmbedder")().embedText(request.q);
     } catch (error) {
       // No FTS-only fallback — see the module doc for why.
       log("query.embedding_failed", {
-        request_id: c.var.requestId,
+        request_id: c.get("requestId"),
         project_id: auth.projectId,
         environment: auth.environment,
-        model: c.var.embedder.model,
         error:
           error instanceof Error
             ? `${error.name}: ${error.message}`
             : String(error),
       });
       throw new ApiError(
-        503,
         "embedding_unavailable",
         "The embedding service is temporarily unavailable; retry the query shortly.",
         { cause: error },
@@ -196,7 +185,7 @@ const handleQuery: Handler<AppEnv> = async (c) => {
     embedMs = performance.now() - embedStarted;
   }
 
-  const results = await searchChunks(c.var.db, {
+  const results = await searchChunks(c.get("getDb")(), {
     projectId: auth.projectId,
     environment: auth.environment,
     queryEmbedding,
@@ -209,7 +198,7 @@ const handleQuery: Handler<AppEnv> = async (c) => {
 
   const tookMs = Math.round(performance.now() - started);
   log("query.served", {
-    request_id: c.var.requestId,
+    request_id: c.get("requestId"),
     project_id: auth.projectId,
     environment: auth.environment,
     key_kind: auth.kind,
@@ -245,11 +234,9 @@ async function readRequest(c: Context<AppEnv>): Promise<QueryRequest> {
   try {
     decoded = JSON.parse(text);
   } catch {
-    throw new ApiError(
-      400,
-      "invalid_json",
-      "The request body is not valid JSON.",
-    );
+    throw new ApiError("validation_failed", "Request body is not valid JSON.", {
+      details: [{ path: "", message: "Request body is not valid JSON." }],
+    });
   }
   return parseQueryRequest(decoded);
 }
@@ -284,3 +271,6 @@ function toResponseResult(
     review,
   };
 }
+
+queryRoutes.options("/", preflight);
+queryRoutes.on(["GET", "POST"], "/", requireQueryKey, cors, handleQuery);
