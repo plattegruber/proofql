@@ -26,19 +26,19 @@ import {
   assertVerbatimChunks,
   type Chunk,
   chunkReview,
+  type GenerationKv,
   type IngestMessage,
+  type Logger,
   type Sentiment,
   sentimentFromRating,
 } from "@proofql/core";
 import { assertVerbatimSlice, type Db, schema } from "@proofql/db";
 import { and, eq } from "drizzle-orm";
 
-import type { GenerationKv } from "./cache.js";
 import {
   type EmbedResult,
   embedChunks as realEmbedChunks,
 } from "./embed-chunks.js";
-import { log as defaultLog, type Logger } from "./log.js";
 
 const { reviews, reviewChunks } = schema;
 
@@ -64,7 +64,12 @@ export interface IndexContext {
   embedder: EmbeddingProvider;
   /** `env.CACHE`: the project's query-cache generation is bumped on index. */
   cache: GenerationKv;
-  log?: Logger;
+  /**
+   * The logger for this unit of work. `handleQueueBatch` passes a child
+   * bound to the message (`message_id`, `attempt`, `review_id`, …), so the
+   * lines below carry those without naming them.
+   */
+  log: Logger;
   embedChunks?: EmbedChunks;
 }
 
@@ -99,27 +104,23 @@ export async function indexReview(
   ctx: IndexContext,
   message: IngestMessage,
 ): Promise<IndexOutcome> {
-  const log = ctx.log ?? defaultLog;
   const embedChunks = ctx.embedChunks ?? realEmbedChunks;
   const { reviewId, projectId, environment } = message;
+  // Bound explicitly as well as via the handler's child: `indexReview` is
+  // also called directly (the sweep's reset path, tests).
+  const log = ctx.log.child({
+    review_id: reviewId,
+    project_id: projectId,
+    environment,
+  });
 
   const review = await loadReview(ctx.db, message);
   if (!review) {
-    log("review.skipped", {
-      reviewId,
-      projectId,
-      environment,
-      reason: "not_found",
-    });
+    log.log("review.skipped", { reason: "not_found" });
     return { status: "skipped", reviewId, reason: "not_found" };
   }
   if (review.hiddenAt !== null) {
-    log("review.skipped", {
-      reviewId,
-      projectId,
-      environment,
-      reason: "hidden",
-    });
+    log.log("review.skipped", { reason: "hidden" });
     return { status: "skipped", reviewId, reason: "hidden" };
   }
 
@@ -128,12 +129,7 @@ export async function indexReview(
     chunks = chunkReview(review.text, { locale: review.language });
   } catch (error) {
     if (error instanceof RangeError) {
-      log("review.skipped", {
-        reviewId,
-        projectId,
-        environment,
-        reason: "empty_text",
-      });
+      log.log("review.skipped", { reason: "empty_text" });
       return { status: "skipped", reviewId, reason: "empty_text" };
     }
     throw error;
@@ -175,17 +171,14 @@ export async function indexReview(
 
   const windows = written.filter((c) => c.kind === "window").length;
   // The one line per review: chunking and embedding figures together.
-  log("review.indexed", {
-    reviewId,
-    projectId,
-    environment,
+  log.log("review.indexed", {
     chunks: written.length,
     windows,
     embedded: embedding.embedded,
-    embeddingMs: embedding.embeddingMs,
-    newlyIndexed: embedding.newlyIndexed,
+    embedding_ms: embedding.embeddingMs,
+    newly_indexed: embedding.newlyIndexed,
     sentiment,
-    sentimentSource,
+    sentiment_source: sentimentSource,
   });
   return {
     status: "indexed",

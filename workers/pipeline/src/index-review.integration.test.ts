@@ -13,13 +13,18 @@ import {
   FakeEmbeddingProvider,
   FakeSentimentClassifier,
 } from "@proofql/ai";
-import type { IngestMessage } from "@proofql/core";
+import {
+  generationKey,
+  type IngestMessage,
+  MemoryKv,
+  type RecordingSink,
+} from "@proofql/core";
 import { assertVerbatimSlice, schema } from "@proofql/db";
 import { project, review, setupTestDb } from "@proofql/db/test";
 import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
-import { generationKey, MemoryKv } from "./cache.js";
+import { testLogger } from "../test/log.js";
 import { embedChunks } from "./embed-chunks.js";
 import {
   handleQueueBatch,
@@ -32,20 +37,23 @@ const { reviews, reviewChunks } = schema;
 
 const t = setupTestDb();
 
-/** A context whose fakes the test can read: `classifier.calls`, `embedder.calls`, `cache.puts`. */
+/** A context whose fakes the test can read: `classifier.calls`, `embedder.calls`, `cache.puts`, `out.records`. */
 type FakeContext = QueueContext & {
   classifier: FakeSentimentClassifier;
   embedder: FakeEmbeddingProvider;
   cache: MemoryKv;
+  out: RecordingSink;
 };
 
 function context(overrides: Partial<QueueContext> = {}): FakeContext {
+  const { log, out } = testLogger();
   return {
     db: t.db,
     classifier: new FakeSentimentClassifier(),
     embedder: new FakeEmbeddingProvider(),
     cache: new MemoryKv(),
-    log: vi.fn(),
+    log,
+    out,
     ...overrides,
   } as FakeContext;
 }
@@ -134,16 +142,32 @@ describe("indexReview via the queue handler", () => {
     expect(after.updatedAt.getTime()).toBeGreaterThan(r.updatedAt.getTime());
     expect(ctx.classifier.calls).toEqual([]);
     expect(ctx.embedder.calls).toEqual([[r.text]]);
-    expect(ctx.log).toHaveBeenCalledWith(
-      "review.indexed",
-      expect.objectContaining({
-        reviewId: r.id,
-        chunks: 1,
-        embedded: 1,
-        embeddingMs: expect.any(Number),
-        newlyIndexed: true,
-      }),
-    );
+    // The one line per review carries the message's ids from the handler's
+    // child logger as well as the review's (#30).
+    expect(ctx.out.only("review.indexed")).toMatchObject({
+      service: "pipeline",
+      environment: "live",
+      level: "info",
+      queue: "proofql-ingest",
+      message_id: msg.id,
+      attempt: 1,
+      review_id: r.id,
+      project_id: r.projectId,
+      chunks: 1,
+      windows: 0,
+      embedded: 1,
+      embedding_ms: expect.any(Number),
+      newly_indexed: true,
+      sentiment: "negative",
+      sentiment_source: "rating",
+    });
+    // Never the review text.
+    expect(JSON.stringify(ctx.out.records)).not.toContain("Short and sour");
+    expect(ctx.out.only("ingest.message.processed")).toMatchObject({
+      message_id: msg.id,
+      review_id: r.id,
+      status: "indexed",
+    });
   });
 
   it("unrated review → fake classifier decides, source is model", async () => {
@@ -273,13 +297,13 @@ describe("indexReview via the queue handler", () => {
     for (const c of stalled) expect(c.embedding).toBeNull();
     expect((await reload(r.id)).indexedAt).toBeNull();
     expect(ctx.cache.puts).toEqual([]);
-    expect(ctx.log).toHaveBeenCalledWith(
-      "ingest.message.failed",
-      expect.objectContaining({
-        reviewId: r.id,
-        error: expect.objectContaining({ message: "Workers AI 503" }),
-      }),
-    );
+    expect(ctx.out.only("ingest.message.failed")).toMatchObject({
+      level: "error",
+      message_id: first.id,
+      attempt: 1,
+      review_id: r.id,
+      error: expect.objectContaining({ message: "Workers AI 503" }),
+    });
 
     const second: QueueMessage = { ...queued(messageFor(r)), attempts: 2 };
     await handleQueueBatch(
@@ -346,10 +370,11 @@ describe("indexReview via the queue handler", () => {
     expect(await chunksOf(r.id)).toEqual([]);
     const after = await reload(r.id);
     expect(after.sentiment).toBeNull();
-    expect(ctx.log).toHaveBeenCalledWith(
-      "review.skipped",
-      expect.objectContaining({ reviewId: r.id, reason: "hidden" }),
-    );
+    expect(ctx.out.only("review.skipped")).toMatchObject({
+      message_id: msg.id,
+      review_id: r.id,
+      reason: "hidden",
+    });
   });
 
   it("message for a different environment → not found, acked, nothing written", async () => {
@@ -362,10 +387,12 @@ describe("indexReview via the queue handler", () => {
     expect(msg.ack).toHaveBeenCalledOnce();
     expect(msg.retry).not.toHaveBeenCalled();
     expect(await chunksOf(r.id)).toEqual([]);
-    expect(ctx.log).toHaveBeenCalledWith(
-      "review.skipped",
-      expect.objectContaining({ reviewId: r.id, reason: "not_found" }),
-    );
+    expect(ctx.out.only("review.skipped")).toMatchObject({
+      message_id: msg.id,
+      review_id: r.id,
+      environment: "test",
+      reason: "not_found",
+    });
   });
 
   it("message for a different project → not found (tenant scoping)", async () => {

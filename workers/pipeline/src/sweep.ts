@@ -25,11 +25,9 @@
  * it enqueued as one structured log line.
  */
 
-import type { IngestMessage } from "@proofql/core";
+import type { IngestMessage, Logger } from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
 import { and, asc, inArray, isNull, lt, sql } from "drizzle-orm";
-
-import { log as defaultLog, type Logger } from "./log.js";
 
 const { reviews } = schema;
 
@@ -44,7 +42,7 @@ export interface IngestQueue {
 export interface SweepContext {
   db: Db;
   queue: IngestQueue;
-  log?: Logger;
+  log: Logger;
 }
 
 export interface SweepOptions {
@@ -72,7 +70,7 @@ export async function sweepUnindexed(
   ctx: SweepContext,
   options: SweepOptions,
 ): Promise<SweepResult> {
-  const log = ctx.log ?? defaultLog;
+  const { log } = ctx;
   const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_INDEX_ATTEMPTS;
   const cutoff = sql`now() - make_interval(mins => ${options.olderThanMinutes})`;
   const stuck = and(
@@ -100,11 +98,11 @@ export async function sweepUnindexed(
     .orderBy(asc(reviews.updatedAt))
     .limit(options.limit);
   if (exhausted.length > 0) {
-    log("sweep.exhausted", {
+    log.log("sweep.exhausted", {
       level: "warn",
-      maxAttempts,
+      max_attempts: maxAttempts,
       count: exhausted.length,
-      reviewIds: exhausted.map((r) => r.id),
+      review_ids: exhausted.map((r) => r.id),
     });
   }
 
@@ -128,13 +126,13 @@ export async function sweepUnindexed(
     }
   }
 
-  log("sweep.completed", {
-    olderThanMinutes: options.olderThanMinutes,
+  log.log("sweep.completed", {
+    older_than_minutes: options.olderThanMinutes,
     limit: options.limit,
     enqueued: candidates.length,
     exhausted: exhausted.length,
     batches,
-    reviewIds: candidates.map((r) => r.id),
+    review_ids: candidates.map((r) => r.id),
   });
   return { enqueued: candidates.length, exhausted: exhausted.length, batches };
 }

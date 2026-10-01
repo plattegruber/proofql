@@ -9,15 +9,14 @@
  */
 
 import { FakeEmbeddingProvider, fakeEmbed } from "@proofql/ai";
+import { generationKey } from "@proofql/core";
 import type { Db } from "@proofql/db";
 import { chunk, project, review, setupTestDb } from "@proofql/db/test";
 import type { Hono } from "hono";
 import { describe, expect, it } from "vitest";
-
 import { fakeCtx, fakeKv, issueKey, testEnv } from "../../test/helpers.js";
 import { createApp } from "../app.js";
 import type { ApiBindings, AppEnv } from "../bindings.js";
-import { generationKey } from "../cache-purge.js";
 import type { ErrorEnvelope } from "../errors.js";
 import type { QueryResponse } from "./route.js";
 

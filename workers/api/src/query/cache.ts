@@ -21,8 +21,8 @@
  *
  * ## Purge
  *
- * The project's generation counter (`../cache-purge.ts`, `gen:<projectId>`)
- * is part of every key, so invalidating a project is one KV write:
+ * The project's generation counter (`@proofql/core` cache-generation,
+ * `gen:<projectId>`) is part of every key, so invalidating a project is one KV write:
  * `bumpProjectGeneration` orphans every entry at once and the orphans age
  * out through `CACHE_TTL_SECONDS`. The bump sites:
  *
@@ -52,7 +52,8 @@
  * over. Only successful searches are stored; errors are never cached.
  */
 
-import { bumpProjectGeneration, type GenerationEnv } from "../cache-purge.js";
+import { bumpProjectGeneration, type GenerationKv } from "@proofql/core";
+
 import type { QueryRequest } from "./request.js";
 import type { QueryResponseResult } from "./route.js";
 
@@ -250,8 +251,8 @@ export function wantsFresh(cacheControl: string | undefined): boolean {
  * Resolves to the new generation.
  */
 export function onProjectPolicyChanged(
-  env: GenerationEnv,
+  kv: GenerationKv,
   projectId: string,
 ): Promise<number> {
-  return bumpProjectGeneration(env, projectId);
+  return bumpProjectGeneration(kv, projectId);
 }

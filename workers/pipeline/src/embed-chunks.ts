@@ -19,7 +19,7 @@
  * `reviews.indexed_at` flips from null to `now()` in one conditional UPDATE
  * (`indexed_at IS NULL AND NOT EXISTS (chunks with a null embedding)`), so
  * it is set exactly once per transition, and only that transition bumps the
- * project's cache generation (src/cache.ts): a redelivered message for an
+ * project's cache generation (`@proofql/core`): a redelivered message for an
  * already-indexed review re-embeds its freshly rewritten chunks to the same
  * vectors and leaves `indexed_at` and the cache alone. Either way a
  * complete review zeroes `index_attempts`, the re-enqueue sweep's counter
@@ -39,10 +39,9 @@ import {
   EmbeddingError,
   type EmbeddingProvider,
 } from "@proofql/ai";
+import { bumpProjectGeneration, type GenerationKv } from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
 import { and, eq, isNull, notExists, sql } from "drizzle-orm";
-
-import { bumpProjectGeneration, type GenerationKv } from "./cache.js";
 
 const { reviews, reviewChunks } = schema;
 
