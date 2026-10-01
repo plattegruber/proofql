@@ -33,6 +33,7 @@ Ground rules that hold at every level:
 - Pure logic (chunking, key validation, policy, normalization) must be unit-testable without network or DB.
 - No test may call a real external API. External services get local fakes (deterministic embedding provider, fake Google server).
 - Relevance is tested, not assumed: the "empty beats irrelevant" property from the scope doc gets fixtures and assertions, not a vibe check.
+- **Change the code → change the spec in the same PR.** [`docs/api/openapi.yaml`](docs/api/openapi.yaml) is the source of truth for the public API; the contract tests (`workers/api/src/openapi.contract.integration.test.ts`) validate real responses against it, so a response-shape change without a spec change fails `pnpm test:integration`, and `pnpm lint` includes the spec lint (`pnpm openapi:lint`). See [docs/api/README.md](docs/api/README.md).
 
 ## Database migrations
 
