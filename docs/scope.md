@@ -1,15 +1,19 @@
 # ProofQL — scope and architecture
 
-- **Status:** Accepted, 2026-10-01
+- **Status:** Accepted, 2026-10-01. Revised 2026-10-01 after the product chat: fresh codebase, free-tier economics drive the architecture; see §2.
 - **Owner:** @plattegruber
 
-This is the founding document. It records what ProofQL is, what v0 ships, the API contract, the data model, what is ported from Well-Regarded and what is deliberately left behind, and the milestone plan the backlog follows. When issues and this document disagree, fix whichever is wrong.
+This is the founding document. It records what ProofQL is, what v0 ships, the API contract, the data model, the engineering decisions and the reasoning behind them, and the milestone plan the backlog follows. Well-Regarded has a reference implementation of several pieces; agents may borrow from it when it helps, but this is a fresh codebase and nothing is a port for its own sake. When issues and this document disagree, fix whichever is wrong.
 
 ## 1. Product
 
 **One sentence:** a hosted API that turns a business's reviews into a semantically searchable corpus, so their website can show the reviews relevant to each page instead of the same five everywhere.
 
 **Customer:** web developers and agencies building sites for local and small businesses, and the businesses themselves via the dashboard. Horizontal from day one. The example vertical in docs is dental because that is where the idea came from, not because anything is dental-specific.
+
+**Business model: foot in the door.** The free tier is generous enough that basically anyone can use it. The free snippet carries a small "Reviews by ProofQL" badge, which is the growth loop: every customer site advertises the product. Paid removes the badge, raises limits, and later unlocks features. This has one engineering consequence that drives everything in §2: **the marginal cost of a free tenant must be approximately zero.** No LLM in the hot path, no per-tenant infrastructure, aggressive caching.
+
+**Onboarding is the product.** Sign up → import reviews (CSV, push API, or Google) → watch a progress bar for a few seconds → copy the snippet → done. If that takes more than five minutes or one page of docs, it is a bug.
 
 **Core loop:**
 
@@ -30,24 +34,45 @@ reviews in  ──►  split into excerpts, embed  ──►  query by meaning  
 
 ## 2. Decisions
 
-Stack is inherited from Well-Regarded so the port is a move, not a rewrite. These are decided; do not relitigate in issues.
+Made as a principal engineer would for a free-tier-first, many-small-tenants product on Cloudflare. Each has a reason; relitigate only with new information.
 
-| Concern | Decision |
-|---|---|
-| Platform | Cloudflare Workers. Hono for HTTP. Queues for the pipeline. KV for query cache and config. Cron Triggers for connector polling. R2 for raw CSV artifacts. |
-| Database | Neon Postgres via Hyperdrive (direct connection locally). Drizzle ORM and drizzle-kit migrations, append-only. pgvector with HNSW for vectors, Postgres FTS with GIN for keywords. Everything in one Postgres so policy predicates sit next to the vectors. |
-| Embeddings | Workers AI `@cf/baai/bge-m3`, 1024 dimensions. Swappable in principle; a model change is a migration. |
-| Excerpt splitting and sentiment | Claude API, `claude-haiku-4-5-20251001`, structured output validated with zod. Every AI judgment carries model, confidence, and prompt version. Kill switch and budget caps carry over. |
-| Dashboard | React Router v7 in framework mode on Workers. Tailwind v4 and shadcn/ui. |
-| Auth | Clerk for the dashboard. A Clerk Organization is an account. API keys are ours, hashed at rest. |
-| Billing | Stripe, usage-based on queries. Not before M3. |
-| Tooling | pnpm workspaces, Turborepo, TypeScript strict, Vitest, Biome, GitHub Actions, docker compose Postgres (`pgvector/pgvector:pg16`) locally. |
+### Shape of the data
 
-### Dropped from Well-Regarded, on purpose
+The defining fact: **tenants are small and numerous.** A typical business has 50 to 2,000 reviews. Even a chain has tens of thousands. There will be thousands of tenants and almost none of them are large. Everything below follows from that.
 
-- **Consent management.** Well-Regarded's append-only consents table, patient tokens, and the "no publishable boolean" invariant exist because it handles patient testimonials in a HIPAA-shaped context. ProofQL serves reviews the reviewer already published under a platform's terms. A per-review `hidden_at` and a per-project policy are the whole publication model.
-- **Facts vs. judgments as separate tables.** Kept in spirit (AI output is labeled with confidence and model), dropped as a schema pattern. Sentiment lives as nullable columns on the excerpt with `sentiment_model` and `sentiment_confidence` beside it. Re-running the model overwrites them; there is no need for history.
-- **Recovery, response, coverage, messaging, PMS integration.** Different products.
+| Concern | Decision | Why |
+|---|---|---|
+| Platform | Cloudflare Workers. Hono. Queues for ingest. KV for cache and config. Cron Triggers for polling. R2 for uploaded CSVs. | Edge-fast reads for the snippet; one vendor for compute; cheap at free-tier scale. |
+| Database | **Postgres on Neon** via Hyperdrive, Drizzle ORM, append-only migrations. pgvector for vectors, Postgres FTS for keywords. | One store holds rows, vectors, and text, so the publication policy and the ranking run in one SQL statement. Postgres has no size ceiling we will hit and makes cross-tenant admin and analytics trivial. Neon is just hosted Postgres with scale-to-zero and a free tier that covers launch; nothing is Neon-specific and any pgvector-capable Postgres works. The all-Cloudflare alternative (Vectorize + D1, or a Durable Object per tenant) was considered and rejected: D1 caps at 10 GB per database, Vectorize caps indexes at 5M vectors and adds a second store to keep consistent, and both are less familiar to the agents doing the work. Boring wins. |
+| Vector search | **Exact per-tenant scan, no HNSW index.** Filter by `project_id` via btree, compute cosine over that tenant's vectors. | A tenant with 2,000 reviews has maybe 4,000 vectors; exact scan is single-digit milliseconds and always correct. A global HNSW index with a tenant post-filter is the classic multi-tenant pgvector failure mode (small tenants get starved results). Add an index per large tenant, or partition, only when a tenant actually exceeds ~50k vectors. Store as `halfvec(1024)` to halve storage. |
+| Embeddings | Workers AI `@cf/baai/bge-m3`, 1024 dimensions, multilingual. | Effectively free, no vendor, no key, 8k token context so a whole review always fits. |
+| Chunking | **Deterministic, no LLM.** Every review gets one vector for its full text. Reviews longer than ~3 sentences also get sentence-window vectors (2 to 3 sentences, overlapping by one). The best-matching chunk is the excerpt. | Verbatim by construction. Most reviews are short and need no splitting. The LLM excerpt splitter in Well-Regarded cost ~$0.0015 per review, which at 500 reviews per free signup is real money for zero revenue. |
+| Sentiment gate | **Rating-based.** Default policy hides reviews rated 3 stars or below from query results. For sources with no rating, a Workers AI classifier (`@cf/huggingface/distilbert-sst-2-int8`) fills `sentiment` at ingest. | Reviews almost always carry a star rating; it is the sentiment signal, and it is free. The classifier is near-zero cost and only runs when needed. |
+| LLMs | **None in v0.** No Claude in the pipeline or query path. | Keeps free-tenant cost at zero and removes a vendor, a key, a ledger, a kill switch, and an eval harness from the backlog. Paid features later (AI summaries of matching reviews, review response drafts) are where Claude earns its place, and paying customers cover it. |
+| Dashboard | React Router v7 in framework mode on Workers. Tailwind v4, shadcn/ui. | Known quantity; runs on the same platform. |
+| Auth | Clerk. A Clerk Organization is an account. API keys are ours, hashed at rest. | Best signup UX, Google sign-in out of the box (which pairs with the Google connector), free to 10k monthly active users. |
+| Billing | Stripe. Not before M3. | Standard. |
+| Tooling | pnpm, Turborepo, TypeScript strict, Vitest, Biome, GitHub Actions, docker compose Postgres (`pgvector/pgvector:pg16`) locally. | Same as Well-Regarded, so conventions and CI carry over. |
+
+### Free tier (v0 numbers, tune with data)
+
+| | Free | Paid (shape only, price later) |
+|---|---|---|
+| Projects | 1 | Many |
+| Reviews per project | 5,000 | 100,000 |
+| Queries | 50,000 / month (cached hits are free) | Metered |
+| Sources | CSV, push API, Google | Same, plus priority polling |
+| Snippet badge | Yes | Removable |
+| Keys | Live and test | Same |
+
+Marginal cost of a free tenant at 500 reviews: ~1,000 halfvec vectors ≈ 2 MB storage, one-time embedding on Workers AI (fractions of a cent), Google polling inside the free API quota, queries served from KV. Rounds to zero.
+
+### Not carried over from Well-Regarded
+
+- **Consent management.** Patient testimonials in a HIPAA-shaped product needed it. Public reviews already published under a platform's terms do not. A per-review `hidden_at` and a per-project policy are the whole publication model.
+- **Facts vs. judgments as separate tables.** Sentiment is a column on the chunk with `sentiment_source` (`rating` | `model`) beside it.
+- **Claude in the pipeline**, and with it the AI call ledger, kill switch, budget caps, and eval harness.
+- **Recovery, response drafting, coverage, messaging, PMS integration.** Different products.
 - **Healthcare vocabulary.** Practices become projects. Patients become authors. Signals become reviews.
 
 ## 3. API contract (v0)
@@ -105,7 +130,7 @@ Also: `GET /v1/reviews`, `GET /v1/reviews/:id`, `PATCH /v1/reviews/:id` (hide, u
 - `mode` is `excerpts` (default: the matching slice, best for placement) or `reviews` (whole review, deduplicated, scored by its best excerpt).
 - Response: `{ "results": [{ "score", "excerpt", "excerpt_id", "review": { … } }], "took_ms", "cached" }`. `score` is in [0, 1] and is the normalized vector similarity of the returned excerpt, not the fused rank, so it is comparable across queries.
 - Relevance floor: candidates below the project's threshold (default 0.55 cosine, tunable per project and per environment) are dropped. The endpoint returns `results: []` rather than padding. Full-text-only hits with no vector proximity above the floor are dropped when `q` is present.
-- Policy applied in the same SQL as ranking: `hidden_at IS NULL`, `rating >= project.min_rating`, and when `project.exclude_negative = true`, excerpts whose sentiment is negative above a confidence threshold are excluded even when topically on-point. "The implant consult was a waste of money" matches `q=implants` hard; the gate is why it never renders.
+- Policy applied in the same SQL as ranking: `hidden_at IS NULL`, `rating >= project.min_rating` (default 4), and for unrated reviews `sentiment <> 'negative'`. "The implant consult was a waste of money" matches `q=implants` hard; the one-star rating on it is why it never renders.
 - Rate limited per key. Cached in KV keyed on `(project, environment, normalized query, filters)`; purged on ingest, delete, hide, or policy change for that project.
 
 ### Snippet
@@ -115,62 +140,56 @@ Also: `GET /v1/reviews`, `GET /v1/reviews/:id`, `PATCH /v1/reviews/:id` (hide, u
 <script async src="https://cdn.proofql.com/v1.js" data-key="pq_pk_live_…"></script>
 ```
 
-A pure client of `GET /v1/query`. Under 5 KB, no dependencies, renders nothing on empty results or error, ships with a default stylesheet that is easy to override and a `data-template` escape hatch. The snippet is the demo and the first thing a developer sees; it must look good out of the box.
+A pure client of `GET /v1/query`. Under 5 KB, no dependencies, renders nothing on empty results or error, ships with a default stylesheet that is easy to override and a `data-template` escape hatch. Free-tier projects render a small "Reviews by ProofQL" badge; the API tells the snippet whether to show it. The snippet is the demo and the first thing a developer sees; it must look good out of the box.
 
 ## 4. Data model
 
 Tenancy: `accounts` (mirrors a Clerk Organization) → `projects` (one per website or business; API keys, policy, allowed origins, environment separation) → everything else carries `project_id` and `environment`.
 
 ```
-accounts         id, clerk_org_id, name, plan, created_at
-projects         id, account_id, name, slug, allowed_origins[], min_rating, exclude_negative,
-                 similarity_floor, created_at
+accounts         id, clerk_org_id, name, plan (free|paid), stripe_customer_id, created_at
+projects         id, account_id, name, slug, allowed_origins[], min_rating (default 4),
+                 similarity_floor (default 0.55), show_badge (derived from plan), review_count,
+                 created_at
 api_keys         id, project_id, kind (secret|publishable), environment (live|test),
                  key_hash, prefix, last_used_at, revoked_at
 reviews          id, project_id, environment, source, external_id, rating, text, author_name,
                  author_avatar_url, occurred_at, url, language, metadata jsonb,
+                 sentiment (positive|neutral|negative|null), sentiment_source (rating|model|null),
                  hidden_at, indexed_at, created_at, updated_at
                  UNIQUE (project_id, environment, source, external_id)
-review_excerpts  id, review_id, project_id (denormalized for HNSW post-filter), environment,
-                 text (verbatim slice), start_offset, embedding vector(1024), tsv (generated),
-                 sentiment (positive|neutral|negative|null), sentiment_confidence,
-                 sentiment_model, created_at
-                 INDEX hnsw (embedding vector_cosine_ops), GIN (tsv)
-ai_calls         model, prompt_version, tokens, cost, latency, project_id, purpose  (budget caps)
+review_chunks    id, review_id, project_id, environment, kind (full|window),
+                 text (verbatim slice), start_offset, embedding halfvec(1024), tsv (generated)
+                 INDEX btree (project_id, environment), GIN (tsv)   -- no HNSW, see §2
 connections      id, project_id, kind (google), credentials (AES-GCM), status, cursor, metadata
-ingest_runs      id, project_id, kind (api|csv|google), counts, status, error, artifact_key
+ingest_runs      id, project_id, kind (api|csv|google|places), counts, status, error, artifact_key
+usage            project_id, month, queries, cache_hits   -- for limits and billing
 ```
 
-Excerpt text is always a verbatim slice of the review: `review.text.slice(start_offset, start_offset + text.length) === text`, enforced server-side. A fabricated quote is never stored. Short reviews (under ~200 characters) become a single excerpt without an AI call.
+Chunk text is always a verbatim slice of the review: `review.text.slice(start_offset, start_offset + text.length) === text`, enforced by a constraint test. A fabricated quote cannot exist because nothing generates text.
 
-## 5. What ports from Well-Regarded
+## 5. Reference material in Well-Regarded
 
-Paths are in the Well-Regarded repo. "Port" means copy, rename vocabulary, drop the parts marked, keep the tests.
+Fresh codebase. These exist in `github.com/plattegruber/well-regarded` and are worth reading before writing the equivalent here, but copy only what fits the decisions in §2.
 
-| Well-Regarded | ProofQL | Changes |
+| Piece | Where | Worth borrowing |
 |---|---|---|
-| `packages/db/src/schema/proofExcerpts.ts` | `review_excerpts` | rename, add sentiment columns, add `environment` |
-| `packages/db/src/queries/hybridSearch.ts` | hybrid search | add policy predicates as CTE input, environment filter |
-| `packages/db/src/schema/tsvector.ts` | same | none |
-| `packages/ai/src/embedding.ts` | same | none |
-| `packages/ai/src/prompts/excerpts.ts` | excerpt splitter | strip healthcare framing from the prompt, add sentiment to the same call |
-| `packages/ai/src/prompts/judgments.ts` | sentiment only | drop urgency, response risk, publication suitability |
-| `packages/core/src/apiKeys.ts` | same | add `kind` (secret/publishable) to the prefix scheme |
-| AI kill switch, budget caps, `ai_calls` | same | none |
-| `packages/sources/src/google/*`, fake GBP server, ADR 0002 | Google connector (M3) | practice → project; drop reply publishing |
-| CSV import (`docs/csv-import.md`, `packages/sources/src/csv`) | CSV upload | drop PII handling specific to patients; keep column mapping |
-| Monorepo scaffold, biome, turbo, CI, docker compose, `scripts/setup.sh` | same | rename scope to `@proofql/*` |
-| Design tokens and dashboard conventions (`design/`, `docs/frontend-conventions.md`) | dashboard | reuse the design language; new screens |
-
-Not ported: consent (all of it), patient tokens, derivations table, signals pipeline stages beyond normalize, recovery, responses, templates, coverage, messaging, staff permissions beyond Clerk roles.
+| Monorepo scaffold, Biome, Turbo, CI, docker compose, `scripts/setup.sh` | repo root, `.github/`, `scripts/` | Yes, nearly verbatim with the scope renamed |
+| Embedding provider with Workers AI + deterministic fake | `packages/ai/src/embedding.ts` | Yes |
+| Hybrid search with RRF fusion | `packages/db/src/queries/hybridSearch.ts` | The fusion and FTS parts; drop the HNSW assumptions |
+| Generated tsvector column type | `packages/db/src/schema/tsvector.ts` | Yes |
+| API key prefix, hashing, pattern | `packages/core/src/apiKeys.ts` | Yes, add the `sk`/`pk` kind |
+| GBP OAuth, location discovery, polling, adapter, fake GBP server, ADR 0002 | `packages/sources/src/google/*`, `docs/adr/0002-*` | Yes for M3; drop reply publishing |
+| CSV import column mapping | `packages/sources/src/csv`, `docs/csv-import.md` | The mapping UX; drop patient PII handling |
+| Design tokens, frontend conventions, observability conventions | `design/`, `docs/frontend-conventions.md`, `docs/observability.md` | Yes |
 
 ## 6. Milestones
 
 Each milestone is a GitHub milestone; each epic is an issue labeled `epic`; tasks reference their epic and close via PR.
 
-- **M0 Foundations.** Monorepo scaffold, local Postgres, CI, the ported `db`/`core`/`ai` packages with their tests green, Neon and Cloudflare provisioned. Exit: `pnpm run setup && pnpm test` green on a fresh clone; a seeded demo project exists.
-- **M1 Ingest and search.** Push API, pipeline (excerpt + embed + sentiment), query API with floor and policy, keys, rate limits, KV cache with purge. Exit: a curl-driven demo from ingest to a relevant query result against local and against deployed staging.
-- **M2 Snippet and dashboard.** The JS snippet, the dashboard (sign up, projects, keys, CSV upload, review browser with hide, query playground, policy settings), OpenAPI spec and docs page. Exit: a stranger can sign up, upload a CSV, paste the snippet into a static page, and see relevant reviews, with no help.
+- **M0 Foundations.** Monorepo scaffold, local Postgres, CI, the `db`/`core`/`ai` packages with schema, search, embeddings, and keys tested, Neon and Cloudflare provisioned. Exit: `pnpm run setup && pnpm test` green on a fresh clone; a seeded demo project exists.
+- **M1 Ingest and search.** Push API, pipeline (chunk + embed + sentiment), query API with floor and policy, keys, rate limits, KV cache with purge. Exit: a curl-driven demo from ingest to a relevant query result against local and against deployed staging.
+- **M2 Snippet and dashboard.** The JS snippet with badge, the dashboard (sign up, guided onboarding, projects, keys, CSV upload, review browser with hide, query playground, policy settings), free-tier limits, OpenAPI spec and docs page. Exit: a stranger can sign up, upload a CSV, paste the snippet into a static page, and see relevant reviews, in under five minutes with no help.
 - **M3 Connectors and launch.** Google connector gated on API access approval, Places API bootstrap, Stripe billing, abuse hardening, load test, launch checklist. Exit: public signup open.
 
 ## 7. User-gated items
@@ -179,9 +198,9 @@ These need a human with the real accounts. They gate production, not development
 
 1. **Google Business Profile API access.** File from a SkipStatic address, citing the SkipStatic Business Profile and website as eligibility, with ProofQL's production Google Cloud project number. Use case: "a review search API: with each business's OAuth consent, we read their Google reviews so they can display them on their own website." Approval shows as quota flipping 0 → 300 QPM. Lead time 1 to 6 weeks. Full detail in Well-Regarded ADR 0002.
 2. **Google OAuth sensitive-scope verification.** Needed before the public can connect Google accounts. Needs privacy policy, homepage, demo video. Start when the connect flow is demoable (M3).
-3. **Cloudflare account and Neon project** for staging and production, and wrangler secrets.
+3. **Cloudflare account and Neon project** for staging and production, and wrangler secrets. One Neon account serves both ProofQL and Well-Regarded as separate projects.
 4. **Clerk application** and keys.
-5. **Anthropic API key** for the pipeline and eval harness.
+5. **Google Places API key** for the five-review onboarding bootstrap (ordinary Cloud Console key, no approval).
 6. **Domain:** `proofql.com` (or whatever is owned) with `api.` and `cdn.` subdomains.
 7. **Stripe account** (M3).
 
@@ -191,5 +210,6 @@ Recorded so they are not re-asked; answer in an ADR when they matter.
 
 - Per-excerpt vs per-review deduplication when one review dominates a query. Likely: `mode=excerpts` caps at one excerpt per review by default, overridable.
 - Multilingual queries. bge-m3 is multilingual, so a Spanish query over English reviews should mostly work. Verify in the eval harness before claiming it.
-- Whether to offer `mode=summary`, a one-paragraph AI summary of the matching reviews with citations. Compelling, but it changes the product from "serve the customer's words" to "generate words"; defer and decide with data.
+- Whether to offer `mode=summary`, a one-paragraph AI summary of the matching reviews with citations, as the first paid-only feature. Compelling, and the natural place Claude enters the product; decide with data.
+- When deterministic chunking is not enough. If long multi-topic reviews produce poor excerpts in practice, an LLM splitter for paid tenants is the fix; measure first.
 - Pricing shape. Per-query with a free tier is the default assumption.

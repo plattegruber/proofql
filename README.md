@@ -28,14 +28,14 @@ ProofQL is horizontal. The search core does not know or care what industry a rev
 ## What it does
 
 1. **Ingest.** A push API accepts reviews in a normalized shape from any source. A Google Business Profile connector follows once Google approves API access. CSV upload in the dashboard covers everyone else on day one.
-2. **Index.** Long reviews are split into aspect-level excerpts so a review that covers four topics matches four queries. Every excerpt is embedded and stored in Postgres with pgvector alongside a full-text index.
+2. **Index.** Every review is embedded whole, and longer reviews also get sentence-window chunks so a review that covers four topics matches four queries. Vectors and a full-text index live in Postgres. No LLM touches your reviews.
 3. **Serve.** A query API runs hybrid search (vector similarity fused with full-text rank), applies a relevance floor and the project's publication policy, and returns ranked excerpts with their parent reviews. An empty result beats an irrelevant one. A tiny JS snippet renders results on any site with one script tag.
 
 ## Status
 
 Pre-code. The scope, architecture, API contract, and milestone plan are in [docs/scope.md](docs/scope.md). The backlog lives in GitHub issues; the roadmap issue is pinned.
 
-Most of the index-and-search core is ported from [well-regarded](https://github.com/plattegruber/well-regarded), where it was built as one feature of a larger healthcare product. ProofQL is that feature as a standalone product, with the healthcare-specific consent machinery removed.
+The idea comes from [well-regarded](https://github.com/plattegruber/well-regarded), where review placement was one feature of a larger healthcare product. ProofQL is that feature as a standalone, horizontal product with a free tier generous enough for anyone, built fresh.
 
 ## Quickstart
 
