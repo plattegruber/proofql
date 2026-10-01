@@ -69,6 +69,23 @@
     }
   ],
 
+  // Per-key rate limits (src/rate-limit.ts), one limiter per key kind.
+  // `namespace_id` is an account-unique integer we choose, not a provisioned
+  // resource. The numbers mirror DEFAULT_RATE_LIMITS; change both together
+  // (or set the RATE_LIMITS var to match). `period` may only be 10 or 60.
+  "ratelimits": [
+    {
+      "name": "RL_SECRET",
+      "namespace_id": "1001",
+      "simple": { "limit": 300, "period": 60 }
+    },
+    {
+      "name": "RL_PUBLISHABLE",
+      "namespace_id": "1002",
+      "simple": { "limit": 120, "period": 60 }
+    }
+  ],
+
   // Workers AI (`AI`: query embeddings with @cf/baai/bge-m3) is DELIBERATELY
   // absent from this local block: there is no local simulator — the binding
   // always proxies to the real Workers AI API and needs a logged-in wrangler,
@@ -93,6 +110,18 @@
         // <TBD>: id of Hyperdrive config `proofql-hyperdrive-preview`.
         { "binding": "HYPERDRIVE", "id": "TBD-provision-in-m0" }
       ],
+      "ratelimits": [
+        {
+          "name": "RL_SECRET",
+          "namespace_id": "1001",
+          "simple": { "limit": 300, "period": 60 }
+        },
+        {
+          "name": "RL_PUBLISHABLE",
+          "namespace_id": "1002",
+          "simple": { "limit": 120, "period": 60 }
+        }
+      ],
       "ai": { "binding": "AI" }
     },
     "prod": {
@@ -110,6 +139,18 @@
       "hyperdrive": [
         // <TBD>: id of Hyperdrive config `proofql-hyperdrive-prod`.
         { "binding": "HYPERDRIVE", "id": "TBD-provision-in-m0" }
+      ],
+      "ratelimits": [
+        {
+          "name": "RL_SECRET",
+          "namespace_id": "1001",
+          "simple": { "limit": 300, "period": 60 }
+        },
+        {
+          "name": "RL_PUBLISHABLE",
+          "namespace_id": "1002",
+          "simple": { "limit": 120, "period": 60 }
+        }
       ],
       "ai": { "binding": "AI" }
     }

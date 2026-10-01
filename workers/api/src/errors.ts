@@ -32,6 +32,7 @@ export const ERROR_CODES = [
   "payload_too_large",
   "rate_limited",
   "embedding_unavailable",
+  "query_quota_exceeded",
   "internal",
 ] as const;
 
@@ -48,6 +49,9 @@ const STATUS_BY_CODE: Record<ErrorCode, ContentfulStatusCode> = {
   // /v1/query could not embed `q` (Workers AI down or unbound): retryable,
   // and deliberately not a degraded full-text-only answer (query/route.ts).
   embedding_unavailable: 503,
+  // Monthly query quota (src/quota.ts): also 429, but a distinct code so a
+  // client can tell "slow down" from "upgrade or wait for the month".
+  query_quota_exceeded: 429,
   internal: 500,
 };
 

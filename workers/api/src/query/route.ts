@@ -63,6 +63,7 @@ import {
 } from "../cors.js";
 import { ApiError } from "../errors.js";
 import { log } from "../log.js";
+import { queryQuota } from "../quota.js";
 import {
   parseQueryRequest,
   type QueryFilters,
@@ -273,4 +274,12 @@ function toResponseResult(
 }
 
 queryRoutes.options("/", preflight);
-queryRoutes.on(["GET", "POST"], "/", requireQueryKey, cors, handleQuery);
+// Quota after CORS so an over-quota 429 is readable by the snippet's origin.
+queryRoutes.on(
+  ["GET", "POST"],
+  "/",
+  requireQueryKey,
+  cors,
+  queryQuota,
+  handleQuery,
+);

@@ -13,6 +13,8 @@ import type {
 } from "@proofql/core";
 import type { Db } from "@proofql/db";
 
+import type { RateLimiters } from "./rate-limit.js";
+
 export interface ApiBindings {
   /** "local" | "preview" | "prod" — from `vars` in wrangler.jsonc. */
   ENVIRONMENT: string;
@@ -27,6 +29,21 @@ export interface ApiBindings {
    * no local simulator — so code must treat it as optional.
    */
   AI?: Ai;
+  /**
+   * Cloudflare rate limiting bindings, one per key kind (`ratelimits` in
+   * wrangler.jsonc). Optional: absent (unit tests, a wrangler without the
+   * config) the worker falls back to an in-memory limiter per isolate so
+   * the behavior stays observable locally. See src/rate-limit.ts.
+   */
+  RL_SECRET?: RateLimit;
+  RL_PUBLISHABLE?: RateLimit;
+  /**
+   * Optional JSON override of the per-kind limits the worker advertises and
+   * the in-memory limiter enforces, e.g.
+   * `{"secret":{"limit":300,"period":60},"publishable":{"limit":120,"period":60}}`.
+   * Must mirror the `ratelimits` entries when those bindings are present.
+   */
+  RATE_LIMITS?: string;
 }
 
 /**
@@ -63,6 +80,10 @@ export interface AppVariables {
   getEmbedder: () => EmbeddingProvider;
   /** Present after `requireApiKey` ran. */
   auth: AuthContext;
+  /** Lazily resolves this request's per-kind limiters (see src/rate-limit.ts). */
+  getRateLimiters: () => RateLimiters;
+  /** Set by `markCacheHit` when the response was served from the cache. */
+  cacheHit?: boolean;
 }
 
 /** Hono generic: bindings on `c.env`, variables on `c.var` / `c.get()`. */
