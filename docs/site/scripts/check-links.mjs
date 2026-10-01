@@ -12,8 +12,8 @@
  *      no `id="<code>"` on the errors page — the api worker emits
  *      `doc_url: https://docs.proofql.com/errors#<code>` for every error,
  *      so each anchor is a public contract (workers/api/src/errors.ts);
- *   4. the `#relevance` anchor on the relevance page, which the product
- *      copy links to.
+ *   4. `/query#relevance`, the URL the dashboard's settings tab links to
+ *      (`RELEVANCE_DOCS_URL` in apps/dashboard).
  *
  * No dependencies beyond `yaml` (already a workspace devDependency). A regex
  * over attributes is enough: Astro emits well-formed, double-quoted HTML.
@@ -149,10 +149,10 @@ if (errorsPage === null) {
   }
 }
 
-// 4. The relevance anchor.
-const relevancePage = fileFor("/relevance");
-if (relevancePage === null || !idsOf(relevancePage).has("relevance")) {
-  failures.push("/relevance#relevance is missing");
+// 4. The relevance anchor the dashboard links to.
+const queryPage = fileFor("/query");
+if (queryPage === null || !idsOf(queryPage).has("relevance")) {
+  failures.push("/query#relevance is missing");
 }
 
 if (failures.length > 0) {

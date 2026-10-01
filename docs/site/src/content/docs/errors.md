@@ -69,7 +69,7 @@ Every non-2xx response from the API is one envelope:
 
 ## embedding_unavailable
 
-**503.** `/v1/query` could not embed `q` because the embedding service was unavailable. Deliberately not a degraded keyword-only answer, which is the irrelevant result the relevance floor exists to prevent ([Relevance and the floor](/relevance)).
+**503.** `/v1/query` could not embed `q` because the embedding service was unavailable. Deliberately not a degraded keyword-only answer, which is the irrelevant result the relevance floor exists to prevent ([Relevance and the floor](/query#relevance)).
 
 **Fix:** retry shortly, with backoff. The snippet renders nothing and tries again on the next page load. Queries without `q` are unaffected.
 

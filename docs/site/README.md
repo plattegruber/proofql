@@ -14,10 +14,10 @@ pnpm --filter @proofql/docs exec wrangler deploy --dry-run --env preview
 
 | Path | What |
 |---|---|
-| `src/content/docs/*.md(x)` | The pages: getting started, snippet, imports, relevance, errors, limits, and the landing page. Sidebar order is in `astro.config.mjs`. |
+| `src/content/docs/*.md(x)` | The pages: getting started, snippet, imports, query (relevance and the floor), errors, limits, and the landing page. Sidebar order is in `astro.config.mjs`. |
 | `astro.config.mjs` | Starlight config: no search, Google Fonts in `head`, the sidebar, and the `starlight-openapi` plugin that renders [`docs/api/openapi.yaml`](../api/openapi.yaml) at `/api/*`. |
 | `src/styles/theme.css` | The design tokens through Starlight's variables: ink, one green, Space Grotesk and IBM Plex Mono, square corners, light and dark. |
-| `scripts/check-links.mjs` | The link check. Fails on a broken internal link, a missing anchor, and on any `ErrorCode` from the spec without an `id` on `/errors`: the api emits `doc_url: https://docs.proofql.com/errors#<code>` for every error. |
+| `scripts/check-links.mjs` | The link check. Fails on a broken internal link, a missing anchor, on any `ErrorCode` from the spec without an `id` on `/errors` (the api emits `doc_url: https://docs.proofql.com/errors#<code>` for every error), and on a missing `/query#relevance` (the dashboard's settings tab links to it). |
 | `wrangler.jsonc` | Assets-only Worker over `dist/`. Pages are files (`errors.html`, from `build.format: "file"`) served at `/errors` with no trailing slash, so a `doc_url` resolves with no redirect in front of its fragment. |
 
 ## Rules

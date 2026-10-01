@@ -20,6 +20,9 @@ export default defineConfig({
   // redirect in front of the anchor.
   trailingSlash: "never",
   build: { format: "file" },
+  // The dashboard's settings tab links to /query#relevance (its
+  // RELEVANCE_DOCS_URL); the page's old slug stays reachable.
+  redirects: { "/relevance": "/query" },
   integrations: [
     starlight({
       title: "ProofQL docs",
@@ -62,7 +65,7 @@ export default defineConfig({
         { label: "Getting started", slug: "getting-started" },
         { label: "Snippet", slug: "snippet" },
         { label: "Imports", slug: "imports" },
-        { label: "Relevance and the floor", slug: "relevance" },
+        { label: "Relevance and the floor", slug: "query" },
         { label: "Errors", slug: "errors" },
         { label: "Limits", slug: "limits" },
         ...openAPISidebarGroups,

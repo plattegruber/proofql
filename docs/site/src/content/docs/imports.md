@@ -28,7 +28,7 @@ This is what `POST /v1/reviews` accepts and what a CSV import maps its columns o
 |---|---|---|
 | `external_id` | yes | The review's id at its source, up to 512 characters. Together with `source` it is the upsert key: sending the same pair again updates, never duplicates. |
 | `source` | yes | One of `google`, `yelp`, `facebook`, `trustpilot`, `custom`. `custom` is the escape hatch for anything else; the snippet shows no platform name for it. |
-| `rating` | no | Integer 1 to 5, or `null` for sources without stars. Unrated reviews go through a sentiment classifier at ingest instead ([Relevance and the floor](/relevance)). |
+| `rating` | no | Integer 1 to 5, or `null` for sources without stars. Unrated reviews go through a sentiment classifier at ingest instead ([Relevance and the floor](/query#relevance)). |
 | `text` | yes | The review, up to 20,000 characters. Trimmed; must be non-empty. Excerpts are verbatim slices of this. |
 | `author_name` | yes | Up to 256 characters. |
 | `author_avatar_url` | no | A URL or `null`. |
@@ -67,26 +67,35 @@ The plan's review cap is checked before anything is written, so a batch lands wh
 
 Afterwards, [`GET /v1/reviews`](/api/operations/listreviews) pages through the project, [`PATCH /v1/reviews/{id}`](/api/operations/updatereview) hides or unhides a review or replaces its `metadata`, and [`DELETE /v1/reviews/{id}`](/api/operations/deletereview) removes it along with its excerpts. Hiding is the usual move for a review you do not want on the site: it stays in your account, disappears from every query, and comes back with one call.
 
-## CSV upload
+## Upload an export
 
-In the dashboard, under a project's reviews: upload a CSV, see the first rows, map columns onto the fields above, choose the `source`, choose live or test, run. A progress bar follows the import as reviews are indexed, and a report lists any rows that failed validation and why. The import feeds the same upsert path as the API, so re-uploading a refreshed export updates rather than duplicates.
+In the dashboard, the project's **Import** tab (`/app/projects/<slug>/import`) takes a CSV or JSON file of up to 10 MiB in four steps:
 
-Column mapping auto-detects the common exports:
+1. **Choose the file**, the environment (live or test), and the format. Leave the format on auto-detect unless you know the export; the choice only seeds the next step.
+2. **Map columns.** The first rows are shown with the detected mapping of columns onto the fields above as selects you can correct, and any extra columns you want to keep as `metadata`. Validation runs on the sample as you change the mapping, so a wrong date column is caught before anything is written. A text column and a date column are required; everything else is optional.
+3. **Run.** Rows are normalized, validated, and upserted in batches of 100 through the same path as the push API, then queued for indexing. A progress bar follows the counts; the import resumes from them if the page is closed.
+4. **Result.** How many reviews were inserted, updated, and skipped, with a downloadable `errors.csv` naming each skipped row and why.
 
-| Export | What is detected |
-|---|---|
-| Google Takeout (Business Profile reviews) | reviewer name, star rating, comment, create time, review name as `external_id` |
-| Yelp | business review exports |
-| Trustpilot | review id, stars, title and text, consumer name, created date |
-| Birdeye | aggregated multi-source exports, with the source column mapped onto `source` |
-| Podium | review exports |
-| Anything else | map the columns yourself; a header row is enough |
+Formats detected from their headers:
 
-A `rating` column is optional. Rows without one go through the sentiment classifier. An `occurred_at` column is required; dates in common spreadsheet formats are accepted and normalized to ISO 8601.
+| Profile | Recognized by | Default `source` |
+|---|---|---|
+| Google Takeout (`Reviews.json`) | `reviewer.displayName`, `starRating`, `comment`, `createTime` | `google` |
+| Google Business Profile export | the Business Profile CSV columns | `google` |
+| Yelp for Business | `Reviewer`, `Rating`, `Review`, `Review Date`, `Review URL` | `yelp` |
+| Trustpilot | the Trustpilot review export columns | `trustpilot` |
+| Birdeye | its multi-source export; the `Source` column maps onto `source` | per row |
+| Podium | `Site`, `Customer Name`, `Stars`, `Comment`, `Date Posted` | `custom` |
+| Generic CSV | any header row; columns are matched by name (`review`, `comment`, `stars`, `rating`, `author`, `date`, …) and then by what their values look like | `custom` |
 
-:::caution[Coming soon]
-CSV upload with column mapping is [#38](https://github.com/plattegruber/proofql/issues/38). The vendor profiles above are its scope. Until it lands, convert the export to the JSON shape above and use the push API; the `external_id` and `source` columns are what make a re-import safe.
-:::
+Headers are matched case-insensitively with punctuation and whitespace collapsed, so `Review_Date`, `review date` and `Review Date` are the same column. JSON uploads are flattened to the same table: an array of objects, or an object with one array-valued key (`{ "reviews": [...] }`, which is what Takeout writes); nested objects become dotted headers.
+
+What the normalizer accepts:
+
+- **Ratings**: `1`–`5`, `4/5`, `★★★★☆`, `4 stars`. An empty cell means unrated; those reviews go through the sentiment classifier.
+- **Dates**: ISO 8601, `m/d/yyyy`, `Jan 5, 2026`, or a Unix timestamp. A row with no readable date is skipped, named in the report.
+- **`external_id`**: the vendor's review id when the export has one; otherwise a stable hash of source, author, date, and the start of the text, so re-importing the same export updates rather than duplicates.
+- **The cap**: the plan's review limit is checked against the file before the run; the result page says how many rows would not fit, and updates to existing reviews never count against it.
 
 ## Google Business Profile
 

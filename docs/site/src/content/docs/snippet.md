@@ -137,7 +137,7 @@ window.ProofQL.version;           // the bundle's version string
 
 Empty `results`, a non-2xx response, a network error, malformed JSON: all render **nothing** and leave the element untouched, including whatever fallback it already held. Each is one `console.debug` line prefixed `[proofql]`, never `warn` or `error`. Nothing in the snippet throws into the host page.
 
-This is deliberate. An empty block is better than an irrelevant review ([Relevance and the floor](/relevance)), and a broken key is better found in the console than announced to visitors. When a page you expected to show reviews is blank, open the console: the line carries the API's `code` and `message`, and [Errors](/errors) has the fix for each code.
+This is deliberate. An empty block is better than an irrelevant review ([Relevance and the floor](/query#relevance)), and a broken key is better found in the console than announced to visitors. When a page you expected to show reviews is blank, open the console: the line carries the API's `code` and `message`, and [Errors](/errors) has the fix for each code.
 
 :::note
 The hosted bundle at `cdn.proofql.com/v1.js` is published by [#34](https://github.com/plattegruber/proofql/issues/34). Until then, `pnpm --filter @proofql/snippet build` produces `dist/v1.js` from the repo.

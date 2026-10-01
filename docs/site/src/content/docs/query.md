@@ -57,6 +57,8 @@ Over a window of real traffic for one project (`has_q = true`, `cached != HIT`, 
 
 Never the query text, never an excerpt: the line carries `q_length`, not `q`.
 
-:::caution[Coming soon]
-The per-project form for `min_rating` and `similarity_floor` in the dashboard is [#41](https://github.com/plattegruber/proofql/issues/41), and the query playground that shows scores for a query against your own reviews is [#40](https://github.com/plattegruber/proofql/issues/40). Until then both knobs sit at their defaults.
-:::
+## Where the knobs are
+
+Both live on the project's **Settings** tab in the dashboard (`/app/projects/<slug>/settings`): the minimum rating as a pick list, the floor as a number between its bounds, each with the tradeoff spelled out. Saving bumps the project's cache generation, so the next query anywhere, in the snippet or the playground, reflects the change.
+
+Before touching either, run the query in the **Playground** (`/app/projects/<slug>/playground`). It runs the exact policy the API runs and draws the floor as a line through the ranked candidates: everything above it is what `/v1/query` returns, everything greyed out below it is what the floor dropped, with its `score`. One look usually settles whether the floor is too high for a corpus or an irrelevant excerpt is sneaking through.
