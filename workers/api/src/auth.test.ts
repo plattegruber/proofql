@@ -94,3 +94,57 @@ describe("POST /v1/reviews auth (no database)", () => {
     });
   });
 });
+
+describe("/v1/query ?key= (no database)", () => {
+  function get(qs: string, headers: Record<string, string> = {}) {
+    return app.request(`/v1/query${qs}`, { headers });
+  }
+
+  it("401 unauthorized for a secret key in the URL, before any lookup", async () => {
+    const { plaintext } = await generateApiKey({
+      kind: "secret",
+      environment: "live",
+    });
+    const res = await get(`?key=${plaintext}`);
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({
+      error: {
+        code: "unauthorized",
+        message: expect.stringMatching(
+          /Authorization header, never in the URL/,
+        ),
+      },
+    });
+  });
+
+  it("401 with a hint naming ?key= when neither header nor param is sent", async () => {
+    const res = await get("");
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({
+      error: { code: "unauthorized", message: expect.stringMatching(/\?key=/) },
+    });
+  });
+
+  it("401 for a malformed ?key=", async () => {
+    const res = await get("?key=pq_pk_live_short");
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({
+      error: {
+        code: "unauthorized",
+        message: expect.stringMatching(/Malformed/),
+      },
+    });
+  });
+
+  it("the Authorization header is checked first when both are present", async () => {
+    const res = await get("?key=whatever", { authorization: "Basic abc" });
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({
+      error: { code: "unauthorized", message: expect.stringMatching(/Bearer/) },
+    });
+  });
+});

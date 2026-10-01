@@ -31,6 +31,7 @@ export const ERROR_CODES = [
   "not_found",
   "payload_too_large",
   "rate_limited",
+  "embedding_unavailable",
   "internal",
 ] as const;
 
@@ -44,6 +45,9 @@ const STATUS_BY_CODE: Record<ErrorCode, ContentfulStatusCode> = {
   not_found: 404,
   payload_too_large: 413,
   rate_limited: 429,
+  // /v1/query could not embed `q` (Workers AI down or unbound): retryable,
+  // and deliberately not a degraded full-text-only answer (query/route.ts).
+  embedding_unavailable: 503,
   internal: 500,
 };
 

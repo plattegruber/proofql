@@ -127,6 +127,8 @@ Also: `GET /v1/reviews`, `GET /v1/reviews/:id`, `PATCH /v1/reviews/:id` (hide, u
 ```
 
 - `q` optional. Without it, results are the newest publishable reviews. With it, hybrid search.
+- Keys: `Authorization: Bearer …` for either kind. On `GET /v1/query` a **publishable** key may instead be passed as `?key=pq_pk_…`, which is what the snippet does: a GET with no custom headers is a CORS simple request, so the browser skips the preflight, and a preflight — when one does happen — cannot carry an `Authorization` header anyway. Secret keys are never accepted in the URL. Publishable requests must carry an `Origin` listed in the project's allowed origins (exact scheme + host + port); otherwise 403.
+- `filters.metadata` is an object (`{ "metadata": { "location": "north" } }`); the flat spelling `"metadata.location": "north"` inside `filters` is accepted too and is the GET form (`metadata.location=north`). Unknown fields anywhere are a 422 `validation_failed`, never ignored.
 - `mode` is `excerpts` (default: the matching slice, best for placement) or `reviews` (whole review, deduplicated, scored by its best excerpt).
 - Response: `{ "results": [{ "score", "excerpt", "excerpt_id", "review": { … } }], "took_ms", "cached" }`. `score` is in [0, 1] and is the normalized vector similarity of the returned excerpt, not the fused rank, so it is comparable across queries.
 - Relevance floor: candidates below the project's threshold (default 0.55 cosine, tunable per project and per environment) are dropped. The endpoint returns `results: []` rather than padding. Full-text-only hits with no vector proximity above the floor are dropped when `q` is present.
