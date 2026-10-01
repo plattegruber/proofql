@@ -55,6 +55,8 @@ pnpm format     # format only
 
 Run `pnpm lint:fix` before pushing. TypeScript compiler options live in the shared [`packages/tsconfig`](packages/tsconfig) package (`base.json`, `worker.json`, `react.json`) — every workspace extends one of those; do not add per-workspace strictness overrides.
 
+Never `console.*` in `workers/`, `apps/`, or `packages/core` — Biome's `noConsole` fails the build. Log through the shared logger (`createLogger` from `@proofql/core`, or the per-request `c.get("log")` in the api); the event catalogue, field conventions, and redaction rule are in [docs/observability.md](docs/observability.md).
+
 ## Issue workflow
 
 All work is tracked as GitHub issues; the roadmap (#52) is pinned.
