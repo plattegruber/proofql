@@ -8,3 +8,6 @@
 # this directory's `.env` as runtime vars instead, leaking the wrangler-side
 # Hyperdrive connection string into `env`. Add real secrets here as they
 # arrive, one `KEY=value` per line.
+#
+# The inventory of every planned secret (Clerk, Stripe, Google, CREDENTIALS_KEY)
+# and which worker gets it: docs/secrets.md.
