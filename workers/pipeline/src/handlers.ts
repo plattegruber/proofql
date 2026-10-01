@@ -2,6 +2,9 @@
  * Pipeline handlers, kept out of the wrangler entrypoint (src/worker.ts) so
  * unit tests can call them under Node with hand-built batches.
  *
+ * Cron contract (`triggers.crons`, every five minutes): `handleScheduled`
+ * runs the re-enqueue sweep (src/sweep.ts) for reviews stuck unindexed.
+ *
  * Queue consumer contract (`proofql-ingest`, wrangler.jsonc):
  *
  * - Every body is validated with `ingestMessageSchema` first. A body that
@@ -41,6 +44,7 @@ import {
   indexReview,
 } from "./index-review.js";
 import { log as defaultLog, errorFields } from "./log.js";
+import { type SweepResult, sweepUnindexed } from "./sweep.js";
 
 /** The subset of a Queues `Message` the handler reads and decides on. */
 export interface QueueMessage {
@@ -176,6 +180,29 @@ export function createQueueContext(env: PipelineBindings): {
     },
     close: () => sql.end(),
   };
+}
+
+/** Cron sweep tuning (#72): reviews unindexed for 5+ minutes, 500 per tick. */
+export const SWEEP_OLDER_THAN_MINUTES = 5;
+export const SWEEP_LIMIT = 500;
+
+/**
+ * One cron tick (`triggers.crons` in wrangler.jsonc): re-enqueue reviews
+ * stuck with `indexed_at IS NULL`. Opens its own database client, as the
+ * queue handler does, and closes it when the sweep is done.
+ */
+export async function handleScheduled(
+  env: Pick<PipelineBindings, "HYPERDRIVE" | "INGEST_QUEUE">,
+): Promise<SweepResult> {
+  const { db, sql } = createDb(env.HYPERDRIVE.connectionString);
+  try {
+    return await sweepUnindexed(
+      { db, queue: env.INGEST_QUEUE },
+      { olderThanMinutes: SWEEP_OLDER_THAN_MINUTES, limit: SWEEP_LIMIT },
+    );
+  } finally {
+    await sql.end();
+  }
 }
 
 /** `GET /health` → `{ ok: true }`; everything else 404. */

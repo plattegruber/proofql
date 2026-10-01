@@ -41,7 +41,16 @@
     "ENVIRONMENT": "local"
   },
 
+  // Re-enqueue sweep (#72, src/sweep.ts): every five minutes, reviews stuck
+  // with indexed_at IS NULL for 5+ minutes go back on the queue (500/tick,
+  // five attempts per review). Locally: `wrangler dev --test-scheduled`.
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+
   "queues": {
+    // The sweep produces to the same queue this worker consumes.
+    "producers": [{ "binding": "INGEST_QUEUE", "queue": "proofql-ingest" }],
     "consumers": [
       {
         "queue": "proofql-ingest",
@@ -82,7 +91,11 @@
     "preview": {
       "name": "proofql-pipeline-preview",
       "vars": { "ENVIRONMENT": "preview" },
+      "triggers": { "crons": ["*/5 * * * *"] },
       "queues": {
+        "producers": [
+          { "binding": "INGEST_QUEUE", "queue": "proofql-ingest-preview" }
+        ],
         "consumers": [
           {
             "queue": "proofql-ingest-preview",
@@ -107,7 +120,11 @@
     "prod": {
       "name": "proofql-pipeline-prod",
       "vars": { "ENVIRONMENT": "prod" },
+      "triggers": { "crons": ["*/5 * * * *"] },
       "queues": {
+        "producers": [
+          { "binding": "INGEST_QUEUE", "queue": "proofql-ingest-prod" }
+        ],
         "consumers": [
           {
             "queue": "proofql-ingest-prod",

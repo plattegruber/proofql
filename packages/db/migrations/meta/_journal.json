@@ -15,6 +15,13 @@
       "when": 1790843636703,
       "tag": "0002_projects_slug_per_account",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790861995661,
+      "tag": "0003_reviews_index_attempts",
+      "breakpoints": true
     }
   ]
 }
