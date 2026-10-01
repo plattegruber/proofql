@@ -28,6 +28,7 @@ import { notFound, onError } from "./errors.js";
 import { queryRoutes } from "./query/route.js";
 import { requestId } from "./request-id.js";
 import { reviewsRoutes } from "./routes/reviews.js";
+import { reviewsCrudRoutes } from "./routes/reviews-crud.js";
 
 export interface CreateAppOptions {
   /** Tests: use this client instead of opening one from `env.HYPERDRIVE`. */
@@ -58,6 +59,7 @@ export function createApp(options: CreateAppOptions = {}): Hono<AppEnv> {
 
   app.get("/health", (c) => c.json({ ok: true }));
   app.route("/v1/reviews", reviewsRoutes);
+  app.route("/v1/reviews", reviewsCrudRoutes);
   app.route("/v1/query", queryRoutes);
 
   return app;
