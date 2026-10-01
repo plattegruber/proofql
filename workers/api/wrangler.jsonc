@@ -1,0 +1,117 @@
+// Wrangler configuration for the ProofQL API worker (`proofql-api-<env>`).
+//
+// !! Bindings are NOT inherited across envs — edit all three sections !!
+// Wrangler environments only inherit a small set of top-level keys (main,
+// compatibility_date, etc.). Every queue/KV/Hyperdrive/AI binding below must
+// be repeated in full inside `env.preview` and `env.prod`. If you add, rename,
+// or remove a binding, update the top-level (local) block AND both env blocks.
+//
+// Environment matrix, ports, and binding names: see infra/environments.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+
+  // Top-level config is the LOCAL default (`wrangler dev` with Miniflare
+  // simulators). Local runs never deploy; the name still follows the
+  // `proofql-<name>-<env>` convention so logs stay consistent.
+  "name": "proofql-api-local",
+  // Worker entrypoint. Kept separate from src/index.ts: workerd only allows
+  // handler exports on the entry module, and unit tests import src/app.ts
+  // under Node.
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Workers Logs: persist console output per invocation in the Cloudflare
+  // dashboard. Inheritable key: applies to env.preview/env.prod without
+  // repetition.
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+
+  // Fixed ports so `pnpm dev` can run every worker side by side (and so this
+  // repo never collides with well-regarded's 8787–8791 / 9229–9233).
+  "dev": {
+    "port": 8797,
+    "inspector_port": 9239
+  },
+
+  "vars": {
+    "ENVIRONMENT": "local"
+  },
+
+  "queues": {
+    "producers": [
+      // POST /v1/reviews enqueues normalized reviews here; workers/pipeline
+      // consumes (chunk + embed + sentiment).
+      { "binding": "INGEST_QUEUE", "queue": "proofql-ingest" }
+    ]
+  },
+
+  "kv_namespaces": [
+    // Query-result cache keyed on (project, environment, query, filters),
+    // purged by the pipeline on ingest and by the dashboard on policy change.
+    // Local dev uses Miniflare's KV simulator, which ignores the id.
+    // <TBD>: real namespace id — provisioned with the Cloudflare account (M0).
+    { "binding": "CACHE", "id": "TBD-provision-in-m0" }
+  ],
+
+  "hyperdrive": [
+    // Local dev ignores the id. `localConnectionString` is the docker compose
+    // Postgres from `pnpm run setup`, so `wrangler dev` boots with no extra
+    // env; CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE (from this
+    // directory's .env, see .env.example) overrides it when set.
+    // <TBD>: real Hyperdrive config id — provisioned with the Neon project (M0).
+    {
+      "binding": "HYPERDRIVE",
+      "id": "TBD-provision-in-m0",
+      "localConnectionString": "postgres://proofql:proofql@localhost:54323/proofql"
+    }
+  ],
+
+  // Workers AI (`AI`: query embeddings with @cf/baai/bge-m3) is DELIBERATELY
+  // absent from this local block: there is no local simulator — the binding
+  // always proxies to the real Workers AI API and needs a logged-in wrangler,
+  // which a fresh clone and CI do not have. Code treats env.AI as optional and
+  // falls back to the deterministic fake embedding provider from @proofql/ai
+  // locally. env.preview/env.prod bind AI below.
+
+  "env": {
+    "preview": {
+      "name": "proofql-api-preview",
+      "vars": { "ENVIRONMENT": "preview" },
+      "queues": {
+        "producers": [
+          { "binding": "INGEST_QUEUE", "queue": "proofql-ingest-preview" }
+        ]
+      },
+      "kv_namespaces": [
+        // <TBD>: id of KV namespace `proofql-cache-preview`.
+        { "binding": "CACHE", "id": "TBD-provision-in-m0" }
+      ],
+      "hyperdrive": [
+        // <TBD>: id of Hyperdrive config `proofql-hyperdrive-preview`.
+        { "binding": "HYPERDRIVE", "id": "TBD-provision-in-m0" }
+      ],
+      "ai": { "binding": "AI" }
+    },
+    "prod": {
+      "name": "proofql-api-prod",
+      "vars": { "ENVIRONMENT": "prod" },
+      "queues": {
+        "producers": [
+          { "binding": "INGEST_QUEUE", "queue": "proofql-ingest-prod" }
+        ]
+      },
+      "kv_namespaces": [
+        // <TBD>: id of KV namespace `proofql-cache-prod`.
+        { "binding": "CACHE", "id": "TBD-provision-in-m0" }
+      ],
+      "hyperdrive": [
+        // <TBD>: id of Hyperdrive config `proofql-hyperdrive-prod`.
+        { "binding": "HYPERDRIVE", "id": "TBD-provision-in-m0" }
+      ],
+      "ai": { "binding": "AI" }
+    }
+  }
+}

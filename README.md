@@ -61,13 +61,16 @@ pnpm dev        # boot every worker side by side (turbo terminal UI — one pane
 
 `pnpm run setup` is idempotent — run it whenever you pull new migrations. It never overwrites an existing `.env` or `.dev.vars`. Migrations and the demo seed run automatically once `@proofql/db` ships them (#15); until then the script says so and skips those steps.
 
-After `pnpm run setup` you have:
+After `pnpm run setup && pnpm dev` you have:
 
 | Service | Where | Notes |
 |---|---|---|
 | Postgres 16 + pgvector | `localhost:54323` | `postgres://proofql:proofql@localhost:54323/proofql` (local-only credentials) |
+| `workers/api` | <http://localhost:8797> | Hono API worker — `GET /health` → `{ "ok": true }` |
+| `workers/pipeline` | <http://localhost:8798> | queue consumer (Miniflare-simulated queue) — `GET /health` |
+| `apps/dashboard` | <http://localhost:8799> | customer dashboard (placeholder until #36) |
 
-`pnpm dev` (wrangler for the workers and dashboard, fixed ports documented in `infra/environments.md`) lands in #13.
+Ports are fixed in each workspace's `wrangler.jsonc` (inspector ports 9239–9241; full matrix and bindings in [`infra/environments.md`](infra/environments.md)). To run a subset, filter: `pnpm dev --filter @proofql/api`.
 
 Everyday commands:
 
@@ -91,5 +94,7 @@ Biome replaces ESLint + Prettier; run `pnpm lint:fix` before pushing. See [CONTR
 **Schema looks wrong / migrations fail after a destructive schema change.** The named volume outlives `docker compose down`. Wipe and rebuild: `docker compose down -v && pnpm run setup`. (Migrations are append-only — see CONTRIBUTING — so a healthy volume never needs this; it's for local experiments gone sideways.)
 
 **pnpm version mismatch / "This project is configured to use pnpm@…".** The repo pins pnpm via `packageManager`. Run `corepack enable` once so the pinned version is used automatically; if corepack itself is missing, install Node 22 (`nvm use`) which bundles it.
+
+**`wrangler dev` fails with "address already in use" (8797–8799 or 9239–9241).** Each worker's port is fixed in its `wrangler.jsonc`. Usually the culprit is a previous `pnpm dev` that didn't fully exit — find it with `lsof -i :8797` (or whichever port) and kill the stale `workerd`/`wrangler` process.
 
 **`wrangler dev` errors about a local Postgres connection string for Hyperdrive, or DB queries fail.** Check Postgres is healthy (`docker compose ps` should say `healthy`) and that the worker's `.env` (not `.dev.vars` — wrangler ignores this var there) contains `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE` with the canonical connection string — `pnpm run setup` creates it from `.env.example`. The suffix after `_STRING_` must exactly match the binding name (`HYPERDRIVE`); a mismatch fails silently.
