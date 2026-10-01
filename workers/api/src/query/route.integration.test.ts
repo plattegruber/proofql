@@ -1,0 +1,612 @@
+/**
+ * `/v1/query` end to end against a real database (#26, #27): the app is
+ * built with the harness `Db` and the deterministic fake embedder from
+ * `@proofql/ai` (hashed bag of content words: shared vocabulary → near,
+ * unrelated → orthogonal), so these tests assert auth, CORS, policy, the
+ * floor, modes, and the response contract — not bge-m3's semantics.
+ *
+ * The fixture mirrors the demo seed's shape: one project, several reviews
+ * on distinct topics, each indexed as a `full` chunk, including a
+ * low-rated topical review and a hidden one that must never render.
+ */
+
+import { FakeEmbeddingProvider, fakeEmbed } from "@proofql/ai";
+import { generateApiKey } from "@proofql/core";
+import type { Db } from "@proofql/db";
+import {
+  type ApiKey,
+  apiKey,
+  chunk,
+  type Project,
+  project,
+  review,
+  setupTestDb,
+} from "@proofql/db/test";
+import type { Hono } from "hono";
+import { beforeAll, describe, expect, it } from "vitest";
+
+import { createApp } from "../app.js";
+import type { AppEnv } from "../bindings.js";
+import type { ApiErrorBody } from "../errors.js";
+import type { QueryResponse } from "./route.js";
+
+const t = setupTestDb();
+
+const ORIGIN = "https://shop.example";
+const OTHER_ORIGIN = "https://evil.example";
+
+// Short on purpose: the fake embedder's cosine is shared/sqrt(|q|·|review|)
+// over content words, so with a two-word query a review may have at most six
+// content words to clear the 0.55 floor. Each text below is annotated with
+// its content-word count.
+const IMPLANT = "My implant feels like my own tooth."; // 5
+const CLEANING = "Painless cleaning, very gentle hygienist."; // 5
+const PARKING = "Parking behind the building was easy."; // 4
+const BAD_IMPLANT = "Implant consult was a waste, tooth hurts."; // 5, rated 1
+const HIDDEN_IMPLANT = "Implant tooth went fine, hidden by owner."; // 6, hidden
+
+interface Fixture {
+  project: Project;
+  secret: string;
+  publishable: string;
+  secretKey: ApiKey;
+  reviews: Record<
+    "implant" | "cleaning" | "parking" | "badImplant" | "hidden",
+    string
+  >;
+}
+
+function embed(text: string): number[] {
+  const [vector] = fakeEmbed([text]);
+  if (!vector) throw new Error("fakeEmbed returned nothing");
+  return vector;
+}
+
+/** A review with its embedded `full` chunk — what the pipeline produces. */
+async function indexed(
+  db: Db,
+  projectId: string,
+  text: string,
+  overrides: Parameters<typeof review>[1] = {},
+): Promise<string> {
+  const r = await review(db, { projectId, text, ...overrides });
+  await chunk(db, {
+    reviewId: r.id,
+    kind: "full",
+    text,
+    startOffset: 0,
+    embedding: embed(text),
+  });
+  return r.id;
+}
+
+async function makeKey(
+  db: Db,
+  projectId: string,
+  kind: "secret" | "publishable",
+): Promise<{ plaintext: string; row: ApiKey }> {
+  const generated = await generateApiKey({ kind, environment: "live" });
+  const row = await apiKey(db, {
+    projectId,
+    kind,
+    environment: "live",
+    keyHash: generated.hash,
+    prefix: generated.prefix,
+  });
+  return { plaintext: generated.plaintext, row };
+}
+
+async function fixture(
+  db: Db,
+  overrides: Partial<Project> = {},
+): Promise<Fixture> {
+  const p = await project(db, {
+    allowedOrigins: [ORIGIN, "http://localhost:3000"],
+    minRating: 4,
+    similarityFloor: 0.55,
+    showBadge: true,
+    ...overrides,
+  });
+  const secret = await makeKey(db, p.id, "secret");
+  const publishable = await makeKey(db, p.id, "publishable");
+  const reviews = {
+    implant: await indexed(db, p.id, IMPLANT, {
+      rating: 5,
+      source: "google",
+      occurredAt: new Date("2026-03-01T00:00:00Z"),
+      metadata: { location: "north" },
+      url: "https://maps.google.com/implant",
+    }),
+    cleaning: await indexed(db, p.id, CLEANING, {
+      rating: 4,
+      source: "yelp",
+      occurredAt: new Date("2026-02-01T00:00:00Z"),
+      metadata: { location: "south" },
+    }),
+    parking: await indexed(db, p.id, PARKING, {
+      rating: 5,
+      source: "google",
+      occurredAt: new Date("2026-01-01T00:00:00Z"),
+    }),
+    // Topical and keyword-heavy, but one star: policy must drop it.
+    badImplant: await indexed(db, p.id, BAD_IMPLANT, {
+      rating: 1,
+      occurredAt: new Date("2026-03-10T00:00:00Z"),
+    }),
+    hidden: await indexed(db, p.id, HIDDEN_IMPLANT, {
+      rating: 5,
+      hiddenAt: new Date("2026-03-11T00:00:00Z"),
+      occurredAt: new Date("2026-03-12T00:00:00Z"),
+    }),
+  };
+  return {
+    project: p,
+    secret: secret.plaintext,
+    publishable: publishable.plaintext,
+    secretKey: secret.row,
+    reviews,
+  };
+}
+
+function appWith(embedder = new FakeEmbeddingProvider()): Hono<AppEnv> {
+  return createApp({ db: t.db, embedder });
+}
+
+async function post(
+  app: Hono<AppEnv>,
+  key: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<Response> {
+  return app.request("/v1/query", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+      ...headers,
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+}
+
+async function get(
+  app: Hono<AppEnv>,
+  qs: string,
+  headers: Record<string, string> = {},
+): Promise<Response> {
+  return app.request(`/v1/query?${qs}`, { method: "GET", headers });
+}
+
+async function json<T>(res: Response): Promise<T> {
+  return (await res.json()) as T;
+}
+
+describe("/v1/query", () => {
+  let f: Fixture;
+  let app: Hono<AppEnv>;
+
+  beforeAll(async () => {
+    f = await fixture(t.db);
+    app = appWith();
+  });
+
+  describe("hybrid search with a secret key", () => {
+    it("returns the topical, publishable review with score = cosine similarity", async () => {
+      const res = await post(app, f.secret, { q: "implant tooth" });
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Vary")).toBe("Origin");
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
+      const body = await json<QueryResponse>(res);
+      expect(body.results.map((r) => r.review.id)).toEqual([f.reviews.implant]);
+      const [top] = body.results;
+      expect(top?.excerpt).toBe(IMPLANT);
+      expect(top?.excerpt_id).toMatch(/^[0-9a-f-]{36}$/);
+      // {implant, tooth} ∩ five content words = 2: cosine 2/sqrt(2·5).
+      expect(top?.score).toBeCloseTo(2 / Math.sqrt(10), 3);
+      expect(top?.review).toEqual({
+        id: f.reviews.implant,
+        rating: 5,
+        author_name: expect.stringMatching(/^Author \d+$/),
+        author_avatar_url: null,
+        source: "google",
+        occurred_at: "2026-03-01T00:00:00.000Z",
+        url: "https://maps.google.com/implant",
+        metadata: { location: "north" },
+      });
+      expect(top?.review).not.toHaveProperty("text");
+      expect(body.cached).toBe(false);
+      expect(body.badge).toBe(true);
+      expect(typeof body.took_ms).toBe("number");
+    });
+
+    it("excludes the low-rated topical review and the hidden one", async () => {
+      // Both clear the floor for this query (cosine 0.63 and 0.58); policy,
+      // not relevance, removes them.
+      const res = await post(app, f.secret, { q: "implant tooth", limit: 20 });
+      const ids = (await json<QueryResponse>(res)).results.map(
+        (r) => r.review.id,
+      );
+      expect(ids).toEqual([f.reviews.implant]);
+
+      // Proof the one-star review is topical: a project whose policy admits
+      // one-star reviews returns it. The hidden one stays hidden regardless.
+      const lax = await fixture(t.db, { minRating: 1 });
+      const laxIds = (
+        await json<QueryResponse>(
+          await post(app, lax.secret, { q: "implant tooth", limit: 20 }),
+        )
+      ).results.map((r) => r.review.id);
+      expect(laxIds).toContain(lax.reviews.badImplant);
+      expect(laxIds).toContain(lax.reviews.implant);
+      expect(laxIds).not.toContain(lax.reviews.hidden);
+    });
+
+    it("returns results: [] below the floor rather than padding", async () => {
+      const res = await post(app, f.secret, {
+        q: "mortgage refinancing rates",
+      });
+      expect(res.status).toBe(200);
+      expect((await json<QueryResponse>(res)).results).toEqual([]);
+    });
+
+    it("drops a keyword-only hit that has no vector proximity above the floor", async () => {
+      // "parking" shares one word with a four-content-word review:
+      // full-text matches, cosine = 0.5 < 0.55.
+      const res = await post(app, f.secret, { q: "parking" });
+      expect((await json<QueryResponse>(res)).results).toEqual([]);
+    });
+
+    it("GET maps query params onto the same handler", async () => {
+      const res = await get(app, "q=implant+tooth&limit=2&mode=excerpts", {
+        Authorization: `Bearer ${f.secret}`,
+      });
+      expect(res.status).toBe(200);
+      const body = await json<QueryResponse>(res);
+      expect(body.results.map((r) => r.review.id)).toEqual([f.reviews.implant]);
+    });
+  });
+
+  describe("modes", () => {
+    it("mode=reviews includes the whole review text; excerpts does not", async () => {
+      const reviews = await json<QueryResponse>(
+        await post(app, f.secret, { q: "implant tooth", mode: "reviews" }),
+      );
+      expect(reviews.results[0]?.review.text).toBe(IMPLANT);
+      expect(reviews.results[0]?.excerpt).toBe(IMPLANT);
+
+      const excerpts = await json<QueryResponse>(
+        await post(app, f.secret, { q: "implant tooth", mode: "excerpts" }),
+      );
+      expect(excerpts.results[0]?.review).not.toHaveProperty("text");
+    });
+
+    it("no q: newest publishable first, score null, policy still applied", async () => {
+      const res = await post(app, f.secret, {});
+      expect(res.status).toBe(200);
+      const body = await json<QueryResponse>(res);
+      expect(body.results.map((r) => r.review.id)).toEqual([
+        f.reviews.implant, // 2026-03-01
+        f.reviews.cleaning, // 2026-02-01
+        f.reviews.parking, // 2026-01-01
+      ]);
+      expect(body.results.every((r) => r.score === null)).toBe(true);
+      expect(body.results[0]?.excerpt).toBe(IMPLANT);
+
+      const asGet = await json<QueryResponse>(
+        await get(app, "limit=1", { Authorization: `Bearer ${f.secret}` }),
+      );
+      expect(asGet.results.map((r) => r.review.id)).toEqual([
+        f.reviews.implant,
+      ]);
+    });
+  });
+
+  describe("filters and policy", () => {
+    it("filters.min_rating raises the floor above the project policy", async () => {
+      const body = await json<QueryResponse>(
+        await post(app, f.secret, { filters: { min_rating: 5 } }),
+      );
+      expect(body.results.map((r) => r.review.id)).toEqual([
+        f.reviews.implant,
+        f.reviews.parking,
+      ]);
+    });
+
+    it("filters.min_rating cannot lower the project policy", async () => {
+      const body = await json<QueryResponse>(
+        await post(app, f.secret, {
+          q: "implant consult waste money",
+          filters: { min_rating: 1 },
+          limit: 20,
+        }),
+      );
+      expect(body.results.map((r) => r.review.id)).not.toContain(
+        f.reviews.badImplant,
+      );
+    });
+
+    it("source, since, and metadata filters narrow the result", async () => {
+      const bySource = await json<QueryResponse>(
+        await get(app, "source=yelp", { Authorization: `Bearer ${f.secret}` }),
+      );
+      expect(bySource.results.map((r) => r.review.id)).toEqual([
+        f.reviews.cleaning,
+      ]);
+
+      const since = await json<QueryResponse>(
+        await post(app, f.secret, { filters: { since: "2026-02-01" } }),
+      );
+      expect(since.results.map((r) => r.review.id)).toEqual([
+        f.reviews.implant,
+        f.reviews.cleaning,
+      ]);
+
+      const byMetadata = await json<QueryResponse>(
+        await get(app, "metadata.location=south", {
+          Authorization: `Bearer ${f.secret}`,
+        }),
+      );
+      expect(byMetadata.results.map((r) => r.review.id)).toEqual([
+        f.reviews.cleaning,
+      ]);
+    });
+
+    it("badge reflects projects.show_badge", async () => {
+      const paid = await fixture(t.db, { showBadge: false });
+      const body = await json<QueryResponse>(await post(app, paid.secret, {}));
+      expect(body.badge).toBe(false);
+    });
+
+    it("a project with a lower similarity floor sees more", async () => {
+      const lax = await fixture(t.db, { similarityFloor: 0.1 });
+      const body = await json<QueryResponse>(
+        await post(app, lax.secret, { q: "parking" }),
+      );
+      expect(body.results.map((r) => r.excerpt)).toEqual([PARKING]);
+    });
+  });
+
+  describe("validation and errors", () => {
+    it("422 validation_failed with the envelope on an unknown field", async () => {
+      const res = await post(app, f.secret, { limt: 3 });
+      expect(res.status).toBe(422);
+      const body = await json<ApiErrorBody>(res);
+      expect(body.error).toMatchObject({
+        code: "validation_failed",
+        doc_url: "https://docs.proofql.com/errors#validation_failed",
+        issues: [{ path: "limt", message: expect.any(String) }],
+      });
+      expect(body.error.request_id).toBe(res.headers.get("X-Request-Id"));
+    });
+
+    it("400 invalid_json on a malformed body", async () => {
+      const res = await app.request("/v1/query", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${f.secret}` },
+        body: "{not json",
+      });
+      expect(res.status).toBe(400);
+      expect((await json<ApiErrorBody>(res)).error.code).toBe("invalid_json");
+    });
+
+    it("503 embedding_unavailable when embedding fails — never an FTS-only fallback", async () => {
+      const failing = appWith(
+        new FakeEmbeddingProvider({
+          shouldFail: () => new Error("Workers AI is down"),
+        }),
+      );
+      const res = await post(failing, f.secret, { q: "implant tooth" });
+      expect(res.status).toBe(503);
+      const body = await json<ApiErrorBody>(res);
+      expect(body.error.code).toBe("embedding_unavailable");
+      expect(body.error.message).toMatch(/retry/);
+
+      // The same app still serves no-q mode: nothing to embed.
+      const noQ = await post(failing, f.secret, {});
+      expect(noQ.status).toBe(200);
+    });
+  });
+
+  describe("authentication", () => {
+    it("401 unauthorized with no key, a malformed key, an unknown key, or a revoked key", async () => {
+      const none = await app.request("/v1/query", { method: "POST" });
+      expect(none.status).toBe(401);
+      expect((await json<ApiErrorBody>(none)).error.code).toBe("unauthorized");
+
+      const malformed = await post(app, "pq_sk_live_short", {});
+      expect(malformed.status).toBe(401);
+
+      const unknown = await post(
+        app,
+        (await generateApiKey({ kind: "secret", environment: "live" }))
+          .plaintext,
+        {},
+      );
+      expect(unknown.status).toBe(401);
+
+      const revoked = await fixture(t.db);
+      await t.sql`UPDATE api_keys SET revoked_at = now() WHERE id = ${revoked.secretKey.id}`;
+      expect((await post(app, revoked.secret, {})).status).toBe(401);
+    });
+
+    it("refuses a secret key in ?key= (URLs leak) but accepts a publishable one", async () => {
+      const viaUrl = await get(app, `key=${f.secret}`);
+      expect(viaUrl.status).toBe(401);
+      expect((await json<ApiErrorBody>(viaUrl)).error.message).toMatch(
+        /Authorization header/,
+      );
+
+      const pk = await get(app, `key=${f.publishable}&q=implant+tooth`, {
+        Origin: ORIGIN,
+      });
+      expect(pk.status).toBe(200);
+      expect(pk.headers.get("Access-Control-Allow-Origin")).toBe(ORIGIN);
+    });
+
+    it("the Authorization header wins over ?key= when both are present", async () => {
+      const res = await get(app, `key=${f.publishable}`, {
+        Authorization: `Bearer ${f.secret}`,
+      });
+      // Secret key: no Origin needed.
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe("publishable keys and CORS", () => {
+    it("listed origin: 200 with Access-Control-Allow-Origin and Vary: Origin", async () => {
+      const res = await post(
+        app,
+        f.publishable,
+        { q: "implant tooth" },
+        { Origin: ORIGIN },
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe(ORIGIN);
+      expect(res.headers.get("Vary")).toBe("Origin");
+      const body = await json<QueryResponse>(res);
+      expect(body.results.map((r) => r.review.id)).toEqual([f.reviews.implant]);
+    });
+
+    it("matches case-insensitively on host, exactly on scheme and port", async () => {
+      expect(
+        (await post(app, f.publishable, {}, { Origin: "https://SHOP.example" }))
+          .status,
+      ).toBe(200);
+      expect(
+        (await post(app, f.publishable, {}, { Origin: "http://shop.example" }))
+          .status,
+      ).toBe(403);
+      expect(
+        (
+          await post(
+            app,
+            f.publishable,
+            {},
+            { Origin: "https://shop.example:8443" },
+          )
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await post(
+            app,
+            f.publishable,
+            {},
+            { Origin: "http://localhost:3000" },
+          )
+        ).status,
+      ).toBe(200);
+    });
+
+    it("missing Origin: 403 forbidden naming the fix, no allow-origin header", async () => {
+      const res = await post(app, f.publishable, {});
+      expect(res.status).toBe(403);
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
+      expect(res.headers.get("Vary")).toBe("Origin");
+      const body = await json<ApiErrorBody>(res);
+      expect(body.error.code).toBe("forbidden");
+      expect(body.error.message).toMatch(/Origin header/);
+    });
+
+    it("unlisted Origin: 403 forbidden naming the origin, no allow-origin header", async () => {
+      const res = await post(app, f.publishable, {}, { Origin: OTHER_ORIGIN });
+      expect(res.status).toBe(403);
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
+      const body = await json<ApiErrorBody>(res);
+      expect(body.error.code).toBe("forbidden");
+      expect(body.error.message).toContain(OTHER_ORIGIN);
+      expect(body.error.message).toMatch(/Allowed origins/);
+    });
+
+    it("a project with no allowed origins refuses every publishable request", async () => {
+      const bare = await fixture(t.db, { allowedOrigins: [] });
+      expect(
+        (await post(app, bare.publishable, {}, { Origin: ORIGIN })).status,
+      ).toBe(403);
+    });
+
+    it("errors for a listed origin still carry the CORS headers so the page can read them", async () => {
+      const res = await post(
+        app,
+        f.publishable,
+        { limit: 99 },
+        { Origin: ORIGIN },
+      );
+      expect(res.status).toBe(422);
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe(ORIGIN);
+    });
+
+    it("secret keys skip the origin check and echo an Origin if one is sent", async () => {
+      const res = await post(app, f.secret, {}, { Origin: OTHER_ORIGIN });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe(OTHER_ORIGIN);
+    });
+  });
+
+  describe("OPTIONS /v1/query preflight", () => {
+    const preflight = (qs: string, headers: Record<string, string>) =>
+      app.request(`/v1/query${qs}`, {
+        method: "OPTIONS",
+        headers: {
+          "Access-Control-Request-Method": "GET",
+          "Access-Control-Request-Headers": "authorization,content-type",
+          ...headers,
+        },
+      });
+
+    it("echoes a listed origin for a key in ?key= with the allow headers, without auth", async () => {
+      const res = await preflight(`?key=${f.publishable}&q=implant`, {
+        Origin: ORIGIN,
+      });
+      expect(res.status).toBe(204);
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe(ORIGIN);
+      expect(res.headers.get("Access-Control-Allow-Methods")).toBe(
+        "GET, POST, OPTIONS",
+      );
+      expect(res.headers.get("Access-Control-Allow-Headers")).toBe(
+        "Authorization, Content-Type",
+      );
+      expect(res.headers.get("Access-Control-Max-Age")).toBe("600");
+      expect(res.headers.get("Vary")).toBe("Origin");
+    });
+
+    it("also reads the key from an Authorization header", async () => {
+      const res = await preflight("", {
+        Origin: ORIGIN,
+        Authorization: `Bearer ${f.publishable}`,
+      });
+      expect(res.status).toBe(204);
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe(ORIGIN);
+    });
+
+    it("does not echo an unlisted origin, an unknown key, or no key at all", async () => {
+      const unlisted = await preflight(`?key=${f.publishable}`, {
+        Origin: OTHER_ORIGIN,
+      });
+      expect(unlisted.status).toBe(204);
+      expect(unlisted.headers.get("Access-Control-Allow-Origin")).toBeNull();
+      expect(unlisted.headers.get("Vary")).toBe("Origin");
+
+      const unknown = await preflight(
+        "?key=pq_pk_live_00000000000000000000000000000000",
+        {
+          Origin: ORIGIN,
+        },
+      );
+      expect(unknown.headers.get("Access-Control-Allow-Origin")).toBeNull();
+
+      const none = await preflight("", { Origin: ORIGIN });
+      expect(none.status).toBe(204);
+      expect(none.headers.get("Access-Control-Allow-Origin")).toBeNull();
+    });
+
+    it("echoes any origin for a secret key, matching the real request", async () => {
+      const res = await preflight("", {
+        Origin: OTHER_ORIGIN,
+        Authorization: `Bearer ${f.secret}`,
+      });
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe(OTHER_ORIGIN);
+    });
+  });
+});

@@ -5,6 +5,7 @@
  * per-request variables middleware attaches to the Hono context.
  */
 
+import type { EmbeddingProvider } from "@proofql/ai";
 import type {
   ApiKeyEnvironment,
   ApiKeyKind,
@@ -28,6 +29,21 @@ export interface ApiBindings {
   AI?: Ai;
 }
 
+/**
+ * The project columns the query path needs, read in the same statement as
+ * the key (`requireApiKey`) so policy is fetched once per request.
+ */
+export interface ProjectPolicy {
+  /** CORS allowlist for publishable keys (`projects.allowed_origins`). */
+  allowedOrigins: string[];
+  /** Publication policy floor on `rating` (`projects.min_rating`). */
+  minRating: number;
+  /** Cosine-similarity floor (`projects.similarity_floor`). */
+  similarityFloor: number;
+  /** Whether the snippet must render the badge (`projects.show_badge`). */
+  showBadge: boolean;
+}
+
 /** What a resolved API key grants a request (set by `requireApiKey`). */
 export interface AuthContext {
   apiKeyId: string;
@@ -35,6 +51,7 @@ export interface AuthContext {
   /** Scopes every row the request reads or writes. */
   environment: ApiKeyEnvironment;
   kind: ApiKeyKind;
+  project: ProjectPolicy;
 }
 
 export interface AppVariables {
@@ -42,6 +59,8 @@ export interface AppVariables {
   requestId: string;
   /** Lazily opens the database for this request (see src/db.ts). */
   getDb: () => Db;
+  /** Lazily resolves the query embedder for this request (see src/embedder.ts). */
+  getEmbedder: () => EmbeddingProvider;
   /** Present after `requireApiKey` ran. */
   auth: AuthContext;
 }
