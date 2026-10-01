@@ -124,7 +124,7 @@ describe("runSeed", () => {
     });
     expect(first.chunks.full).toBe(DEMO_REVIEW_FIXTURES.length);
     expect(first.chunks.window).toBe(EXPECTED_WINDOWS);
-    expect(first.chunks.window).toBe(49); // seed v2 — pinned in fixtures/reviews.test.ts
+    expect(first.chunks.window).toBe(30); // seed v3 — pinned in fixtures/reviews.test.ts
 
     const [acct] = await t.db
       .select()
@@ -294,7 +294,7 @@ describe("runSeed", () => {
 
     const windows = rows.filter((r) => r.kind === "window");
     expect(windows.length).toBe(EXPECTED_WINDOWS);
-    expect(new Set(windows.map((w) => w.reviewId)).size).toBe(19);
+    expect(new Set(windows.map((w) => w.reviewId)).size).toBe(11);
     for (const w of windows) {
       expect(w.text.length).toBeLessThan(w.reviewText.length);
     }
@@ -350,9 +350,10 @@ describe("runSeed", () => {
       );
     }
 
-    // One concrete case, spelled out: g09 is an eight-sentence Google
-    // review, so it carries four windows of three sentences stepping by two
-    // (the last absorbs the trailing sentence) after its full chunk.
+    // One concrete case, spelled out: g09 is a seven-sentence Google review
+    // ("Dr. Patel talked me through…" is one sentence since #77), so it
+    // carries three windows of three sentences stepping by two after its
+    // full chunk.
     const g09 = DEMO_REVIEW_FIXTURES.find((f) => f.key === "g09");
     expect(g09).toBeDefined();
     if (!g09) return;
@@ -360,7 +361,7 @@ describe("runSeed", () => {
       [...(byReview.get(`live:${demoExternalId(g09)}`) ?? [])]
         .sort(inOrder)
         .map((c) => c.kind),
-    ).toEqual(["full", "window", "window", "window", "window"]);
+    ).toEqual(["full", "window", "window", "window"]);
   });
 
   it("embeds every chunk with a 1024-dim unit vector", async () => {

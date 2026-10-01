@@ -11,7 +11,7 @@
 /**
  * Version of the demo dataset. Bump on ANY change to what the seed
  * produces. It is written into the demo account's name
- * (`"ProofQL Demo (seed v2)"`) so `SELECT name FROM accounts` on any local
+ * (`"ProofQL Demo (seed v3)"`) so `SELECT name FROM accounts` on any local
  * database tells you which fixture set it holds without reading the code.
  *
  * v1 (#20): Cedar Ridge Dental — 80 live reviews (56 google, 14 yelp,
@@ -20,12 +20,17 @@
  * `fakeEmbed`.
  *
  * v2 (#69): same reviews, chunked with the pipeline's `chunkReview` from
- * `@proofql/core` instead of the seed-only splitter. The canonical chunker
- * does not merge honorifics ("Dr." is a sentence to UAX #29), so more
- * reviews cross the four-sentence threshold: 49 window chunks over 19
- * reviews, up from 30 over 11.
+ * `@proofql/core` instead of the seed-only splitter. That chunker did not
+ * yet merge honorifics ("Dr." is a sentence to UAX #29), so more reviews
+ * crossed the four-sentence threshold: 49 window chunks over 19 reviews,
+ * up from 30 over 11.
+ *
+ * v3 (#77): same reviews; `chunkReview` now rejoins abbreviations ("Dr.",
+ * "St.", "e.g.") and initials with the sentence that follows, so the
+ * chunker's sentence count matches a reader's again: 30 window chunks over
+ * 11 reviews (10 live, 1 test), none ending in a bare "Dr.".
  */
-export const SEED_VERSION = 2;
+export const SEED_VERSION = 3;
 
 /**
  * Natural key of the demo account. The wipe step finds any previous seed

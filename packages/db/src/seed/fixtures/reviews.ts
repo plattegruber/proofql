@@ -22,9 +22,9 @@
  * - **Varied length**: roughly 60% one to two sentences, 30% three to
  *   five, 10% long multi-topic, so the seed produces `window` chunks and a
  *   long review can match several different queries by different excerpts.
- *   (Those are human counts. The chunker's `Intl.Segmenter` treats "Dr."
- *   as a sentence of its own, so it sees more sentences than a reader
- *   does; `./reviews.test.ts` pins what the chunker sees.)
+ *   (`chunkReview` counts sentences the way a reader does — it rejoins
+ *   "Dr." and other abbreviations with the sentence they open (#77) — and
+ *   `./reviews.test.ts` pins what the chunker sees.)
  * - **Spread over 18 months** of `occurred_at` (relative to `SEED_ANCHOR`).
  *
  * `external_id` is `demo-<key>`; keys are unique per environment.
