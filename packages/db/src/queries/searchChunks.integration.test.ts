@@ -598,3 +598,94 @@ describe("limit", () => {
     ).rejects.toThrow(RangeError);
   });
 });
+
+describe("debug: includeBelowFloor", () => {
+  const t = setupTestDb();
+
+  // Shares one content word with "painless implant" (similarity ~0.41):
+  // below the default floor, above zero — a candidate the floor drops.
+  const NEAR = "The implant process was simple and fast.";
+
+  it("appends the floored candidates, flagged, after an identical above-floor page", async () => {
+    const p = await project(t.db);
+    const hit = await indexed(t.db, { projectId: p.id, text: IMPLANT });
+    const near = await indexed(t.db, { projectId: p.id, text: NEAR });
+    await indexed(t.db, { projectId: p.id, text: PARKING });
+    // Policy still applies before the floor: a 2-star review is not a
+    // "candidate the floor dropped", it never took part.
+    await indexed(t.db, { projectId: p.id, text: IMPLANT, rating: 2 });
+
+    const plain = await searchChunks(t.db, query(p.id, "painless implant"));
+    const debug = await searchChunks(
+      t.db,
+      query(p.id, "painless implant", { includeBelowFloor: true }),
+    );
+
+    expect(plain.map((r) => r.reviewId)).toEqual([hit.id]);
+    expect(plain.every((r) => r.belowFloor === false)).toBe(true);
+
+    const above = debug.filter((r) => !r.belowFloor);
+    const below = debug.filter((r) => r.belowFloor);
+    // The above-floor rows are the default result, byte for byte.
+    expect(above).toEqual(plain);
+    // Above-floor rows come first; below-floor rows follow in rank order.
+    expect(debug.slice(0, above.length)).toEqual(above);
+    expect(below.map((r) => r.reviewId)).toEqual([near.id, expect.any(String)]);
+    expect(below[0]?.similarity).toBeLessThan(DEFAULT_POLICY.similarityFloor);
+    expect(below[0]?.similarity).toBeGreaterThan(0);
+    expect(below[1]?.excerpt).toBe(PARKING);
+    expect(below[1]?.similarity).toBeCloseTo(0, 2);
+  });
+
+  it("never lists a review on both sides of the floor, and honours limit per side", async () => {
+    const p = await project(t.db);
+    // One review whose window clears the floor (~0.82) and whose full
+    // chunk does not (~0.45): one row, above the floor, never a second one.
+    const TEXT =
+      "Painless implant, honestly. The front desk explained every charge.";
+    const both = await indexed(t.db, { projectId: p.id, text: TEXT }, [
+      "Painless implant, honestly.",
+    ]);
+    const nears: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      nears.push(
+        (
+          await indexed(t.db, {
+            projectId: p.id,
+            text: NEAR,
+            occurredAt: new Date(`2026-0${i + 1}-01T00:00:00Z`),
+          })
+        ).id,
+      );
+    }
+
+    const debug = await searchChunks(
+      t.db,
+      query(p.id, "painless implant", { includeBelowFloor: true, limit: 2 }),
+    );
+    const above = debug.filter((r) => !r.belowFloor);
+    const below = debug.filter((r) => r.belowFloor);
+    expect(above.map((r) => r.reviewId)).toEqual([both.id]);
+    expect(above[0]?.excerpt).toBe("Painless implant, honestly.");
+    expect(below).toHaveLength(2);
+    expect(below.map((r) => r.reviewId)).not.toContain(both.id);
+    // Ties on similarity break newest-first, as everywhere else.
+    expect(below.map((r) => r.reviewId)).toEqual([nears[2], nears[1]]);
+  });
+
+  it("is a no-op in no-query mode", async () => {
+    const p = await project(t.db);
+    await indexed(t.db, { projectId: p.id, text: IMPLANT });
+    const results = await searchChunks(t.db, {
+      projectId: p.id,
+      environment: "live",
+      limit: 5,
+      policy: DEFAULT_POLICY,
+      mode: "excerpts",
+      includeBelowFloor: true,
+    });
+    expect(results).toHaveLength(1);
+    expect(results[0]?.belowFloor).toBe(false);
+    expect(results[0]?.similarity).toBeNull();
+  });
+});

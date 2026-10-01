@@ -74,6 +74,22 @@
  * the number the floor is applied to; the API contract exposes that one as
  * its `score`.
  *
+ * ## Debug: `includeBelowFloor`
+ *
+ * The dashboard's query playground (#40) needs to show *why* a query came
+ * back thin: which candidates the floor dropped. With
+ * `includeBelowFloor: true` the vector branch keeps every embedded
+ * candidate and each result carries `belowFloor` (`similarity <
+ * policy.similarityFloor`). The above-floor rows are **exactly** the default
+ * result — same rows, same order, same `score` — because below-floor rows
+ * sort after every above-floor row in the vector ranking (so above-floor
+ * vector ranks are unchanged), the text branch never looked at the floor,
+ * and the per-review collapse runs separately inside each group. The
+ * below-floor group is the next `limit` reviews by fused rank that have
+ * no above-floor chunk, in rank order after the above-floor group. The
+ * default statement is untouched by the option: only the debug variant
+ * pays for the wider scan.
+ *
  * ## No query
  *
  * Without `queryEmbedding` the result is the newest publishable reviews
@@ -132,6 +148,12 @@ export interface SearchChunksParams {
   policy: SearchPolicy;
   filters?: SearchFilters | undefined;
   mode: SearchMode;
+  /**
+   * Debug variant (module doc): also return the candidates that fell below
+   * `policy.similarityFloor`, flagged `belowFloor: true`, after the normal
+   * results. Default false. Ignored in no-query mode (nothing is floored).
+   */
+  includeBelowFloor?: boolean | undefined;
 }
 
 export interface SearchResultReview {
@@ -157,6 +179,11 @@ export interface SearchResult {
   similarity: number | null;
   /** Fused rank normalized to [0, 1] (module doc); null in no-query mode. */
   score: number | null;
+  /**
+   * True only with `includeBelowFloor`, for a candidate the floor would
+   * have dropped. Always false for the rows the default search returns.
+   */
+  belowFloor: boolean;
   review: SearchResultReview;
 }
 
@@ -168,6 +195,7 @@ type Row = {
   start_offset: number;
   similarity: number | null;
   rrf: number | null;
+  below_floor: boolean;
   rating: number | null;
   author_name: string | null;
   author_avatar_url: string | null;
@@ -334,33 +362,79 @@ function hybridStatement(
         -- for the sort key (~15% off the statement at 5,000 chunks).
         OFFSET 0
       ) AS scored
-      WHERE similarity >= ${params.policy.similarityFloor}
+      ${
+        params.includeBelowFloor
+          ? // Debug: keep everything; `below_floor` partitions the output.
+            sql``
+          : sql`WHERE similarity >= ${params.policy.similarityFloor}`
+      }
     ),
     kw AS (${textBranch}),
     fused AS (
       SELECT v.id, v.review_id, v.text, v.start_offset, v.occurred_at, v.similarity,
+             (v.similarity < ${params.policy.similarityFloor}) AS below_floor,
              (COALESCE(1.0 / (${RRF_K} + v.rank), 0)
               + COALESCE(1.0 / (${RRF_K} + kw.rank), 0))::float8 AS rrf
       FROM vec v
       LEFT JOIN kw ON kw.id = v.id
     ),
-    best AS (
-      SELECT DISTINCT ON (review_id) *
-      FROM fused
-      ORDER BY review_id, rrf DESC, similarity DESC, id
-    )
-    SELECT b.id AS chunk_id,
+    ${params.includeBelowFloor ? debugTail(params) : defaultTail(params)}
+  `;
+}
+
+/** The `best` collapse: one row per review (per floor side in debug mode). */
+const bestColumns = sql`b.id AS chunk_id,
            b.review_id,
            b.text AS excerpt,
            b.start_offset,
            b.similarity,
            b.rrf,
-           ${reviewColumns}
+           b.below_floor,
+           ${reviewColumns}`;
+
+/** Default: collapse, then the top `limit` by fused rank. */
+function defaultTail(params: SearchChunksParams): SQL {
+  return sql`
+    best AS (
+      SELECT DISTINCT ON (review_id) *
+      FROM fused
+      ORDER BY review_id, rrf DESC, similarity DESC, id
+    )
+    SELECT ${bestColumns}
     FROM best b
     JOIN reviews r ON r.id = b.review_id
     ORDER BY b.rrf DESC, b.occurred_at DESC NULLS LAST, b.review_id
-    LIMIT ${params.limit}
-  `;
+    LIMIT ${params.limit}`;
+}
+
+/**
+ * Debug (`includeBelowFloor`): collapse within each floor side so the
+ * above-floor page is byte-identical to the default, then append the next
+ * `limit` reviews that only have below-floor chunks.
+ */
+function debugTail(params: SearchChunksParams): SQL {
+  return sql`
+    best AS (
+      SELECT DISTINCT ON (review_id, below_floor) *
+      FROM fused
+      ORDER BY review_id, below_floor, rrf DESC, similarity DESC, id
+    ),
+    above AS (
+      SELECT * FROM best WHERE NOT below_floor
+      ORDER BY rrf DESC, occurred_at DESC NULLS LAST, review_id
+      LIMIT ${params.limit}
+    ),
+    below AS (
+      SELECT * FROM best
+      WHERE below_floor
+        AND review_id NOT IN (SELECT review_id FROM best WHERE NOT below_floor)
+      ORDER BY rrf DESC, occurred_at DESC NULLS LAST, review_id
+      LIMIT ${params.limit}
+    )
+    SELECT ${bestColumns}
+    FROM (SELECT * FROM above UNION ALL SELECT * FROM below) b
+    JOIN reviews r ON r.id = b.review_id
+    ORDER BY b.below_floor, b.rrf DESC, b.occurred_at DESC NULLS LAST, b.review_id`;
 }
 
 /**
@@ -378,6 +452,7 @@ function recencyStatement(params: SearchChunksParams): SQL {
            c.start_offset,
            NULL::float8 AS similarity,
            NULL::float8 AS rrf,
+           false AS below_floor,
            ${reviewColumns}
     FROM reviews r
     JOIN LATERAL (
@@ -406,6 +481,7 @@ function toResult(row: Row, activeLists: number): SearchResult {
     startOffset: row.start_offset,
     similarity: row.similarity,
     score: row.rrf === null ? null : normalizeRrf(row.rrf, activeLists),
+    belowFloor: row.below_floor,
     review: {
       rating: row.rating,
       authorName: row.author_name,
