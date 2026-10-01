@@ -6,8 +6,10 @@
  * Middleware order matters: request id first (every response, including
  * errors, carries one), then lazy database access, then the rate limiters
  * (installed here, enforced by `requireApiKey` once the key is known), then
- * routes. The monthly query quota (src/quota.ts) is route-level middleware
- * on `/v1/query`, mounted after that route's auth.
+ * routes. The monthly query quota (src/quota.ts) is route-level on
+ * `/v1/query`: the counting half is middleware after that route's auth, the
+ * refusing half is called by the handler once the KV cache
+ * (src/query/cache.ts) has missed, so a cached answer is served at quota.
  */
 
 import type { EmbeddingProvider } from "@proofql/ai";

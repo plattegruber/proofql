@@ -15,7 +15,6 @@ import { generateApiKey } from "@proofql/core";
 import type { Db } from "@proofql/db";
 import {
   type ApiKey,
-  apiKey,
   chunk,
   type Project,
   project,
@@ -25,12 +24,20 @@ import {
 import type { Hono } from "hono";
 import { beforeAll, describe, expect, it } from "vitest";
 
+import { issueKey, testEnv } from "../../test/helpers.js";
 import { createApp } from "../app.js";
 import type { AppEnv } from "../bindings.js";
 import type { ErrorEnvelope } from "../errors.js";
 import type { QueryResponse } from "./route.js";
 
 const t = setupTestDb();
+
+/**
+ * One fake KV for the whole file, so repeated identical queries exercise
+ * the cache's HIT path (#28) as they would in production; the assertions
+ * here hold either way, since a hit returns what the miss computed.
+ */
+const env = testEnv();
 
 const ORIGIN = "https://shop.example";
 const OTHER_ORIGIN = "https://evil.example";
@@ -80,21 +87,11 @@ async function indexed(
   return r.id;
 }
 
-async function makeKey(
+const makeKey = (
   db: Db,
   projectId: string,
   kind: "secret" | "publishable",
-): Promise<{ plaintext: string; row: ApiKey }> {
-  const generated = await generateApiKey({ kind, environment: "live" });
-  const row = await apiKey(db, {
-    projectId,
-    kind,
-    environment: "live",
-    keyHash: generated.hash,
-    prefix: generated.prefix,
-  });
-  return { plaintext: generated.plaintext, row };
-}
+): Promise<{ plaintext: string; row: ApiKey }> => issueKey(db, projectId, kind);
 
 async function fixture(
   db: Db,
@@ -158,15 +155,19 @@ async function post(
   body: unknown,
   headers: Record<string, string> = {},
 ): Promise<Response> {
-  return app.request("/v1/query", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-      ...headers,
+  return app.request(
+    "/v1/query",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+        ...headers,
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+    env,
+  );
 }
 
 async function get(
@@ -174,7 +175,7 @@ async function get(
   qs: string,
   headers: Record<string, string> = {},
 ): Promise<Response> {
-  return app.request(`/v1/query?${qs}`, { method: "GET", headers });
+  return app.request(`/v1/query?${qs}`, { method: "GET", headers }, env);
 }
 
 async function json<T>(res: Response): Promise<T> {
@@ -381,11 +382,15 @@ describe("/v1/query", () => {
     });
 
     it("422 validation_failed on a malformed JSON body, like /v1/reviews", async () => {
-      const res = await app.request("/v1/query", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${f.secret}` },
-        body: "{not json",
-      });
+      const res = await app.request(
+        "/v1/query",
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${f.secret}` },
+          body: "{not json",
+        },
+        env,
+      );
       expect(res.status).toBe(422);
       const body = await json<ErrorEnvelope>(res);
       expect(body.error.code).toBe("validation_failed");
@@ -398,7 +403,18 @@ describe("/v1/query", () => {
           shouldFail: () => new Error("Workers AI is down"),
         }),
       );
-      const res = await post(failing, f.secret, { q: "implant tooth" });
+      // Earlier tests cached this query: a hit needs no embedding, so the
+      // outage is invisible to a repeat caller (#28). Bypass to reach it.
+      const hit = await post(failing, f.secret, { q: "implant tooth" });
+      expect(hit.status).toBe(200);
+      expect(hit.headers.get("x-cache")).toBe("HIT");
+
+      const res = await post(
+        failing,
+        f.secret,
+        { q: "implant tooth" },
+        { "Cache-Control": "no-cache" },
+      );
       expect(res.status).toBe(503);
       const body = await json<ErrorEnvelope>(res);
       expect(body.error.code).toBe("embedding_unavailable");
@@ -412,7 +428,7 @@ describe("/v1/query", () => {
 
   describe("authentication", () => {
     it("401 unauthorized with no key, a malformed key, an unknown key, or a revoked key", async () => {
-      const none = await app.request("/v1/query", { method: "POST" });
+      const none = await app.request("/v1/query", { method: "POST" }, env);
       expect(none.status).toBe(401);
       expect((await json<ErrorEnvelope>(none)).error.code).toBe("unauthorized");
 
@@ -457,14 +473,18 @@ describe("/v1/query", () => {
 
   describe("publishable keys on other routes", () => {
     it("POST /v1/reviews with a real publishable key is 403 forbidden", async () => {
-      const res = await app.request("/v1/reviews", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${f.publishable}`,
-          "Content-Type": "application/json",
+      const res = await app.request(
+        "/v1/reviews",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${f.publishable}`,
+            "Content-Type": "application/json",
+          },
+          body: "[]",
         },
-        body: "[]",
-      });
+        env,
+      );
       expect(res.status).toBe(403);
       const body = await json<ErrorEnvelope>(res);
       expect(body.error.code).toBe("forbidden");
@@ -565,14 +585,18 @@ describe("/v1/query", () => {
 
   describe("OPTIONS /v1/query preflight", () => {
     const preflight = (qs: string, headers: Record<string, string>) =>
-      app.request(`/v1/query${qs}`, {
-        method: "OPTIONS",
-        headers: {
-          "Access-Control-Request-Method": "GET",
-          "Access-Control-Request-Headers": "authorization,content-type",
-          ...headers,
+      app.request(
+        `/v1/query${qs}`,
+        {
+          method: "OPTIONS",
+          headers: {
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "authorization,content-type",
+            ...headers,
+          },
         },
-      });
+        env,
+      );
 
     it("echoes a listed origin for a key in ?key= with the allow headers, without auth", async () => {
       const res = await preflight(`?key=${f.publishable}&q=implant`, {
@@ -584,7 +608,7 @@ describe("/v1/query", () => {
         "GET, POST, OPTIONS",
       );
       expect(res.headers.get("Access-Control-Allow-Headers")).toBe(
-        "Authorization, Content-Type",
+        "Authorization, Cache-Control, Content-Type",
       );
       expect(res.headers.get("Access-Control-Max-Age")).toBe("600");
       expect(res.headers.get("Vary")).toBe("Origin");

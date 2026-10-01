@@ -46,8 +46,13 @@ const METADATA_ENTRIES_MAX = 32;
  * Flat string-to-string map the customer can filter on at query time
  * (`"metadata.location": "north"`). Flat by construction: nested objects,
  * arrays, numbers, and booleans are rejected rather than coerced.
+ *
+ * Exported on its own because the same shape is validated in three places
+ * — ingest (`reviewInputSchema.metadata`), `PATCH /v1/reviews/:id`
+ * (replaces the map), and `filters.metadata` on `/v1/query` — and a value
+ * that passes one must pass the others.
  */
-const metadataSchema = z
+export const reviewMetadataSchema = z
   .record(
     z.string().min(1).max(METADATA_KEY_MAX),
     z.string().max(METADATA_VALUE_MAX),
@@ -77,7 +82,7 @@ export const reviewInputSchema = z.strictObject({
   occurred_at: z.iso.datetime({ offset: true }),
   url: z.url().nullable().default(null),
   language: z.string().trim().min(2).max(LANGUAGE_MAX).optional(),
-  metadata: metadataSchema.optional(),
+  metadata: reviewMetadataSchema.optional(),
 });
 
 /** A validated review, after defaults and trimming have been applied. */

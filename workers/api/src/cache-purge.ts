@@ -2,27 +2,27 @@
  * Query-cache purge seam (scope.md §3 "Query": the cache is "purged on
  * ingest, delete, hide, or policy change for that project").
  *
- * The cache itself is #28 and does not exist yet. What exists now is the
- * contract between the two sides, so the routes that invalidate (this
- * worker's review CRUD, later the pipeline and the dashboard) can ship
- * first and #28 can key its entries without touching them:
+ * The cache itself lives in src/query/cache.ts (#28); this module is the
+ * contract between it and everything that invalidates it (this worker's
+ * review CRUD, the pipeline's index completion, later the dashboard's
+ * policy settings), so either side can change without touching the other:
  *
  *   - Every project has a generation counter in KV (`env.CACHE`) under
  *     `gen:<projectId>`, an integer stored as a decimal string, `0` when the
- *     key is absent.
+ *     key is absent. workers/pipeline/src/cache.ts writes the same key.
  *   - Anything that changes what a query may return calls
  *     `bumpProjectGeneration(env, projectId)`. It increments the counter and
  *     returns the new value.
- *   - #28 reads the counter with `readProjectGeneration` and includes it in
- *     every cache key for the project, so a bump orphans every existing
- *     entry at once; no enumeration, no per-key deletes. Orphans age out via
- *     the entries' own TTL.
+ *   - The cache reads the counter with `readProjectGeneration` and includes
+ *     it in every cache key for the project, so a bump orphans every
+ *     existing entry at once; no enumeration, no per-key deletes. Orphans
+ *     age out via the entries' own TTL.
  *
  * KV has no atomic increment, so two concurrent bumps can both write the same
  * value. That is harmless for invalidation — either write differs from the
  * generation the stale entries were keyed on — and KV is eventually
- * consistent anyway (a read in another colo may lag by up to 60 s), so #28
- * must treat the generation as "soon", never "now". The counter is per
+ * consistent anyway (a read in another colo may lag by up to 60 s), so the
+ * cache treats the generation as "soon", never "now". The counter is per
  * project, not per environment: test and live share one, which over-purges
  * harmlessly and keeps one key per tenant.
  */

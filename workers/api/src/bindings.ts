@@ -82,7 +82,7 @@ export interface AppVariables {
   auth: AuthContext;
   /** Lazily resolves this request's per-kind limiters (see src/rate-limit.ts). */
   getRateLimiters: () => RateLimiters;
-  /** Set by `markCacheHit` when the response was served from the cache. */
+  /** Set by `markCacheHit` when the response was served from the KV cache. */
   cacheHit?: boolean;
 }
 

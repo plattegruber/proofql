@@ -5,17 +5,13 @@
  * faked too, so `waitUntil` work (last_used_at) can be awaited and asserted.
  */
 
-import {
-  type ApiKeyEnvironment,
-  type ApiKeyKind,
-  generateApiKey,
-  type IngestMessage,
-} from "@proofql/core";
+import { generateApiKey, type IngestMessage } from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
-import { apiKey, project, review, setupTestDb } from "@proofql/db/test";
+import { project, review, setupTestDb } from "@proofql/db/test";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
+import { fakeCtx, issueKey, testEnv } from "../../test/helpers.js";
 import { createApp } from "../app.js";
 import type { ApiBindings } from "../bindings.js";
 import type { IngestResponse } from "./reviews.js";
@@ -37,41 +33,8 @@ function fakeQueue() {
   return queue;
 }
 
-function fakeCtx() {
-  const pending: Promise<unknown>[] = [];
-  return {
-    pending,
-    waitUntil: (p: Promise<unknown>) => void pending.push(p),
-    passThroughOnException: () => {},
-    flush: () => Promise.allSettled(pending),
-  };
-}
-
 function env(queue: ReturnType<typeof fakeQueue>): ApiBindings {
-  return {
-    ENVIRONMENT: "test",
-    HYPERDRIVE: { connectionString: "postgres://unused" } as Hyperdrive,
-    CACHE: {} as KVNamespace,
-    INGEST_QUEUE: queue as unknown as Queue<IngestMessage>,
-  };
-}
-
-/** A real key row for `projectId`, returning the plaintext to send. */
-async function issueKey(
-  db: Db,
-  projectId: string,
-  kind: ApiKeyKind = "secret",
-  environment: ApiKeyEnvironment = "live",
-) {
-  const generated = await generateApiKey({ kind, environment });
-  const row = await apiKey(db, {
-    projectId,
-    kind,
-    environment,
-    keyHash: generated.hash,
-    prefix: generated.prefix,
-  });
-  return { plaintext: generated.plaintext, row };
+  return testEnv({ queue: queue as unknown as Queue<IngestMessage> });
 }
 
 function reviewBody(n: number, overrides: Record<string, unknown> = {}) {
@@ -106,7 +69,7 @@ async function post(
       body: typeof body === "string" ? body : JSON.stringify(body),
     },
     env(queue),
-    ctx as unknown as ExecutionContext,
+    ctx.asExecutionContext(),
   );
   await ctx.flush();
   // biome-ignore lint/suspicious/noExplicitAny: test reads both success and error shapes

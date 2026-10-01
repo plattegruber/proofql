@@ -6,17 +6,18 @@
  */
 
 import { FakeEmbeddingProvider, fakeEmbed } from "@proofql/ai";
-import {
-  type ApiKeyEnvironment,
-  type ApiKeyKind,
-  generateApiKey,
-  type IngestMessage,
-} from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
-import { apiKey, chunk, project, review, setupTestDb } from "@proofql/db/test";
+import { chunk, project, review, setupTestDb } from "@proofql/db/test";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
+import {
+  type FakeKv,
+  fakeKv,
+  issueKey,
+  refusingQueue,
+  testEnv,
+} from "../../test/helpers.js";
 import { createApp } from "../app.js";
 import type { ApiBindings } from "../bindings.js";
 import { generationKey } from "../cache-purge.js";
@@ -26,52 +27,8 @@ import type { ListReviewsResponse, ReviewResource } from "./reviews-crud.js";
 
 const t = setupTestDb();
 
-/** Map-backed KV: just what the generation counter touches. */
-function fakeKv() {
-  const store = new Map<string, string>();
-  return {
-    store,
-    get: async (key: string) => store.get(key) ?? null,
-    put: async (key: string, value: string) => {
-      store.set(key, value);
-    },
-  };
-}
-
-type FakeKv = ReturnType<typeof fakeKv>;
-
 function env(kv: FakeKv): ApiBindings {
-  return {
-    ENVIRONMENT: "test",
-    HYPERDRIVE: { connectionString: "postgres://unused" } as Hyperdrive,
-    CACHE: kv as unknown as KVNamespace,
-    INGEST_QUEUE: {
-      send: async () => {
-        throw new Error("CRUD routes must not enqueue");
-      },
-      sendBatch: async () => {
-        throw new Error("CRUD routes must not enqueue");
-      },
-    } as unknown as Queue<IngestMessage>,
-  };
-}
-
-/** A real key row for `projectId`, returning the plaintext to send. */
-async function issueKey(
-  db: Db,
-  projectId: string,
-  kind: ApiKeyKind = "secret",
-  environment: ApiKeyEnvironment = "live",
-) {
-  const generated = await generateApiKey({ kind, environment });
-  const row = await apiKey(db, {
-    projectId,
-    kind,
-    environment,
-    keyHash: generated.hash,
-    prefix: generated.prefix,
-  });
-  return { plaintext: generated.plaintext, row };
+  return testEnv({ kv, queue: refusingQueue("CRUD routes must not enqueue") });
 }
 
 /** One authenticated request against a fresh app over `db`. */
@@ -102,7 +59,7 @@ async function call(
 }
 
 function generation(kv: FakeKv, projectId: string): number {
-  return Number(kv.store.get(generationKey(projectId)) ?? "0");
+  return Number(kv.peek(generationKey(projectId)) ?? "0");
 }
 
 async function reviewCount(db: Db, projectId: string): Promise<number> {
