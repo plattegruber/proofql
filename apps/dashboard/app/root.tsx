@@ -28,6 +28,26 @@ import "./app.css";
 
 export const middleware: Route.MiddlewareFunction[] = [clerkAuthMiddleware];
 
+/**
+ * Clerk's default copy is exclamatory ("Welcome back!"); the design
+ * system's voice is not. Only the strings the prebuilt cards show on
+ * first paint are overridden.
+ */
+const clerkLocalization = {
+  signIn: {
+    start: {
+      title: "Sign in to ProofQL",
+      subtitle: "Continue to your workspace",
+    },
+  },
+  signUp: {
+    start: {
+      title: "Create your ProofQL account",
+      subtitle: "A workspace for your reviews, keys and snippet",
+    },
+  },
+};
+
 export const links: Route.LinksFunction = () => [
   // Google-hosted fonts per the design system's tokens/fonts.css (no brand
   // font binaries exist). Self-hosting is a flagged follow-up.
@@ -42,6 +62,8 @@ export const links: Route.LinksFunction = () => [
     href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Space+Grotesk:wght@400;500;600;700&display=swap",
   },
 ];
+
+export const meta: Route.MetaFunction = () => [{ title: "ProofQL" }];
 
 export async function loader(args: Route.LoaderArgs) {
   const { env } = getCloudflare(args.context);
@@ -80,6 +102,7 @@ export default function App({ loaderData }: Route.ComponentProps) {
       signUpUrl={SIGN_UP_PATH}
       signInFallbackRedirectUrl={APP_PATH}
       signUpFallbackRedirectUrl={APP_PATH}
+      localization={clerkLocalization}
     >
       <Outlet />
     </ClerkProvider>

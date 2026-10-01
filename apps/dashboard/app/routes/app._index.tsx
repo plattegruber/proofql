@@ -30,6 +30,10 @@ export async function loader(args: Route.LoaderArgs) {
   };
 }
 
+export const meta: Route.MetaFunction = ({ data }) => [
+  { title: data ? `${data.account.name} · ProofQL` : "ProofQL" },
+];
+
 export const PLAN_LABEL: Record<string, string> = {
   free: "Free",
   paid: "Paid",

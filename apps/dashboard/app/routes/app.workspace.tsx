@@ -23,6 +23,10 @@ export async function loader(args: Route.LoaderArgs) {
   return null;
 }
 
+export const meta: Route.MetaFunction = () => [
+  { title: "Create your workspace · ProofQL" },
+];
+
 export default function WorkspacePage() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-8 bg-surface-page px-6 font-sans text-ink-900">

@@ -25,6 +25,10 @@ export async function loader(args: Route.LoaderArgs) {
   };
 }
 
+export const meta: Route.MetaFunction = ({ data }) => [
+  { title: data ? `${data.project.name} · ProofQL` : "ProofQL" },
+];
+
 export default function ProjectShell({ loaderData }: Route.ComponentProps) {
   const { project } = loaderData;
   const base = `/app/projects/${project.slug}`;

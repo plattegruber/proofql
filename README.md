@@ -68,7 +68,7 @@ After `pnpm run setup && pnpm dev` you have:
 | Postgres 16 + pgvector | `localhost:54323` | `postgres://proofql:proofql@localhost:54323/proofql` (local-only credentials) |
 | `workers/api` | <http://localhost:8797> | Hono API worker — `GET /health` → `{ "ok": true }` |
 | `workers/pipeline` | <http://localhost:8798> | queue consumer (Miniflare-simulated queue) — `GET /health` |
-| `apps/dashboard` | <http://localhost:8799> | customer dashboard (placeholder until #36) |
+| `apps/dashboard` | <http://localhost:8799> | customer dashboard (React Router v7 via Vite + workerd) — `GET /health`; runs with the local auth stub as the seeded demo account until Clerk keys are in `apps/dashboard/.dev.vars` (see `apps/dashboard/README.md`) |
 
 Ports are fixed in each workspace's `wrangler.jsonc` (inspector ports 9239–9241; full matrix and bindings in [`infra/environments.md`](infra/environments.md)). To run a subset, filter: `pnpm dev --filter @proofql/api`.
 

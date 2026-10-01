@@ -14,6 +14,8 @@ export function loader({ context }: Route.LoaderArgs) {
   return null;
 }
 
+export const meta: Route.MetaFunction = () => [{ title: "Sign up · ProofQL" }];
+
 export default function SignUpPage() {
   return (
     <AuthFrame>
