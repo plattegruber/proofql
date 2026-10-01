@@ -12,7 +12,9 @@ import ReviewDetailPage, {
 const TEXT =
   "Dr. Patel did my implant and I honestly forgot it wasn't my own tooth within a week. The front desk explained every charge before I paid. Parking behind the building was easy.";
 
-function fixture(overrides: Partial<ReviewDetailData["review"]> = {}): ReviewDetailData {
+function fixture(
+  overrides: Partial<ReviewDetailData["review"]> = {},
+): ReviewDetailData {
   return {
     project: { slug: "cedar-ridge-dental", name: "Cedar Ridge Dental" },
     review: {
@@ -79,7 +81,9 @@ function renderDetail(data: ReviewDetailData) {
   ]);
   return render(
     <Stub
-      initialEntries={[`/app/projects/cedar-ridge-dental/reviews/${data.review.id}`]}
+      initialEntries={[
+        `/app/projects/cedar-ridge-dental/reviews/${data.review.id}`,
+      ]}
     />,
   );
 }
@@ -89,7 +93,9 @@ describe("review detail route", () => {
 
   it("renders the text, the metadata, and every chunk with kind, offsets and embedding state", async () => {
     const { container } = renderDetail(fixture());
-    expect(await screen.findByRole("heading", { name: /Marisa Delgado/ })).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", { name: /Marisa Delgado/ }),
+    ).toBeTruthy();
     expect(screen.getAllByText(TEXT)).toHaveLength(2); // the review and its full chunk
 
     expect(screen.getByRole("heading", { name: "Chunks · 2" })).toBeTruthy();
@@ -109,9 +115,9 @@ describe("review detail route", () => {
     expect(screen.getByText("north")).toBeTruthy();
     expect(screen.getByTitle("positive · from rating")).toBeTruthy();
     expect(screen.getByText("Visible to queries")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "All reviews" }).getAttribute("href")).toBe(
-      "/app/projects/cedar-ridge-dental/reviews",
-    );
+    expect(
+      screen.getByRole("link", { name: "All reviews" }).getAttribute("href"),
+    ).toBe("/app/projects/cedar-ridge-dental/reviews");
     expect(container.textContent).not.toContain("!");
   });
 
@@ -134,8 +140,8 @@ describe("review detail route", () => {
     expect(await screen.findByRole("button", { name: "Unhide" })).toBeTruthy();
     expect(screen.getByText(/Hidden since/)).toBeTruthy();
     expect(screen.getByText("hidden", { selector: "span" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "All reviews" }).getAttribute("href")).toBe(
-      "/app/projects/cedar-ridge-dental/reviews",
-    );
+    expect(
+      screen.getByRole("link", { name: "All reviews" }).getAttribute("href"),
+    ).toBe("/app/projects/cedar-ridge-dental/reviews");
   });
 });

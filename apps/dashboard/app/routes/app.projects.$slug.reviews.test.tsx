@@ -69,7 +69,10 @@ function fixture(overrides: Partial<LoaderData> = {}): LoaderData {
   };
 }
 
-function renderReviews(data: LoaderData, path = "/app/projects/cedar-ridge-dental/reviews") {
+function renderReviews(
+  data: LoaderData,
+  path = "/app/projects/cedar-ridge-dental/reviews",
+) {
   const Stub = createRoutesStub([
     {
       path: "/app/projects/:slug/reviews",
@@ -96,7 +99,9 @@ describe("reviews route", () => {
     expect(screen.getAllByRole("row")).toHaveLength(4); // head + 3
 
     // Excerpt is cut, linked to the detail route.
-    const excerpt = screen.getByRole("link", { name: /Dr\. Patel did my implant/ });
+    const excerpt = screen.getByRole("link", {
+      name: /Dr\. Patel did my implant/,
+    });
     expect(excerpt.getAttribute("href")).toBe(
       `/app/projects/cedar-ridge-dental/reviews/${ids[0]}`,
     );
@@ -105,21 +110,24 @@ describe("reviews route", () => {
 
     expect(screen.getByRole("img", { name: "5 out of 5 stars" })).toBeTruthy();
     expect(screen.getByRole("img", { name: "Unrated" })).toBeTruthy();
-    expect(screen.getAllByText("indexed", { selector: "span" })).toHaveLength(2);
+    expect(screen.getAllByText("indexed", { selector: "span" })).toHaveLength(
+      2,
+    );
     expect(screen.getByText("stuck")).toBeTruthy();
     expect(screen.getByTitle("positive · from rating")).toBeTruthy();
     expect(screen.getByTitle("negative · model")).toBeTruthy();
     expect(screen.getByText("pending")).toBeTruthy();
-    expect(screen.getAllByText("visible")).toHaveLength(2);
-    expect(screen.getByText("hidden", { selector: "td span" })).toBeTruthy();
+    expect(container.querySelectorAll("[data-visibility=hidden]")).toHaveLength(
+      1,
+    );
 
     const hiddenRow = container.querySelector("tr[data-hidden]");
     expect(hiddenRow?.className).toContain("text-gray-500");
     expect(container.querySelectorAll("tr[data-hidden]")).toHaveLength(1);
 
-    expect(screen.getByRole("link", { name: "Next page" }).getAttribute("href")).toBe(
-      "/app/projects/cedar-ridge-dental/reviews?cursor=next",
-    );
+    expect(
+      screen.getByRole("link", { name: "Next page" }).getAttribute("href"),
+    ).toBe("/app/projects/cedar-ridge-dental/reviews?cursor=next");
     expect(container.textContent).not.toContain("!");
   });
 
@@ -128,19 +136,25 @@ describe("reviews route", () => {
     await screen.findByRole("table");
     expect(screen.queryByRole("form", { name: "Bulk actions" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("checkbox", { name: /Select review by Marisa/ }));
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Select review by Marisa/ }),
+    );
     fireEvent.click(screen.getByRole("checkbox", { name: /unknown author/ }));
 
     const bar = screen.getByRole("form", { name: "Bulk actions" });
     expect(screen.getByText("2 selected")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Hide selected" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Unhide selected" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Unhide selected" }),
+    ).toBeTruthy();
     const hiddenIds = [...bar.querySelectorAll('input[name="id"]')].map(
       (el) => (el as HTMLInputElement).value,
     );
     expect(hiddenIds.sort()).toEqual([ids[0], ids[1]]);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select all on this page" }));
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select all on this page" }),
+    );
     expect(screen.getByText("3 selected")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Clear" }));
     expect(screen.queryByRole("form", { name: "Bulk actions" })).toBeNull();
@@ -167,11 +181,15 @@ describe("reviews route", () => {
       }),
       "/app/projects/cedar-ridge-dental/reviews?env=test&hidden=hidden&source=yelp",
     );
-    expect(await screen.findByText("No reviews match these filters")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Clear filters" }).getAttribute("href")).toBe(
-      "/app/projects/cedar-ridge-dental/reviews?env=test",
-    );
+    expect(
+      await screen.findByText("No reviews match these filters"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "Clear filters" }).getAttribute("href"),
+    ).toBe("/app/projects/cedar-ridge-dental/reviews?env=test");
     // The environment toggle keeps the test environment current.
-    expect(screen.getByRole("link", { name: "test" }).getAttribute("aria-current")).toBe("true");
+    expect(
+      screen.getByRole("link", { name: "test" }).getAttribute("aria-current"),
+    ).toBe("true");
   });
 });

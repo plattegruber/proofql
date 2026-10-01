@@ -20,9 +20,17 @@ import {
   type EmbeddingProvider,
   FakeEmbeddingProvider,
 } from "@proofql/ai";
-import { type Db, type SearchResult, searchChunks } from "@proofql/db";
+import {
+  type MAX_SEARCH_LIMIT as DB_MAX_SEARCH_LIMIT,
+  type Db,
+  type SearchResult,
+  searchChunks,
+} from "@proofql/db";
 
-import type { PlaygroundRequest } from "./playground";
+import { MAX_SEARCH_LIMIT, type PlaygroundRequest } from "./playground";
+
+// The client-safe copy in ./playground.ts must track the db package.
+const _limitsAgree: typeof DB_MAX_SEARCH_LIMIT = MAX_SEARCH_LIMIT;
 
 /** The embedder for this environment; throws where none can exist. */
 export function getEmbedder(

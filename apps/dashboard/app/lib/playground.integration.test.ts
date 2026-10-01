@@ -17,7 +17,12 @@ const NEAR = "The implant process was simple and fast.";
 const PARKING = "Parking behind the building was easy.";
 
 async function indexed(projectId: string, text: string, rating = 5) {
-  const r = await review(t.db, { projectId, text, rating, indexedAt: new Date() });
+  const r = await review(t.db, {
+    projectId,
+    text,
+    rating,
+    indexedAt: new Date(),
+  });
   await chunk(t.db, { reviewId: r.id, embedding: fakeEmbed([text])[0] });
   return r;
 }

@@ -44,14 +44,11 @@ export function SentimentJudgment({
         : "neutral";
   const provenance = label.includes(" · ") ? label.split(" · ")[1] : null;
   return (
-    <span
-      className="inline-flex items-center gap-1.5 whitespace-nowrap"
-      title={label}
-    >
+    <span className="flex flex-col items-start gap-1" title={label}>
       <Badge tone={tone}>{sentiment}</Badge>
       {provenance && (
-        <span className="font-mono text-label text-gray-500">
-          · {provenance}
+        <span className="whitespace-nowrap font-mono text-label text-gray-500">
+          {provenance}
         </span>
       )}
     </span>

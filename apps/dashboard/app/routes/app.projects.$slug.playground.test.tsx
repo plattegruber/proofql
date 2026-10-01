@@ -35,7 +35,9 @@ function result(
 }
 
 function fixture(search: string, results: PlaygroundResult[]): PlaygroundData {
-  const { request, fieldErrors } = parsePlaygroundParams(new URLSearchParams(search));
+  const { request, fieldErrors } = parsePlaygroundParams(
+    new URLSearchParams(search),
+  );
   const { since: _since, ...formValues } = request;
   return {
     project: {
@@ -57,7 +59,7 @@ function fixture(search: string, results: PlaygroundResult[]): PlaygroundData {
       searchMs: 12,
     },
     curl: curlFor(request, "http://localhost:8797"),
-    snippet: snippetFor(request),
+    snippet: snippetFor(request, "http://localhost:8797"),
   };
 }
 
@@ -76,7 +78,9 @@ function renderPlayground(data: PlaygroundData, search: string) {
     },
   ]);
   return render(
-    <Stub initialEntries={[`/app/projects/cedar-ridge-dental/playground?${search}`]} />,
+    <Stub
+      initialEntries={[`/app/projects/cedar-ridge-dental/playground?${search}`]}
+    />,
   );
 }
 
@@ -122,9 +126,13 @@ describe("playground route", () => {
     const order = [...container.querySelectorAll("article, [data-floor-line]")];
     expect(order.indexOf(line as Element)).toBe(2);
 
-    expect(screen.getByText("took_ms").nextElementSibling?.textContent).toBe("17");
+    expect(screen.getByText("took_ms").nextElementSibling?.textContent).toBe(
+      "17",
+    );
     expect(screen.getByRole("button", { name: "Copy as curl" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Copy as snippet" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Copy as snippet" }),
+    ).toBeTruthy();
     expect(container.textContent).toContain('data-query="parking"');
     expect(container.textContent).toContain("Bearer pq_sk_live_…");
     expect(container.textContent).not.toContain("!");
@@ -145,7 +153,9 @@ describe("playground route", () => {
       fixture("", [result({ similarity: null }), result({ similarity: null })]),
       "",
     );
-    expect(await screen.findByText("No query · newest publishable reviews")).toBeTruthy();
+    expect(
+      await screen.findByText("No query · newest publishable reviews"),
+    ).toBeTruthy();
     expect(container.querySelector("[data-floor-line]")).toBeNull();
     expect(screen.getAllByText("no query · newest first")).toHaveLength(2);
     expect(container.textContent).not.toContain("data-query");

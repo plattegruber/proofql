@@ -1,7 +1,7 @@
 // The review browser's table (#39). Rows are links to the detail page; the
 // checkbox column feeds the bulk hide/unhide form the route owns. Hidden
-// reviews are muted rather than removed — the browser is the one place a
-// hidden review is still visible, by design.
+// reviews are muted (and say so under their status) rather than removed —
+// the browser is the one place a hidden review is still visible, by design.
 import { Link, useNavigate } from "react-router";
 
 import { Checkbox } from "~/components/ui/form-controls";
@@ -86,9 +86,6 @@ export function ReviewTable({
             <th scope="col" className={head}>
               Sentiment
             </th>
-            <th scope="col" className={head}>
-              Visibility
-            </th>
           </tr>
         </thead>
         <tbody>
@@ -126,7 +123,7 @@ export function ReviewTable({
                     className={row.hidden ? "opacity-50" : undefined}
                   />
                 </td>
-                <td className={cn(cell, "min-w-70")}>
+                <td className={cn(cell, "min-w-52")}>
                   <Link
                     to={href}
                     className={cn(
@@ -140,7 +137,7 @@ export function ReviewTable({
                 <td className={cn(cell, "font-mono text-data")}>
                   {row.source}
                 </td>
-                <td className={cn(cell, "whitespace-nowrap")}>
+                <td className={cn(cell, "max-w-36")}>
                   {row.authorName ?? <span className="text-gray-400">—</span>}
                 </td>
                 <td
@@ -160,22 +157,23 @@ export function ReviewTable({
                   {row.chunkCount}
                 </td>
                 <td className={cell}>
-                  <StatusBadge status={row.status} />
+                  <span className="flex flex-col items-start gap-1.5">
+                    <StatusBadge status={row.status} />
+                    {row.hidden && (
+                      <span
+                        data-visibility="hidden"
+                        className="font-mono text-label text-gray-500"
+                      >
+                        hidden
+                      </span>
+                    )}
+                  </span>
                 </td>
                 <td className={cell}>
                   <SentimentJudgment
                     sentiment={row.sentiment}
                     sentimentSource={row.sentimentSource}
                   />
-                </td>
-                <td
-                  className={cn(cell, "whitespace-nowrap font-mono text-label")}
-                >
-                  {row.hidden ? (
-                    <span className="text-gray-500">hidden</span>
-                  ) : (
-                    <span className="text-accent-700">visible</span>
-                  )}
                 </td>
               </tr>
             );

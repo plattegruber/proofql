@@ -111,7 +111,9 @@ describe("queryBody / curlFor", () => {
     const curl = curlFor(request, "http://localhost:8797/");
     expect(curl).toContain("curl -s -X POST 'http://localhost:8797/v1/query'");
     expect(curl).toContain("'Authorization: Bearer pq_sk_test_…'");
-    expect(curl).toContain(`-d '{"q":"it'\\''s parking","limit":5,"mode":"excerpts"}'`);
+    expect(curl).toContain(
+      `-d '{"q":"it'\\''s parking","limit":5,"mode":"excerpts"}'`,
+    );
     expect(curl).not.toMatch(/pq_sk_test_[A-Za-z0-9]{10}/);
   });
 });
@@ -140,8 +142,19 @@ describe("snippetFor", () => {
     expect(snippet).toContain('data-min-rating="5"');
     expect(snippet).toContain('data-source="google"');
     expect(snippet).toContain('data-since="2025-01-01"');
-    expect(snippet).toContain('data-metadata-location="north"');
+    expect(snippet).toContain('data-meta-location="north"');
+    expect(snippet).not.toContain("data-api");
     expect(snippet).toContain('data-key="pq_pk_test_…"');
     expect(snippet).not.toContain("data-query");
+  });
+
+  it("points the script at a non-default api origin with data-api (local dev)", () => {
+    const { request } = parsePlaygroundParams(new URLSearchParams("q=parking"));
+    expect(snippetFor(request, "http://localhost:8797/")).toContain(
+      '<script async src="https://cdn.proofql.com/v1.js" data-key="pq_pk_live_…" data-api="http://localhost:8797"></script>',
+    );
+    expect(snippetFor(request, "https://api.proofql.com")).not.toContain(
+      "data-api",
+    );
   });
 });

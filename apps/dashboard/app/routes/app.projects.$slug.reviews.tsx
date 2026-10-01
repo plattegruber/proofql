@@ -52,7 +52,7 @@ import type { Route } from "./+types/app.projects.$slug.reviews";
 export const CSV_IMPORT_HREF =
   "https://github.com/plattegruber/proofql/issues/38";
 export const API_DOCS_HREF =
-  "https://github.com/plattegruber/proofql/blob/main/docs/scope.md#ingest";
+  "https://github.com/plattegruber/proofql/blob/main/docs/api/README.md";
 
 export function toTableRow(row: ReviewListRow): ReviewTableRow {
   return {

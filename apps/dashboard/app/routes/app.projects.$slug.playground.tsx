@@ -5,7 +5,6 @@
 // under it. A GET form keeps every run in the URL: shareable, reloadable,
 // and the back button steps through experiments.
 
-import { MAX_SEARCH_LIMIT } from "@proofql/db";
 import { Play } from "lucide-react";
 import { useState } from "react";
 import { data, Form, useLocation, useNavigation } from "react-router";
@@ -25,6 +24,7 @@ import {
   curlFor,
   DEFAULT_LIMIT,
   type FieldErrors,
+  MAX_SEARCH_LIMIT,
   PLAYGROUND_MODES,
   type PlaygroundRequest,
   parsePlaygroundParams,
@@ -97,7 +97,7 @@ export async function loader(args: Route.LoaderArgs): Promise<PlaygroundData> {
       sources,
       outcome,
       curl: curlFor(request, env.API_URL),
-      snippet: snippetFor(request),
+      snippet: snippetFor(request, env.API_URL),
     };
   });
 }

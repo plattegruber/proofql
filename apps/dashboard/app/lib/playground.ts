@@ -9,9 +9,14 @@
  * and the dashboard does not depend on zod. Values arrive as strings from
  * the query string, so this is also where "" becomes "absent".
  */
-import { MAX_SEARCH_LIMIT } from "@proofql/db";
-
 import { type Environment, parseEnvironment } from "./reviews";
+
+/**
+ * `MAX_SEARCH_LIMIT` from `@proofql/db`, restated: this module reaches the
+ * browser bundle, and importing the db barrel would drag `postgres` in.
+ * `playground.server.ts` asserts the two agree.
+ */
+export const MAX_SEARCH_LIMIT = 20;
 
 export const PLAYGROUND_MODES = ["excerpts", "reviews"] as const;
 export type PlaygroundMode = (typeof PLAYGROUND_MODES)[number];
@@ -212,13 +217,20 @@ function attr(value: string): string {
     .replaceAll("<", "&lt;");
 }
 
+/** The snippet's built-in API origin (`packages/snippet/src/config.ts`). */
+export const SNIPPET_DEFAULT_API = "https://api.proofql.com";
+
 /**
- * The one-tag embed (scope.md §3 "Snippet") with `data-query` filled from
- * the form and a publishable-key placeholder. Only what the snippet reads
- * today goes on the tag: query and limit, plus the filters the GET form
- * spells as attributes.
+ * The one-tag embed exactly as `packages/snippet/README.md` documents it:
+ * `data-query` and `data-limit` on the element, the filters as their
+ * attributes (`data-mode`, `data-min-rating`, `data-source`, `data-since`,
+ * `data-meta-<key>`), a publishable-key placeholder on the script, and
+ * `data-api` only when the api is not the snippet's default (local dev).
  */
-export function snippetFor(request: PlaygroundRequest): string {
+export function snippetFor(
+  request: PlaygroundRequest,
+  apiUrl: string = SNIPPET_DEFAULT_API,
+): string {
   const attrs: string[] = ["data-proofql"];
   if (request.q !== undefined) attrs.push(`data-query="${attr(request.q)}"`);
   attrs.push(`data-limit="${request.limit}"`);
@@ -233,10 +245,16 @@ export function snippetFor(request: PlaygroundRequest): string {
     attrs.push(`data-since="${attr(request.sinceRaw)}"`);
   }
   for (const [key, value] of Object.entries(request.metadata)) {
-    attrs.push(`data-metadata-${attr(key)}="${attr(value)}"`);
+    attrs.push(`data-meta-${attr(key)}="${attr(value)}"`);
   }
+  const script: string[] = [
+    `src="${SNIPPET_SRC}"`,
+    `data-key="${publishableKeyPlaceholder(request.environment)}"`,
+  ];
+  const api = apiUrl.replace(/\/$/, "");
+  if (api !== SNIPPET_DEFAULT_API) script.push(`data-api="${attr(api)}"`);
   return [
     `<div ${attrs.join(" ")}></div>`,
-    `<script async src="${SNIPPET_SRC}" data-key="${publishableKeyPlaceholder(request.environment)}"></script>`,
+    `<script async ${script.join(" ")}></script>`,
   ].join("\n");
 }

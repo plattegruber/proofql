@@ -20,8 +20,12 @@ describe("reviewStatus", () => {
     );
   });
   it("is indexing while attempts are under the sweep's cap, stuck at it", () => {
-    expect(reviewStatus({ indexedAt: null, indexAttempts: 0 })).toBe("indexing");
-    expect(reviewStatus({ indexedAt: null, indexAttempts: 4 })).toBe("indexing");
+    expect(reviewStatus({ indexedAt: null, indexAttempts: 0 })).toBe(
+      "indexing",
+    );
+    expect(reviewStatus({ indexedAt: null, indexAttempts: 4 })).toBe(
+      "indexing",
+    );
     expect(reviewStatus({ indexedAt: null, indexAttempts: 5 })).toBe("stuck");
   });
 });
@@ -49,7 +53,9 @@ describe("sentimentJudgment", () => {
 
 describe("excerptOf", () => {
   it("returns short text untouched, whitespace collapsed", () => {
-    expect(excerptOf("  Great   visit.\n Thanks. ")).toBe("Great visit. Thanks.");
+    expect(excerptOf("  Great   visit.\n Thanks. ")).toBe(
+      "Great visit. Thanks.",
+    );
   });
   it("cuts at a word boundary near the limit with an ellipsis", () => {
     const text = "word ".repeat(40).trim();
@@ -106,15 +112,17 @@ describe("cursor", () => {
     const encoded = encodeCursor(cursorFor({ id, occurredAt: at }));
     expect(encoded).toMatch(/^[A-Za-z0-9_-]+$/);
     expect(decodeCursor(encoded)).toEqual({ o: at.toISOString(), i: id });
-    expect(decodeCursor(encodeCursor(cursorFor({ id, occurredAt: null })))).toEqual(
-      { o: null, i: id },
-    );
+    expect(
+      decodeCursor(encodeCursor(cursorFor({ id, occurredAt: null }))),
+    ).toEqual({ o: null, i: id });
   });
 
   it("rejects anything that is not exactly what encodeCursor produces", () => {
     expect(decodeCursor("not base64!")).toBeNull();
     expect(decodeCursor(btoa("[]"))).toBeNull();
-    expect(decodeCursor(btoa(JSON.stringify({ o: null, i: "nope" })))).toBeNull();
+    expect(
+      decodeCursor(btoa(JSON.stringify({ o: null, i: "nope" }))),
+    ).toBeNull();
     expect(
       decodeCursor(btoa(JSON.stringify({ o: "yesterday", i: id }))),
     ).toBeNull();

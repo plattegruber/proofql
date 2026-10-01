@@ -1,15 +1,15 @@
 // Review browser against the real schema: keyset pagination and filters,
 // and hide/unhide — single and bulk — setting/clearing hidden_at and
 // bumping the project's cache generation exactly once per action.
-import { MemoryKv, generationKey } from "@proofql/core";
+import { generationKey, MemoryKv } from "@proofql/core";
 import { chunk, project, review, setupTestDb } from "@proofql/db/test";
 import { describe, expect, it } from "vitest";
 
 import { PAGE_SIZE } from "./reviews";
 import {
   getReviewDetail,
-  listReviews,
   listReviewSources,
+  listReviews,
   setReviewsHidden,
 } from "./reviews.server";
 
@@ -49,7 +49,9 @@ describe("listReviews", () => {
     });
     expect(second.rows).toHaveLength(33 - PAGE_SIZE);
     expect(second.nextCursor).toBeNull();
-    expect(second.rows.slice(-2).every((r) => r.occurredAt === null)).toBe(true);
+    expect(second.rows.slice(-2).every((r) => r.occurredAt === null)).toBe(
+      true,
+    );
 
     const ids = [...first.rows, ...second.rows].map((r) => r.id);
     expect(new Set(ids).size).toBe(33);
@@ -74,7 +76,11 @@ describe("listReviews", () => {
       text: "Dr. Patel did my implant",
       startOffset: 0,
     });
-    const google3 = await review(t.db, { ...base, source: "google", rating: 3 });
+    const google3 = await review(t.db, {
+      ...base,
+      source: "google",
+      rating: 3,
+    });
     const hidden = await review(t.db, {
       ...base,
       source: "google",
@@ -87,11 +93,19 @@ describe("listReviews", () => {
       rating: 4,
       indexedAt: null,
     });
-    const unrated = await review(t.db, { ...base, source: "custom", rating: null });
+    const unrated = await review(t.db, {
+      ...base,
+      source: "custom",
+      rating: null,
+    });
 
     const ids = async (filters: Parameters<typeof listReviews>[1]["filters"]) =>
       (
-        await listReviews(t.db, { projectId: p.id, environment: "live", filters })
+        await listReviews(t.db, {
+          projectId: p.id,
+          environment: "live",
+          filters,
+        })
       ).rows
         .map((r) => r.id)
         .sort();
@@ -109,7 +123,10 @@ describe("listReviews", () => {
       [google3.id, hidden.id].sort(),
     );
 
-    const all = await listReviews(t.db, { projectId: p.id, environment: "live" });
+    const all = await listReviews(t.db, {
+      projectId: p.id,
+      environment: "live",
+    });
     const counts = new Map(all.rows.map((r) => [r.id, r.chunkCount]));
     expect(counts.get(yelp5.id)).toBe(2);
     expect(counts.get(google3.id)).toBe(0);
@@ -143,7 +160,9 @@ describe("getReviewDetail", () => {
     ]);
 
     const other = await project(t.db);
-    expect(await getReviewDetail(t.db, { projectId: other.id, id: r.id })).toBeNull();
+    expect(
+      await getReviewDetail(t.db, { projectId: other.id, id: r.id }),
+    ).toBeNull();
   });
 });
 
@@ -154,20 +173,38 @@ describe("setReviewsHidden", () => {
     const kv = new MemoryKv();
     const scope = { projectId: p.id, environment: "live" as const };
 
-    const hid = await setReviewsHidden(t.db, kv, { ...scope, ids: [r.id], hidden: true });
+    const hid = await setReviewsHidden(t.db, kv, {
+      ...scope,
+      ids: [r.id],
+      hidden: true,
+    });
     expect(hid).toEqual({ changed: 1, generation: 1 });
-    const afterHide = await getReviewDetail(t.db, { projectId: p.id, id: r.id });
+    const afterHide = await getReviewDetail(t.db, {
+      projectId: p.id,
+      id: r.id,
+    });
     expect(afterHide?.review.hiddenAt).toBeInstanceOf(Date);
     expect(kv.store.get(generationKey(p.id))).toBe("1");
 
     // Already hidden: no write, no purge.
-    const again = await setReviewsHidden(t.db, kv, { ...scope, ids: [r.id], hidden: true });
+    const again = await setReviewsHidden(t.db, kv, {
+      ...scope,
+      ids: [r.id],
+      hidden: true,
+    });
     expect(again).toEqual({ changed: 0, generation: null });
     expect(kv.puts).toHaveLength(1);
 
-    const unhid = await setReviewsHidden(t.db, kv, { ...scope, ids: [r.id], hidden: false });
+    const unhid = await setReviewsHidden(t.db, kv, {
+      ...scope,
+      ids: [r.id],
+      hidden: false,
+    });
     expect(unhid).toEqual({ changed: 1, generation: 2 });
-    const afterUnhide = await getReviewDetail(t.db, { projectId: p.id, id: r.id });
+    const afterUnhide = await getReviewDetail(t.db, {
+      projectId: p.id,
+      id: r.id,
+    });
     expect(afterUnhide?.review.hiddenAt).toBeNull();
     expect(kv.puts).toHaveLength(2);
   });
@@ -175,9 +212,16 @@ describe("setReviewsHidden", () => {
   it("bulk-hides many rows in one statement and one bump, ignoring rows outside the scope", async () => {
     const p = await project(t.db);
     const rows = [];
-    for (let i = 0; i < 4; i++) rows.push(await review(t.db, { projectId: p.id }));
-    const alreadyHidden = await review(t.db, { projectId: p.id, hiddenAt: new Date() });
-    const testEnv = await review(t.db, { projectId: p.id, environment: "test" });
+    for (let i = 0; i < 4; i++)
+      rows.push(await review(t.db, { projectId: p.id }));
+    const alreadyHidden = await review(t.db, {
+      projectId: p.id,
+      hiddenAt: new Date(),
+    });
+    const testEnv = await review(t.db, {
+      projectId: p.id,
+      environment: "test",
+    });
     const foreign = await review(t.db);
     const kv = new MemoryKv({ [generationKey(p.id)]: "41" });
 
@@ -203,13 +247,22 @@ describe("setReviewsHidden", () => {
         .hiddenAt,
     ).toBeNull();
     expect(
-      (await getReviewDetail(t.db, { projectId: foreign.projectId, id: foreign.id }))
-        ?.review.hiddenAt,
+      (
+        await getReviewDetail(t.db, {
+          projectId: foreign.projectId,
+          id: foreign.id,
+        })
+      )?.review.hiddenAt,
     ).toBeNull();
 
     // Empty selection: nothing happens, including no bump.
     expect(
-      await setReviewsHidden(t.db, kv, { projectId: p.id, environment: "live", ids: [], hidden: true }),
+      await setReviewsHidden(t.db, kv, {
+        projectId: p.id,
+        environment: "live",
+        ids: [],
+        hidden: true,
+      }),
     ).toEqual({ changed: 0, generation: null });
     expect(kv.puts).toHaveLength(1);
   });
