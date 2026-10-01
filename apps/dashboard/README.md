@@ -19,12 +19,16 @@ CLOUDFLARE_ENV=preview pnpm --filter @proofql/dashboard build && pnpm --filter @
 |---|---|
 | `workers/app.ts` | The Worker. Mints the request id, builds the request-bound logger, and puts `{ env, ctx, log, requestId }` on the router context (`app/lib/context.ts`). |
 | `app/root.tsx` | Fonts and tokens, the Clerk middleware/provider pair (mounted only when Clerk is configured), the error boundary. |
-| `app/routes.ts` | `/` → `/app`; `/sign-in/*`, `/sign-up/*`; `/app/workspace`; the protected `/app` layout with the overview and `/app/projects/:slug/{reviews,playground,keys,settings}`; `POST /webhooks/clerk`; `GET /health`. |
+| `app/routes.ts` | `/` → `/app`; `/sign-in/*`, `/sign-up/*`; `/app/workspace`; the protected `/app` layout with the overview and `/app/projects/:slug/{reviews,import,playground,keys,settings}`; `POST /webhooks/clerk`; `GET /health`. |
+| `app/routes/app.projects.$slug.import.*` | The CSV/JSON import (#38): `import` (step 1, upload → R2 + `ingest_runs` row), `import/:runId/map` (step 2, detected mapping as selects, live validation in the browser), `import/:runId` (steps 3–4, progress polling and the result), `import/:runId/errors.csv` (the per-row error report). |
+| `app/lib/csv.server.ts` | The import engine: upload, preview, plan, `runImport` (streams the file from R2, `normalizeRow` from `@proofql/core`, `upsertReviews` from `@proofql/db` in batches of 100, enqueues index messages), progress and the error report. Resumable from the run's counts. |
+| `app/lib/background.server.ts` | Hands `runImport` to `ctx.waitUntil` with its own DB client. |
+| `app/components/import-progress.tsx` | `ImportProgress` + `useImportPolling`: the "spin" the onboarding (#53) reuses. |
 | `app/lib/account.server.ts` | `requireAccount(args)` — **the auth seam** (below). |
 | `app/lib/accounts.ts` | Account/project queries, including the idempotent upsert by `clerk_org_id`. |
 | `app/lib/clerk.server.ts` | Clerk middleware built per request with keys from the Workers env. |
 | `app/lib/clerk-webhook.server.ts` | Svix-verified webhook: `organization.created|updated` upsert, `organization.deleted` soft-marks (`accounts.deleted_at`). |
-| `app/components/` | Shell (top bar, left nav, page header), `ui/` primitives (button, badge, card, skeleton, link tabs). |
+| `app/components/` | Shell (top bar, left nav, page header), `ui/` primitives (button, badge, card, skeleton, link tabs, form fields). |
 
 ## The auth seam: `requireAccount`
 
@@ -61,3 +65,13 @@ Full inventory and rotation notes: [`docs/secrets.md`](../../docs/secrets.md).
   happy-dom (`// @vitest-environment happy-dom` per file).
 - Integration (`app/**/*.integration.test.ts`): the real schema via
   `@proofql/db/test` (`setupTestDb()` clones the migrated template per file).
+  The import suite (`csv.server.integration.test.ts`) uses `test/fake-r2.ts`
+  — an in-memory `UploadStore` and a recording queue — against the fixtures
+  in `packages/core/test/fixtures/csv`.
+
+## Bindings beyond the scaffold
+
+| Binding | Used by | Local |
+|---|---|---|
+| `UPLOADS` (R2) | The import stores uploads at `uploads/<projectId>/<runId>.<csv\|json>`, the confirmed mapping at `….plan.json`, the error report at `….errors.json`. | Miniflare's R2 simulator (`.wrangler/state`). |
+| `INGEST_QUEUE` (producer) | One `review.index` message per imported review, after each batch commits — the same message `POST /v1/reviews` sends. | Miniflare's queue; run the pipeline worker alongside (`pnpm dev`) to see reviews become indexed. |

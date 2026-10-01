@@ -64,6 +64,22 @@
     { "binding": "CACHE", "id": "TBD-provision-in-m0" }
   ],
 
+  "r2_buckets": [
+    // Uploaded CSV/JSON review exports (#38), keyed
+    // `uploads/<projectId>/<ingestRunId>.<ext>`, plus the import's mapping
+    // and error report beside them. Buckets are referenced by name (no id to
+    // provision); locally Miniflare simulates the bucket.
+    { "binding": "UPLOADS", "bucket_name": "proofql-uploads" }
+  ],
+
+  "queues": {
+    "producers": [
+      // The CSV import enqueues one message per imported review, exactly as
+      // POST /v1/reviews does; workers/pipeline consumes.
+      { "binding": "INGEST_QUEUE", "queue": "proofql-ingest" }
+    ]
+  },
+
   "hyperdrive": [
     // See workers/api/wrangler.jsonc for how local dev resolves this.
     // <TBD>: real Hyperdrive config id — provisioned with the Neon project (M0).
@@ -90,6 +106,14 @@
         // <TBD>: id of KV namespace `proofql-cache-preview`.
         { "binding": "CACHE", "id": "TBD-provision-in-m0" }
       ],
+      "r2_buckets": [
+        { "binding": "UPLOADS", "bucket_name": "proofql-uploads-preview" }
+      ],
+      "queues": {
+        "producers": [
+          { "binding": "INGEST_QUEUE", "queue": "proofql-ingest-preview" }
+        ]
+      },
       "hyperdrive": [
         // <TBD>: id of Hyperdrive config `proofql-hyperdrive-preview`.
         { "binding": "HYPERDRIVE", "id": "TBD-provision-in-m0" }
@@ -113,6 +137,14 @@
         // <TBD>: id of KV namespace `proofql-cache-prod`.
         { "binding": "CACHE", "id": "TBD-provision-in-m0" }
       ],
+      "r2_buckets": [
+        { "binding": "UPLOADS", "bucket_name": "proofql-uploads-prod" }
+      ],
+      "queues": {
+        "producers": [
+          { "binding": "INGEST_QUEUE", "queue": "proofql-ingest-prod" }
+        ]
+      },
       "hyperdrive": [
         // <TBD>: id of Hyperdrive config `proofql-hyperdrive-prod`.
         { "binding": "HYPERDRIVE", "id": "TBD-provision-in-m0" }

@@ -136,10 +136,17 @@ wire) and bind it in `handleQueueBatch`.
 | Event | Level | Fields beyond the request bindings | When |
 |---|---|---|---|
 | `ssr.stream_error` | error | `error` | React's streamed render threw after the shell was sent ([`entry.server.tsx`](../apps/dashboard/app/entry.server.tsx)); the response is already in flight, so the status flips to 500 only if the shell had not committed. |
+| `import.uploaded` | info | `project_id`, `ingest_run_id`, `environment`, `bytes`, `profile` | A CSV/JSON export was stored in R2 and its `ingest_runs` row opened ([import step 1](../apps/dashboard/app/routes/app.projects.$slug.import._index.tsx), #38). |
+| `import.confirmed` | info | `project_id`, `ingest_run_id`, `environment`, `total_rows`, `profile`, `fields[]` | The mapping was confirmed; the run was handed to `waitUntil`. `fields` lists the mapped target fields, never column values. |
+| `import.started` | info | `ingest_run_id`, `project_id`, `environment`, `total_rows`, `resume_from` | `runImport` began (or resumed — `resume_from` is the row count already in the counts) ([`csv.server.ts`](../apps/dashboard/app/lib/csv.server.ts)). |
+| `import.batch` | info | `ingest_run_id`, `rows`, `created`, `updated`, `skipped`, `failed` | One batch of up to 100 rows committed and enqueued. |
+| `import.paused` | info | `ingest_run_id`, `processed`, `total_rows` | The run yielded at its time budget; the progress page offers "Resume". A run that logs this and never a later `import.started` was abandoned by the user. |
+| `import.finished` | info | `ingest_run_id`, `created`, `updated`, `skipped`, `failed`, `duration_ms` | `ingest_runs.status = succeeded`. |
+| `import.failed` | warn / error | `ingest_run_id`, `error_message` (warn: a readable cause written to `ingest_runs.error`) or `error` (error: the background task threw) | The run was marked `failed`, or the `waitUntil` task died before it could. The second form is the one to alert on. |
 
-The dashboard logs nothing else yet (#36 is the scaffold); the loaders'
-account and project queries are plain reads. Surfaces that mutate state
-(#37, #41) add their events here when they land.
+The import rows are the dashboard's first mutating surface; the loaders'
+account and project queries remain plain reads. Keys and settings (#37,
+#41) add their events here when they land.
 
 ## Tuning the similarity floor
 

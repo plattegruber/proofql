@@ -1,0 +1,37 @@
+{
+  "reviews": [
+    {
+      "name": "accounts/1/locations/2/reviews/AbC123",
+      "reviewId": "AbC123",
+      "reviewer": {
+        "displayName": "Marcus T.",
+        "profilePhotoUrl": "https://lh3.googleusercontent.com/a/photo1"
+      },
+      "starRating": "FIVE",
+      "comment": "Dr. Patel did my implant and I forgot it wasn't my own tooth within a week.",
+      "createTime": "2026-01-05T18:20:00.123456Z",
+      "updateTime": "2026-01-05T18:20:00.123456Z",
+      "reviewReply": {
+        "comment": "Thank you, Marcus.",
+        "updateTime": "2026-01-06T09:00:00Z"
+      }
+    },
+    {
+      "name": "accounts/1/locations/2/reviews/DeF456",
+      "reviewId": "DeF456",
+      "reviewer": { "displayName": "Priya N.", "isAnonymous": false },
+      "starRating": "FOUR",
+      "comment": "Clean office, gentle hygienist, tight parking.",
+      "createTime": "2026-02-12T14:30:00Z",
+      "updateTime": "2026-02-12T14:30:00Z"
+    },
+    {
+      "name": "accounts/1/locations/2/reviews/GhI789",
+      "reviewId": "GhI789",
+      "reviewer": { "displayName": "A Google user", "isAnonymous": true },
+      "starRating": "ONE",
+      "createTime": "2026-03-01T09:00:00Z",
+      "updateTime": "2026-03-01T09:00:00Z"
+    }
+  ]
+}

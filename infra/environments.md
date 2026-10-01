@@ -54,8 +54,9 @@ identical across workers and environments.
 | -------------- | ----------------- | -------- | -------- | --------- | -------------------------------------------------- | ------------------------------------------------ |
 | `HYPERDRIVE`   | Hyperdrive        | yes      | yes      | yes       | docker compose Postgres (see below)                | `proofql-hyperdrive-<env>` config → Neon         |
 | `CACHE`        | KV namespace      | yes      | yes      | yes       | Miniflare simulator (id ignored)                   | `proofql-cache-<env>`                            |
-| `INGEST_QUEUE` | Queue producer    | yes      | yes      | —         | `proofql-ingest` (Miniflare)                       | `proofql-ingest-<env>`                           |
+| `INGEST_QUEUE` | Queue producer    | yes      | yes      | yes       | `proofql-ingest` (Miniflare)                       | `proofql-ingest-<env>`                           |
 | (consumer)     | Queue consumer    | —        | yes      | —         | `proofql-ingest`, DLQ `proofql-ingest-dlq`         | `proofql-ingest-<env>`, DLQ `proofql-ingest-dlq-<env>` |
+| `UPLOADS`      | R2 bucket         | —        | —        | yes       | `proofql-uploads` (Miniflare)                      | `proofql-uploads-<env>` (by name; no id to paste) |
 | `AI`           | Workers AI        | yes      | yes      | —         | **not bound** — no simulator; code must treat `env.AI` as optional and use the deterministic fake provider | account-level, no id |
 | `RL_SECRET`    | Rate limit        | yes      | —        | —         | Miniflare simulator, 300 req / 60 s per key        | namespace `1001`, 300 req / 60 s per key         |
 | `RL_PUBLISHABLE` | Rate limit      | yes      | —        | —         | Miniflare simulator, 120 req / 60 s per key        | namespace `1002`, 120 req / 60 s per key         |
@@ -75,8 +76,10 @@ code treats both as optional and falls back to an in-memory limiter, see
 writes Postgres, and purges the cache for the project it just indexed; its
 five-minute cron (`triggers.crons`) also *produces* to the same queue to
 re-enqueue reviews stuck with `indexed_at IS NULL` (#72). The
-dashboard reads/writes Postgres for projects, keys, and policy, and purges the
-cache on policy change; it never embeds.
+dashboard reads/writes Postgres for projects, keys, and policy, purges the
+cache on policy change, stores uploaded review exports in R2 (`UPLOADS`, #38)
+and enqueues the reviews it imports from them (INGEST_QUEUE, the same message
+the api sends); it never embeds.
 
 Workers AI is also why there is no local `AI` binding: the binding always
 proxies to the real Workers AI API and needs a logged-in wrangler, which a
@@ -93,6 +96,7 @@ name. Local has none of it (Miniflare simulators and the compose Postgres).
 | KV namespace (`CACHE`)  | `proofql-cache-preview`                                      | `proofql-cache-prod`                                      | `kv_namespaces[].id` in all three configs |
 | Queue (`INGEST_QUEUE`)  | `proofql-ingest-preview`                                     | `proofql-ingest-prod`                                     | by name, already in the configs         |
 | Dead-letter queue       | `proofql-ingest-dlq-preview`                                 | `proofql-ingest-dlq-prod`                                 | by name, already in the configs         |
+| R2 bucket (`UPLOADS`)   | `proofql-uploads-preview`                                    | `proofql-uploads-prod`                                    | by name, already in the dashboard config |
 | Hyperdrive (`HYPERDRIVE`) | `proofql-hyperdrive-preview` → Neon branch `preview`       | `proofql-hyperdrive-prod` → Neon branch `prod`            | `hyperdrive[].id` in all three configs  |
 | Neon                    | project `proofql`, branch `preview`, database `proofql`      | project `proofql`, branch `prod`, database `proofql`      | Hyperdrive config (pooled string); GitHub secret `NEON_<ENV>_DATABASE_URL` (direct string, migrator only) |
 | Workers AI (`AI`)       | account-level                                                | account-level                                             | nothing                                 |
