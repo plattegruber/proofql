@@ -12,13 +12,24 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:studio": "drizzle-kit studio",
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
     "lint": "biome check .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit -p tsconfig.check.json"
   },
   "devDependencies": {
     "@proofql/tsconfig": "workspace:*",
+    "@types/node": "^26.6.3",
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.3",
+    "postgres": "^3.4.9"
   }
 }
