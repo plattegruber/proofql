@@ -24,3 +24,16 @@ gh api repos/plattegruber/proofql/branches/main/protection \
 ```
 
 Apply it only after the CI workflow has run at least once on `main`; required contexts that have never reported leave every PR stuck on "Expected — waiting for status". Renaming a job in `ci.yml` must update the `contexts` array and re-run the `PUT` in the same PR.
+
+## Deploy secrets, variables, and the `production` environment
+
+The deploy workflow (`.github/workflows/deploy.yml`) reads repository
+secrets (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`,
+`NEON_PREVIEW_DATABASE_URL`), one environment secret on the GitHub
+environment `production` (`NEON_PROD_DATABASE_URL`, behind a required
+reviewer), and the repository variables `DEPLOY_ENABLED` (the switch every
+job is gated on) and `WORKERS_SUBDOMAIN` (smoke check). The exact `gh
+secret set` / `gh variable set` / `gh api ... environments/production`
+commands are steps 9 and 12 of [`provisioning.md`](provisioning.md); the
+inventory and rotation notes are [`docs/secrets.md`](../docs/secrets.md).
+Cloud resource names per environment: [`environments.md`](environments.md).

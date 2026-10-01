@@ -21,6 +21,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.check.json"
   },
   "devDependencies": {
+    "@proofql/ai": "workspace:*",
     "@proofql/tsconfig": "workspace:*",
     "@types/node": "^26.6.3",
     "drizzle-kit": "^0.31.11",

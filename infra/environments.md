@@ -63,18 +63,47 @@ writes Postgres, and purges the cache for the project it just indexed. The
 dashboard reads/writes Postgres for projects, keys, and policy, and purges the
 cache on policy change; it never embeds.
 
-**Nothing is provisioned yet.** Every KV namespace id and Hyperdrive config id
-in the `wrangler.jsonc` files is the placeholder `TBD-provision-in-m0`; the
-M0 provisioning issue (Cloudflare account + Neon project) creates the real
-resources and fills them in. `wrangler deploy --dry-run --env preview|prod`
-parses every config (dry-run does not validate ids against Cloudflare), but a
-**real** `wrangler deploy` fails on the placeholders until then — expected.
-`wrangler dev` needs none of it.
-
 Workers AI is also why there is no local `AI` binding: the binding always
 proxies to the real Workers AI API and needs a logged-in wrangler, which a
 fresh clone and CI do not have. Binding it only in preview/prod keeps
 `pnpm dev` and the test suites credential-free.
+
+## Cloud resources per environment
+
+Everything the owner creates in [`provisioning.md`](provisioning.md), by
+name. Local has none of it (Miniflare simulators and the compose Postgres).
+
+| Resource                | preview                                                      | prod                                                      | Holds the id/name                       |
+| ----------------------- | ------------------------------------------------------------ | --------------------------------------------------------- | --------------------------------------- |
+| KV namespace (`CACHE`)  | `proofql-cache-preview`                                      | `proofql-cache-prod`                                      | `kv_namespaces[].id` in all three configs |
+| Queue (`INGEST_QUEUE`)  | `proofql-ingest-preview`                                     | `proofql-ingest-prod`                                     | by name, already in the configs         |
+| Dead-letter queue       | `proofql-ingest-dlq-preview`                                 | `proofql-ingest-dlq-prod`                                 | by name, already in the configs         |
+| Hyperdrive (`HYPERDRIVE`) | `proofql-hyperdrive-preview` → Neon branch `preview`       | `proofql-hyperdrive-prod` → Neon branch `prod`            | `hyperdrive[].id` in all three configs  |
+| Neon                    | project `proofql`, branch `preview`, database `proofql`      | project `proofql`, branch `prod`, database `proofql`      | Hyperdrive config (pooled string); GitHub secret `NEON_<ENV>_DATABASE_URL` (direct string, migrator only) |
+| Workers AI (`AI`)       | account-level                                                | account-level                                             | nothing                                 |
+| api URL                 | `https://proofql-api-preview.<subdomain>.workers.dev`        | `https://proofql-api-prod.<subdomain>.workers.dev` (custom domain TBD, scope §7.6) | `env.<env>.vars.API_URL` in the dashboard config; repo variable `WORKERS_SUBDOMAIN` for the smoke check |
+| pipeline URL            | `https://proofql-pipeline-preview.<subdomain>.workers.dev`   | `https://proofql-pipeline-prod.<subdomain>.workers.dev`   | `/health` only                          |
+| dashboard URL           | `https://proofql-dashboard-preview.<subdomain>.workers.dev`  | `https://proofql-dashboard-prod.<subdomain>.workers.dev` (custom domain TBD) | —                                       |
+
+**Provisioning status:** every KV namespace id and Hyperdrive config id in
+the `wrangler.jsonc` env blocks, and the dashboard's `API_URL`, start as the
+placeholder `TBD-provision-in-m0`. `node scripts/check-provisioning.mjs
+[preview|prod]` lists what is still unprovisioned; the owner's checklist is
+[`provisioning.md`](provisioning.md) (issue #14). `wrangler deploy --dry-run
+--env preview|prod` parses every config (dry-run does not validate ids), but
+a **real** `wrangler deploy` fails on the placeholders until then — expected.
+`wrangler dev` needs none of it.
+
+## Deploys
+
+[`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml): a push to
+`main` migrates the Neon `preview` branch then deploys the three preview
+workers (pipeline, api, dashboard, in that order); `workflow_dispatch` with
+`environment=prod` does the same for prod inside the GitHub environment
+`production` (required reviewer). Every job is skipped until the repository
+variable `DEPLOY_ENABLED` is `true` — the last provisioning step and the
+kill switch. Secrets and variables the workflow reads:
+[`docs/secrets.md`](../docs/secrets.md).
 
 ## Local Postgres (Hyperdrive)
 

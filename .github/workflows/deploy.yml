@@ -1,0 +1,205 @@
+# Deploy (#14): migrate Neon, then `wrangler deploy` the three workers.
+#
+#   push to main            → preview  (migrate-preview → deploy-preview)
+#   workflow_dispatch       → preview by default, or prod via the
+#                             `environment` input; prod jobs run inside the
+#                             GitHub environment `production`, whose required
+#                             reviewers gate them (infra/provisioning.md).
+#
+# Safe to merge before anything is provisioned: every job is gated on the
+# repository *variable* DEPLOY_ENABLED == 'true' (secrets cannot be read in
+# `if:`, variables can). Until the owner flips it, pushes to main produce a
+# run whose jobs are all skipped. Flipping it is the last step of
+# infra/provisioning.md; `gh variable set DEPLOY_ENABLED --body false` turns
+# deploys back off without touching this file.
+#
+# Secrets (docs/secrets.md): CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID
+# (repository secrets), NEON_PREVIEW_DATABASE_URL (repository secret) and
+# NEON_PROD_DATABASE_URL (environment secret on `production`). Workers never
+# see a database URL — they reach Neon through the Hyperdrive binding; the
+# URL here is for the migrator only.
+#
+# Order inside each environment: migrations first (expand → migrate →
+# contract, CONTRIBUTING "Database migrations"), then pipeline (the queue
+# consumer) before api (the producer) so no message is ever enqueued without
+# a consumer attached, then the dashboard. Each `wrangler deploy` is its own
+# step so a failure names the worker.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        required: true
+        default: preview
+        options: [preview, prod]
+
+# wrangler-action only needs the Cloudflare token; nothing here writes to the
+# repo. `deployments: write` lets the `production` environment record its
+# deployment history.
+permissions:
+  contents: read
+  deployments: write
+
+# One deploy per environment at a time, never cancelled mid-flight: a
+# half-deployed set of workers is worse than a slow queue.
+concurrency:
+  group: deploy-${{ inputs.environment || 'preview' }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------- preview
+  migrate-preview:
+    # Push to main, or a manual run that asked for preview. Skipped (not
+    # failed) while DEPLOY_ENABLED is unset.
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' &&
+      (github.event_name == 'push' || inputs.environment == 'preview')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      # Plain pnpm, not turbo, so dist/ for the migrator's workspace
+      # dependencies definitely exists (see the caching note in ci.yml).
+      - name: Build migration dependencies
+        run: pnpm --filter "@proofql/db^..." build
+      - name: Apply migrations to Neon (preview branch)
+        env:
+          DATABASE_URL: ${{ secrets.NEON_PREVIEW_DATABASE_URL }}
+        # The migrator exits 1 with a clear message when DATABASE_URL is
+        # empty, so a missing secret fails here, before any worker moves.
+        run: pnpm db:migrate
+
+  deploy-preview:
+    needs: migrate-preview
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' &&
+      (github.event_name == 'push' || inputs.environment == 'preview')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      # Fail fast with the list of unprovisioned bindings instead of letting
+      # wrangler fail on the first placeholder id.
+      - name: Check every binding is provisioned
+        run: node scripts/check-provisioning.mjs preview
+      - name: Deploy proofql-pipeline-preview
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: workers/pipeline
+          command: deploy --env preview
+      - name: Deploy proofql-api-preview
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: workers/api
+          command: deploy --env preview
+      - name: Deploy proofql-dashboard-preview
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: apps/dashboard
+          command: deploy --env preview
+      # workers.dev URLs are deterministic once the account subdomain is
+      # known (repository variable WORKERS_SUBDOMAIN, infra/provisioning.md).
+      # The dashboard has no /health until React Router lands (#36).
+      - name: Smoke check /health
+        env:
+          SUBDOMAIN: ${{ vars.WORKERS_SUBDOMAIN }}
+        run: |
+          if [ -z "$SUBDOMAIN" ]; then
+            echo "::notice::WORKERS_SUBDOMAIN variable not set; skipping smoke check (infra/provisioning.md)."
+            exit 0
+          fi
+          for worker in api pipeline; do
+            url="https://proofql-${worker}-preview.${SUBDOMAIN}.workers.dev/health"
+            echo "GET $url"
+            curl --fail --silent --show-error --max-time 20 "$url"
+            echo
+          done
+
+  # ------------------------------------------------------------------- prod
+  # Both prod jobs carry `environment: production`, so the required reviewer
+  # approves the migration and the deploy separately (a reviewer can stop
+  # after the migration if it misbehaves). NEON_PROD_DATABASE_URL is an
+  # environment secret: only jobs inside `production` can read it.
+  migrate-prod:
+    if: vars.DEPLOY_ENABLED == 'true' && inputs.environment == 'prod'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - name: Build migration dependencies
+        run: pnpm --filter "@proofql/db^..." build
+      - name: Apply migrations to Neon (prod branch)
+        env:
+          DATABASE_URL: ${{ secrets.NEON_PROD_DATABASE_URL }}
+        run: pnpm db:migrate
+
+  deploy-prod:
+    needs: migrate-prod
+    if: vars.DEPLOY_ENABLED == 'true' && inputs.environment == 'prod'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - name: Check every binding is provisioned
+        run: node scripts/check-provisioning.mjs prod
+      - name: Deploy proofql-pipeline-prod
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: workers/pipeline
+          command: deploy --env prod
+      - name: Deploy proofql-api-prod
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: workers/api
+          command: deploy --env prod
+      - name: Deploy proofql-dashboard-prod
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: apps/dashboard
+          command: deploy --env prod
+      # workers.dev URLs are deterministic once the account subdomain is
+      # known (repository variable WORKERS_SUBDOMAIN, infra/provisioning.md).
+      # The dashboard has no /health until React Router lands (#36).
+      - name: Smoke check /health
+        env:
+          SUBDOMAIN: ${{ vars.WORKERS_SUBDOMAIN }}
+        run: |
+          if [ -z "$SUBDOMAIN" ]; then
+            echo "::notice::WORKERS_SUBDOMAIN variable not set; skipping smoke check (infra/provisioning.md)."
+            exit 0
+          fi
+          for worker in api pipeline; do
+            url="https://proofql-${worker}-prod.${SUBDOMAIN}.workers.dev/health"
+            echo "GET $url"
+            curl --fail --silent --show-error --max-time 20 "$url"
+            echo
+          done
