@@ -8,6 +8,10 @@ describe("@proofql/pipeline", () => {
   });
 
   it("resolves workspace dependencies through turbo's build graph", () => {
-    expect(WORKSPACE_DEPENDENCIES).toEqual(["@proofql/core"]);
+    expect(WORKSPACE_DEPENDENCIES).toEqual([
+      "@proofql/core",
+      "@proofql/ai",
+      "@proofql/db",
+    ]);
   });
 });
