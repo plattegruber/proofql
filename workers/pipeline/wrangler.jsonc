@@ -9,8 +9,10 @@
 // One queue: workers/api produces to `proofql-ingest`, this worker consumes
 // (deterministic chunking, bge-m3 embeddings, sentiment for unrated sources,
 // KV cache purge). Batch tuning: volumes are small, correctness beats
-// throughput — max_batch_size 10 / max_batch_timeout 5s. Messages that fail
-// three times land in `proofql-ingest-dlq`, which nothing consumes yet.
+// throughput — max_batch_size 10 / max_batch_timeout 5s. Retries back off
+// exponentially (handler-supplied delay; `retry_delay` is the floor) and
+// messages that fail three times land in `proofql-ingest-dlq`, which nothing
+// consumes yet — #72's sweep re-enqueues stuck reviews from the database.
 //
 // Environment matrix, ports, and binding names: see infra/environments.md.
 {
@@ -44,6 +46,10 @@
       {
         "queue": "proofql-ingest",
         "max_retries": 3,
+        // Floor for a retry that carries no explicit delay (an uncaught
+        // exception); the handler itself retries with exponential backoff
+        // (30s/60s/120s, src/handlers.ts). Three attempts, then the DLQ.
+        "retry_delay": 30,
         "max_batch_size": 10,
         "max_batch_timeout": 5,
         "dead_letter_queue": "proofql-ingest-dlq"
@@ -81,6 +87,7 @@
           {
             "queue": "proofql-ingest-preview",
             "max_retries": 3,
+            "retry_delay": 30,
             "max_batch_size": 10,
             "max_batch_timeout": 5,
             "dead_letter_queue": "proofql-ingest-dlq-preview"
@@ -105,6 +112,7 @@
           {
             "queue": "proofql-ingest-prod",
             "max_retries": 3,
+            "retry_delay": 30,
             "max_batch_size": 10,
             "max_batch_timeout": 5,
             "dead_letter_queue": "proofql-ingest-dlq-prod"

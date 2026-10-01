@@ -1,14 +1,23 @@
-import { DISTILBERT_SST2_MODEL, FakeSentimentClassifier } from "@proofql/ai";
+import {
+  AiResponseError,
+  BGE_M3_EMBEDDING_MODEL,
+  DISTILBERT_SST2_MODEL,
+  FakeEmbeddingProvider,
+  FakeSentimentClassifier,
+} from "@proofql/ai";
 import type { IngestMessage } from "@proofql/core";
 import type { Db } from "@proofql/db";
 import { describe, expect, it, vi } from "vitest";
 
+import { MemoryKv } from "./cache.js";
 import {
   createClassifier,
+  createEmbedder,
   handleFetch,
   handleQueueBatch,
   type QueueContext,
   type QueueMessage,
+  retryDelaySeconds,
 } from "./handlers.js";
 import type { IndexOutcome } from "./index-review.js";
 
@@ -31,6 +40,8 @@ function fakeContext(): QueueContext & { log: ReturnType<typeof vi.fn> } {
   return {
     db: {} as Db,
     classifier: new FakeSentimentClassifier(),
+    embedder: new FakeEmbeddingProvider(),
+    cache: new MemoryKv(),
     log: vi.fn(),
   };
 }
@@ -40,6 +51,8 @@ const indexed: IndexOutcome = {
   reviewId: REVIEW_ID,
   chunks: 1,
   windows: 0,
+  embedded: 1,
+  newlyIndexed: true,
   sentiment: "positive",
   sentimentSource: "rating",
 };
@@ -108,12 +121,40 @@ describe("handleQueueBatch", () => {
     );
 
     expect(message.retry).toHaveBeenCalledOnce();
+    expect(message.retry).toHaveBeenCalledWith({ delaySeconds: 30 });
     expect(message.ack).not.toHaveBeenCalled();
     expect(ctx.log).toHaveBeenCalledWith(
       "ingest.message.failed",
       expect.objectContaining({
         reviewId: REVIEW_ID,
         error: { name: "Error", message: "connection reset" },
+      }),
+    );
+  });
+
+  it("retries embedding-provider errors with a longer delay on later attempts", async () => {
+    const ctx = fakeContext();
+    const index = vi
+      .fn()
+      .mockRejectedValue(new AiResponseError("@cf/baai/bge-m3", "no data"));
+    const message: QueueMessage = {
+      ...fakeMessage(validBody),
+      attempts: 2,
+    };
+
+    await handleQueueBatch(
+      { queue: "proofql-ingest", messages: [message] },
+      ctx,
+      { index },
+    );
+
+    expect(message.retry).toHaveBeenCalledWith({ delaySeconds: 60 });
+    expect(message.ack).not.toHaveBeenCalled();
+    expect(ctx.log).toHaveBeenCalledWith(
+      "ingest.message.failed",
+      expect.objectContaining({
+        attempts: 2,
+        error: expect.objectContaining({ name: "AiResponseError" }),
       }),
     );
   });
@@ -174,6 +215,42 @@ describe("handleQueueBatch", () => {
       }),
     ).resolves.toBeUndefined();
     expect(ctx.log).not.toHaveBeenCalled();
+  });
+});
+
+describe("retryDelaySeconds", () => {
+  it("doubles from 30s per attempt and caps at five minutes", () => {
+    expect([1, 2, 3, 4, 5, 6].map(retryDelaySeconds)).toEqual([
+      30, 60, 120, 240, 300, 300,
+    ]);
+    expect(retryDelaySeconds(0)).toBe(30);
+  });
+});
+
+describe("createEmbedder", () => {
+  it("uses the deterministic fake only when AI is unbound in local", () => {
+    expect(createEmbedder({ ENVIRONMENT: "local" })).toBeInstanceOf(
+      FakeEmbeddingProvider,
+    );
+  });
+
+  it("throws when AI is unbound outside local — never fake vectors in prod", () => {
+    for (const ENVIRONMENT of ["preview", "prod", "staging", ""]) {
+      expect(() => createEmbedder({ ENVIRONMENT })).toThrow(
+        /AI binding is not bound/,
+      );
+    }
+  });
+
+  it("uses Workers AI bge-m3 when AI is bound, whatever the environment", () => {
+    const run = vi.fn();
+    const embedder = createEmbedder({
+      ENVIRONMENT: "prod",
+      AI: { run } as unknown as Ai,
+    });
+
+    expect(embedder.model).toBe(BGE_M3_EMBEDDING_MODEL);
+    expect(embedder).not.toBeInstanceOf(FakeEmbeddingProvider);
   });
 });
 
