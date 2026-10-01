@@ -14,6 +14,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import ImportMap from "./app.projects.$slug.import.$runId.map";
 
+/** Value of a <select> found by label; typed loosely because the worker
+ * runtime types shadow the DOM's HTMLSelectElement in this project. */
+function valueOf(element: HTMLElement): string {
+  return (element as unknown as { value: string }).value;
+}
+
 const headers = [
   "Review ID",
   "Author",
@@ -101,18 +107,10 @@ describe("import step 2", () => {
     ).toBeTruthy();
     expect(screen.getByText(/50 rows, 6 columns/)).toBeTruthy();
 
-    expect(
-      (screen.getByLabelText(/^Review text/) as HTMLSelectElement).value,
-    ).toBe("Review Text");
-    expect((screen.getByLabelText(/^Date/) as HTMLSelectElement).value).toBe(
-      "Date",
-    );
-    expect((screen.getByLabelText(/^Rating/) as HTMLSelectElement).value).toBe(
-      "Rating",
-    );
-    expect(
-      (screen.getByLabelText(/^Review URL/) as HTMLSelectElement).value,
-    ).toBe("");
+    expect(valueOf(screen.getByLabelText(/^Review text/))).toBe("Review Text");
+    expect(valueOf(screen.getByLabelText(/^Date/))).toBe("Date");
+    expect(valueOf(screen.getByLabelText(/^Rating/))).toBe("Rating");
+    expect(valueOf(screen.getByLabelText(/^Review URL/))).toBe("");
 
     // Location is unmapped → offered as metadata, off by default.
     const meta = screen.getByLabelText("Location") as HTMLInputElement;
@@ -136,9 +134,7 @@ describe("import step 2", () => {
 
   it("re-validates when the mapping changes and blocks the run without text", async () => {
     renderMap();
-    const rating = (await screen.findByLabelText(
-      /^Rating/,
-    )) as HTMLSelectElement;
+    const rating = await screen.findByLabelText(/^Rating/);
     fireEvent.change(rating, { target: { value: "" } });
     const validation = screen.getByRole("region", { name: "Validation" });
     expect(within(validation).getByText("3 / 3")).toBeTruthy();

@@ -7,6 +7,18 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import ImportUpload from "./app.projects.$slug.import._index";
 
+/** Value of a <select>/<input> found by label; typed loosely because the
+ * worker runtime types shadow the DOM's HTMLSelectElement in this project. */
+function valueOf(element: HTMLElement): string {
+  return (element as unknown as { value: string }).value;
+}
+function optionsOf(element: HTMLElement): { value: string; label: string }[] {
+  return [...element.querySelectorAll("option")].map((o) => ({
+    value: o.getAttribute("value") ?? "",
+    label: o.textContent ?? "",
+  }));
+}
+
 function renderUpload(actionData?: { error: string }) {
   const Stub = createRoutesStub([
     {
@@ -49,8 +61,9 @@ describe("import step 1", () => {
     expect((screen.getByLabelText(/^Test/) as HTMLInputElement).checked).toBe(
       false,
     );
-    const profile = screen.getByLabelText("Export format") as HTMLSelectElement;
-    const labels = [...profile.options].map((o) => o.textContent);
+    const labels = optionsOf(screen.getByLabelText("Export format")).map(
+      (o) => o.label,
+    );
     expect(labels[0]).toBe("Detect automatically");
     for (const name of [
       "Google Takeout",
@@ -64,15 +77,9 @@ describe("import step 1", () => {
         name,
       ).toBe(true);
     }
-    const source = screen.getByLabelText("Source") as HTMLSelectElement;
-    expect([...source.options].map((o) => o.value)).toEqual([
-      "auto",
-      "google",
-      "yelp",
-      "facebook",
-      "trustpilot",
-      "custom",
-    ]);
+    expect(
+      optionsOf(screen.getByLabelText("Source")).map((o) => o.value),
+    ).toEqual(["auto", "google", "yelp", "facebook", "trustpilot", "custom"]);
     expect(screen.getByText(/up to 10.0 MB/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /continue/i })).toBeTruthy();
   });
