@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.turbo/
+.wrangler/
+.dev.vars
+.env
+coverage/
+
+# React Router (apps/dashboard): vite build output and generated route types
+build/
+.react-router/

@@ -1,0 +1,4 @@
+{
+  "extends": "@proofql/tsconfig/react.json",
+  "include": ["src"]
+}

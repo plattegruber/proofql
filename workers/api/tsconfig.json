@@ -1,0 +1,4 @@
+{
+  "extends": "@proofql/tsconfig/worker.json",
+  "include": ["src"]
+}
