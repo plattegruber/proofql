@@ -14,8 +14,10 @@
  * - A valid message runs `indexReview`. Success → `ack()`. Any thrown error
  *   → `retry({ delaySeconds })` with exponential backoff
  *   (`retryDelaySeconds`); after `max_retries` (3) Queues moves the message
- *   to `proofql-ingest-dlq`, which nothing consumes yet (#72 re-enqueues
- *   stuck reviews from the database instead). Every failure retries, on
+ *   to `proofql-ingest-dlq`, where `handleDeadLetters` (src/dlq.ts, #82)
+ *   records the give-up in `ingest_runs` — #72's sweep re-enqueues stuck
+ *   reviews from the database, so that is observability, not recovery.
+ *   Every failure retries, on
  *   purpose: a database or Workers AI outage is transient, and a persistent
  *   provider fault (`EmbeddingDimensionError` from a model swap,
  *   `AiResponseError` from a binding drift) is exactly what the DLQ is for —
@@ -24,6 +26,14 @@
  * - Messages are processed sequentially within a batch. Batches are small
  *   (max 10) and the work is per-review; ordering is deterministic and a
  *   failure never affects a sibling's ack/retry decision.
+ *
+ * One Worker, two queues: wrangler.jsonc attaches this worker as the
+ * consumer of both `proofql-ingest[-<env>]` and `proofql-ingest-dlq[-<env>]`,
+ * and the runtime calls the one `queue()` export for either. `handleQueue`
+ * routes on `batch.queue` — `isDeadLetterQueue` matches the `dlq` name
+ * segment, so no per-environment queue-name variable is needed — and
+ * builds the context each consumer wants: the ingest side gets the
+ * indexer's full context (db, AI, KV), the DLQ side only a db and a logger.
  *
  * Logging (#30; docs/observability.md): the batch's logger is the worker's
  * base logger (`@proofql/core` `createLogger`, service `pipeline`). Every
@@ -51,6 +61,11 @@ import {
 import { createDb } from "@proofql/db";
 
 import type { PipelineBindings } from "./bindings.js";
+import {
+  createDeadLetterContext,
+  handleDeadLetters,
+  isDeadLetterQueue,
+} from "./dlq.js";
 import {
   type IndexContext,
   type IndexOutcome,
@@ -225,6 +240,65 @@ export function createQueueContext(env: PipelineBindings): {
     },
     close: () => sql.end(),
   };
+}
+
+/** The two consumers one `queue()` invocation can dispatch to. */
+export interface QueueConsumers {
+  /** `proofql-ingest[-<env>]`: index reviews. */
+  ingest: (batch: QueueBatch, env: PipelineBindings) => Promise<void>;
+  /** `proofql-ingest-dlq[-<env>]`: record give-ups (src/dlq.ts). */
+  deadLetters: (batch: QueueBatch, env: PipelineBindings) => Promise<void>;
+}
+
+/** Index one `proofql-ingest` batch with a context built from `env`. */
+export async function consumeIngestBatch(
+  batch: QueueBatch,
+  env: PipelineBindings,
+): Promise<void> {
+  const { ctx, close } = createQueueContext(env);
+  try {
+    await handleQueueBatch(batch, ctx);
+  } finally {
+    await close();
+  }
+}
+
+/** Record one `proofql-ingest-dlq` batch with a context built from `env`. */
+export async function consumeDeadLetterBatch(
+  batch: QueueBatch,
+  env: PipelineBindings,
+): Promise<void> {
+  const { ctx, close } = createDeadLetterContext(
+    env,
+    createPipelineLogger(env),
+  );
+  try {
+    await handleDeadLetters(ctx, batch);
+  } finally {
+    await close();
+  }
+}
+
+const defaultConsumers: QueueConsumers = {
+  ingest: consumeIngestBatch,
+  deadLetters: consumeDeadLetterBatch,
+};
+
+/**
+ * The worker's `queue()` body: route a batch to the consumer its queue name
+ * selects. `consumers` is injectable so the routing is unit-testable
+ * without a database.
+ */
+export async function handleQueue(
+  batch: QueueBatch,
+  env: PipelineBindings,
+  consumers: QueueConsumers = defaultConsumers,
+): Promise<void> {
+  if (isDeadLetterQueue(batch.queue)) {
+    await consumers.deadLetters(batch, env);
+  } else {
+    await consumers.ingest(batch, env);
+  }
 }
 
 /** Cron sweep tuning (#72): reviews unindexed for 5+ minutes, 500 per tick. */

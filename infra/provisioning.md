@@ -128,9 +128,10 @@ $W queues create proofql-ingest-prod
 $W queues create proofql-ingest-dlq-prod
 ```
 
-The consumer (pipeline → `proofql-ingest-<env>`, `max_retries: 3`, DLQ) is
+Both consumers (pipeline → `proofql-ingest-<env>`, `max_retries: 3`, DLQ;
+and pipeline → `proofql-ingest-dlq-<env>`, `max_retries: 0`, no DLQ) are
 attached automatically by the pipeline's first `wrangler deploy`; do not add
-it by hand.
+them by hand.
 
 **Verify**
 

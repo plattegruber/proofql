@@ -14,11 +14,14 @@ import type { Db } from "@proofql/db";
 import { describe, expect, it, vi } from "vitest";
 
 import { testLogger } from "../test/log.js";
+import type { PipelineBindings } from "./bindings.js";
 import {
   createClassifier,
   createEmbedder,
   handleFetch,
+  handleQueue,
   handleQueueBatch,
+  type QueueConsumers,
   type QueueContext,
   type QueueMessage,
   retryDelaySeconds,
@@ -268,6 +271,61 @@ describe("handleQueueBatch", () => {
       }),
     ).resolves.toBeUndefined();
     expect(ctx.out.records).toEqual([]);
+  });
+});
+
+describe("handleQueue", () => {
+  const env = { ENVIRONMENT: "test" } as PipelineBindings;
+
+  function consumers(): QueueConsumers & {
+    ingest: ReturnType<typeof vi.fn>;
+    deadLetters: ReturnType<typeof vi.fn>;
+  } {
+    return {
+      ingest: vi.fn().mockResolvedValue(undefined),
+      deadLetters: vi.fn().mockResolvedValue(undefined),
+    };
+  }
+
+  it("routes the ingest queue to the indexer in every environment", async () => {
+    for (const queue of [
+      "proofql-ingest",
+      "proofql-ingest-preview",
+      "proofql-ingest-prod",
+    ]) {
+      const c = consumers();
+      const batch = { queue, messages: [fakeMessage(validBody)] };
+
+      await handleQueue(batch, env, c);
+
+      expect(c.ingest).toHaveBeenCalledExactlyOnceWith(batch, env);
+      expect(c.deadLetters).not.toHaveBeenCalled();
+    }
+  });
+
+  it("routes the dead-letter queue to the DLQ consumer in every environment", async () => {
+    for (const queue of [
+      "proofql-ingest-dlq",
+      "proofql-ingest-dlq-preview",
+      "proofql-ingest-dlq-prod",
+    ]) {
+      const c = consumers();
+      const batch = { queue, messages: [fakeMessage(validBody)] };
+
+      await handleQueue(batch, env, c);
+
+      expect(c.deadLetters).toHaveBeenCalledExactlyOnceWith(batch, env);
+      expect(c.ingest).not.toHaveBeenCalled();
+    }
+  });
+
+  it("propagates a consumer's failure so the runtime sees the batch fail", async () => {
+    const c = consumers();
+    c.ingest.mockRejectedValue(new Error("db down"));
+
+    await expect(
+      handleQueue({ queue: "proofql-ingest", messages: [] }, env, c),
+    ).rejects.toThrow("db down");
   });
 });
 
