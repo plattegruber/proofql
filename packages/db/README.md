@@ -95,17 +95,23 @@ What the dataset contains:
   negative. Text length is ~60% one to two sentences, ~30% three to five,
   ~10% long multi-topic.
 - **Chunks for every review**: one `full` chunk, plus 2–3 sentence
-  `window` chunks overlapping by one for reviews with more than three
-  sentences. Every chunk passes `assertVerbatimSlice` before insert. All
-  chunks are embedded with `fakeEmbed` from `@proofql/ai`, so a query
-  vector built with the same fake lands near the right rows.
-  `indexed_at` is set; `review_count` on the project is the live count.
+  `window` chunks overlapping by one for reviews of four or more
+  sentences — 90 full + 49 window chunks in all. Every chunk passes
+  `assertVerbatimChunks` before insert. All chunks are embedded with
+  `fakeEmbed` from `@proofql/ai`, so a query vector built with the same
+  fake lands near the right rows. `indexed_at` is set; `review_count` on
+  the project is the live count.
 
-The chunker in `src/seed/chunking.ts` is a **seed-only stand-in** for the
-pipeline's (#23): `Intl.Segmenter` sentences, honorifics (`Dr.`, `St.`)
-merged, windows of three overlapping by one. When the real chunker lands
-the seed should import it and this file should go. Nothing outside
-`src/seed/` may import it.
+The seed chunks with **the same chunker as the pipeline**: `chunkReview`
+from `@proofql/core` (`packages/core/src/chunking.ts`, #23/#68), called
+with the review's `language` as the locale exactly as `workers/pipeline`
+calls it. A seeded review's chunks are therefore byte-identical to what
+ingesting that review would produce — same `full`/`window` boundaries,
+same UTF-16 offsets — and `seed.integration.test.ts` asserts that per
+review. There is no chunking logic in `src/seed/`. One consequence worth
+knowing: `Intl.Segmenter` treats `"Dr."` as a sentence of its own, so a
+review a reader would call three sentences can be four to the chunker and
+pick up windows; that is what the product does to real reviews too.
 
 Rules and properties:
 
@@ -117,8 +123,8 @@ Rules and properties:
   only the API keys change per run.
 - **Guarded.** Refuses a `DATABASE_URL` whose host is not loopback unless
   `--force` is passed (`src/seed/guard.ts`).
-- **`SEED_VERSION`** (`src/seed/constants.ts`, currently 1) is written
-  into the account name — `"ProofQL Demo (seed v1)"` — so any local
+- **`SEED_VERSION`** (`src/seed/constants.ts`, currently 2) is written
+  into the account name — `"ProofQL Demo (seed v2)"` — so any local
   database shows which fixture set it holds. Bump it with **any** change to
   what the seed produces and call the bump out in the PR: integration
   tests and the playground import `DEMO_REVIEW_FIXTURES` from

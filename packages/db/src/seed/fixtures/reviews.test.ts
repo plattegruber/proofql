@@ -5,16 +5,21 @@
  * conscious decision, not an accident.
  */
 
-import { REVIEW_SOURCES } from "@proofql/core";
+import { chunkReview, REVIEW_SOURCES, segmentSentences } from "@proofql/core";
 import { describe, expect, it } from "vitest";
 
-import { splitSentences } from "../chunking.js";
 import {
   DEMO_LIVE_REVIEWS,
   DEMO_REVIEW_FIXTURES,
   DEMO_TEST_REVIEWS,
   demoExternalId,
+  demoLanguage,
 } from "./reviews.js";
+
+/** The chunks the seed (and the pipeline) would write for a fixture. */
+function chunksFor(fixture: (typeof DEMO_REVIEW_FIXTURES)[number]) {
+  return chunkReview(fixture.text, { locale: demoLanguage(fixture) });
+}
 
 describe("demo review fixtures", () => {
   it("has ~80 live and 10 test reviews, live first", () => {
@@ -93,17 +98,53 @@ describe("demo review fixtures", () => {
     expect(Math.max(...days)).toBeLessThanOrEqual(548);
   });
 
-  it("varies length: ~60% short, ~30% medium, ~10% long multi-topic", () => {
-    const lengths = DEMO_LIVE_REVIEWS.map((f) => splitSentences(f.text).length);
+  it("varies length as the chunker sees it: a third short, half medium, a tenth long", () => {
+    // Sentences are counted the way `chunkReview` counts them (UAX #29 via
+    // `Intl.Segmenter`), which is what decides whether a review gets window
+    // chunks. That is stricter than a reader's count: "Dr. Patel did my
+    // implant." is two sentences to the segmenter, so the ~60% of reviews a
+    // reader would call one-or-two sentences shows up here as ~35%.
+    const lengths = DEMO_LIVE_REVIEWS.map(
+      (f) => segmentSentences(f.text, demoLanguage(f)).length,
+    );
     const short = lengths.filter((n) => n <= 2).length;
     const medium = lengths.filter((n) => n >= 3 && n <= 5).length;
     const long = lengths.filter((n) => n >= 6).length;
     const total = DEMO_LIVE_REVIEWS.length;
-    expect(short / total).toBeGreaterThanOrEqual(0.5);
-    expect(medium / total).toBeGreaterThanOrEqual(0.25);
+    expect(short / total).toBeGreaterThanOrEqual(0.3);
+    expect(medium / total).toBeGreaterThanOrEqual(0.5);
     expect(long / total).toBeGreaterThanOrEqual(0.08);
-    // Window chunks exist only for > 3 sentences — the long tail guarantees them.
-    expect(lengths.filter((n) => n > 3).length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("chunks to 90 full + 49 window chunks, windows on 18 live and 1 test review", () => {
+    // Pinned output of `chunkReview` over the corpus — the same numbers
+    // `runSeed` reports and the integration test checks against the DB. A
+    // change here is a change to the dataset: bump SEED_VERSION with it.
+    const all = DEMO_REVIEW_FIXTURES.map((f) => ({
+      fixture: f,
+      chunks: chunksFor(f),
+    }));
+    const windows = (c: { kind: string }[]) =>
+      c.filter((chunk) => chunk.kind === "window").length;
+
+    expect(all.every(({ chunks }) => chunks[0]?.kind === "full")).toBe(true);
+    expect(all.reduce((n, { chunks }) => n + windows(chunks), 0)).toBe(49);
+
+    const withWindows = all.filter(({ chunks }) => windows(chunks) > 0);
+    expect(
+      withWindows.filter((e) => e.fixture.environment === "live"),
+    ).toHaveLength(18);
+    expect(
+      withWindows.filter((e) => e.fixture.environment === "test"),
+    ).toHaveLength(1);
+    // Windows exist only from four sentences up, and never a lone sentence.
+    for (const { fixture, chunks } of withWindows) {
+      expect(
+        segmentSentences(fixture.text, demoLanguage(fixture)).length,
+        fixture.key,
+      ).toBeGreaterThanOrEqual(4);
+      expect(windows(chunks), fixture.key).toBeGreaterThanOrEqual(2);
+    }
   });
 
   it("has trimmed, non-empty text and fictional author names", () => {

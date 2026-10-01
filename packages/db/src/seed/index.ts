@@ -16,12 +16,14 @@ export {
   SEED_VERSION,
 } from "./constants.js";
 export {
+  DEMO_DEFAULT_LANGUAGE,
   DEMO_LIVE_REVIEWS,
   DEMO_REVIEW_FIXTURES,
   DEMO_TEST_REVIEWS,
   type DemoLocation,
   type DemoReviewFixture,
   demoExternalId,
+  demoLanguage,
 } from "./fixtures/reviews.js";
 export { assertSeedTargetAllowed, SeedGuardError } from "./guard.js";
 export {

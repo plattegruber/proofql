@@ -2,11 +2,17 @@
  * Integration coverage for the demo seed (#20) against a real Postgres via
  * the template-database harness: counts match the fixtures, the seed is
  * idempotent and scoped, every chunk is a verbatim slice with an embedding,
- * window chunks exist, sentiment follows the rating rule, and the keys the
- * summary returns are the ones in the database.
+ * every review's chunks are exactly what `chunkReview` produces for it (so
+ * seed and pipeline agree, #69), sentiment follows the rating rule, and the
+ * keys the summary returns are the ones in the database.
  */
 
-import { hashApiKey, parseApiKey, sentimentFromRating } from "@proofql/core";
+import {
+  chunkReview,
+  hashApiKey,
+  parseApiKey,
+  sentimentFromRating,
+} from "@proofql/core";
 import { and, count, sql as dsql, eq, isNotNull, isNull } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
@@ -30,10 +36,21 @@ import {
   DEMO_REVIEW_FIXTURES,
   DEMO_TEST_REVIEWS,
   demoExternalId,
+  demoLanguage,
 } from "./fixtures/reviews.js";
 import { demoAccountName, runSeed, type SeedSummary } from "./run.js";
 
 const t = setupTestDb();
+
+/** What the pipeline would write for this fixture — the seed must match. */
+function expectedChunks(fixture: (typeof DEMO_REVIEW_FIXTURES)[number]) {
+  return chunkReview(fixture.text, { locale: demoLanguage(fixture) });
+}
+
+const EXPECTED_WINDOWS = DEMO_REVIEW_FIXTURES.reduce(
+  (n, f) => n + expectedChunks(f).filter((c) => c.kind === "window").length,
+  0,
+);
 
 async function one(query: Promise<{ n: number }[]>): Promise<number> {
   const [row] = await query;
@@ -106,7 +123,8 @@ describe("runSeed", () => {
       chunks: first.chunks.full + first.chunks.window,
     });
     expect(first.chunks.full).toBe(DEMO_REVIEW_FIXTURES.length);
-    expect(first.chunks.window).toBeGreaterThan(0);
+    expect(first.chunks.window).toBe(EXPECTED_WINDOWS);
+    expect(first.chunks.window).toBe(49); // seed v2 — pinned in fixtures/reviews.test.ts
 
     const [acct] = await t.db
       .select()
@@ -250,6 +268,7 @@ describe("runSeed", () => {
         reviewEnvironment: reviews.environment,
         reviewText: reviews.text,
         reviewId: reviews.id,
+        externalId: reviews.externalId,
       })
       .from(reviewChunks)
       .innerJoin(reviews, eq(reviewChunks.reviewId, reviews.id))
@@ -274,13 +293,74 @@ describe("runSeed", () => {
     expect([...fullPerReview.values()].every((n) => n === 1)).toBe(true);
 
     const windows = rows.filter((r) => r.kind === "window");
-    expect(windows.length).toBeGreaterThan(0);
-    expect(new Set(windows.map((w) => w.reviewId)).size).toBeGreaterThanOrEqual(
-      1,
-    );
+    expect(windows.length).toBe(EXPECTED_WINDOWS);
+    expect(new Set(windows.map((w) => w.reviewId)).size).toBe(19);
     for (const w of windows) {
       expect(w.text.length).toBeLessThan(w.reviewText.length);
     }
+  });
+
+  it("stores, for every review, exactly the chunks chunkReview produces", async () => {
+    // Seed and pipeline write with the same chunker (#69): same kinds, same
+    // text, same UTF-16 offsets, same order. `review_chunks` has no ordering
+    // column, so compare in (kind, startOffset) order on both sides.
+    const rows = await t.db
+      .select({
+        kind: reviewChunks.kind,
+        text: reviewChunks.text,
+        startOffset: reviewChunks.startOffset,
+        environment: reviews.environment,
+        externalId: reviews.externalId,
+      })
+      .from(reviewChunks)
+      .innerJoin(reviews, eq(reviewChunks.reviewId, reviews.id))
+      .where(eq(reviewChunks.projectId, DEMO_PROJECT_ID));
+
+    const byReview = new Map<
+      string,
+      { kind: string; text: string; startOffset: number }[]
+    >();
+    for (const row of rows) {
+      const key = `${row.environment}:${row.externalId}`;
+      const list = byReview.get(key) ?? [];
+      list.push({
+        kind: row.kind,
+        text: row.text,
+        startOffset: row.startOffset,
+      });
+      byReview.set(key, list);
+    }
+    const inOrder = (a: { kind: string; startOffset: number }, b: typeof a) =>
+      a.kind === b.kind
+        ? a.startOffset - b.startOffset
+        : a.kind === "full"
+          ? -1
+          : 1;
+
+    expect(byReview.size).toBe(DEMO_REVIEW_FIXTURES.length);
+    for (const fixture of DEMO_REVIEW_FIXTURES) {
+      const stored = byReview.get(
+        `${fixture.environment}:${demoExternalId(fixture)}`,
+      );
+      expect(stored, fixture.key).toBeDefined();
+      expect([...(stored ?? [])].sort(inOrder), fixture.key).toEqual(
+        expectedChunks(fixture)
+          .map(({ kind, text, startOffset }) => ({ kind, text, startOffset }))
+          .sort(inOrder),
+      );
+    }
+
+    // One concrete case, spelled out: g09 is an eight-sentence Google
+    // review, so it carries four windows of three sentences stepping by two
+    // (the last absorbs the trailing sentence) after its full chunk.
+    const g09 = DEMO_REVIEW_FIXTURES.find((f) => f.key === "g09");
+    expect(g09).toBeDefined();
+    if (!g09) return;
+    expect(
+      [...(byReview.get(`live:${demoExternalId(g09)}`) ?? [])]
+        .sort(inOrder)
+        .map((c) => c.kind),
+    ).toEqual(["full", "window", "window", "window", "window"]);
   });
 
   it("embeds every chunk with a 1024-dim unit vector", async () => {

@@ -22,6 +22,9 @@
  * - **Varied length**: roughly 60% one to two sentences, 30% three to
  *   five, 10% long multi-topic, so the seed produces `window` chunks and a
  *   long review can match several different queries by different excerpts.
+ *   (Those are human counts. The chunker's `Intl.Segmenter` treats "Dr."
+ *   as a sentence of its own, so it sees more sentences than a reader
+ *   does; `./reviews.test.ts` pins what the chunker sees.)
  * - **Spread over 18 months** of `occurred_at` (relative to `SEED_ANCHOR`).
  *
  * `external_id` is `demo-<key>`; keys are unique per environment.
@@ -51,6 +54,19 @@ export interface DemoReviewFixture {
   readonly daysAgo: number;
   readonly location: DemoLocation;
   readonly text: string;
+  /**
+   * BCP 47 tag stored as `reviews.language` and passed to `chunkReview`
+   * as the segmentation locale. Omitted means {@link DEMO_DEFAULT_LANGUAGE}.
+   */
+  readonly language?: string;
+}
+
+/** Every fixture is written in English unless it says otherwise. */
+export const DEMO_DEFAULT_LANGUAGE = "en";
+
+/** The language a fixture is stored and chunked with. */
+export function demoLanguage(fixture: Pick<DemoReviewFixture, "language">) {
+  return fixture.language ?? DEMO_DEFAULT_LANGUAGE;
 }
 
 type LiveFixture = Omit<DemoReviewFixture, "environment">;
