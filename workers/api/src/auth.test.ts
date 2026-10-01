@@ -147,4 +147,60 @@ describe("/v1/query ?key= (no database)", () => {
       error: { code: "unauthorized", message: expect.stringMatching(/Bearer/) },
     });
   });
+
+  // #91: `?key=` is a GET-only affordance for the snippet.
+  describe("POST /v1/query", () => {
+    function postQuery(qs: string, headers: Record<string, string> = {}) {
+      return app.request(`/v1/query${qs}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...headers },
+        body: "{}",
+      });
+    }
+
+    it("401 unauthorized for a publishable ?key=, pointing at the header", async () => {
+      const { plaintext } = await generateApiKey({
+        kind: "publishable",
+        environment: "live",
+      });
+      const res = await postQuery(`?key=${plaintext}`);
+
+      expect(res.status).toBe(401);
+      expect(await res.json()).toMatchObject({
+        error: {
+          code: "unauthorized",
+          message: expect.stringMatching(
+            /accepted on GET \/v1\/query only.*Authorization: Bearer/,
+          ),
+        },
+      });
+    });
+
+    it("401 even when a Bearer header accompanies the ?key=", async () => {
+      const { plaintext } = await generateApiKey({
+        kind: "publishable",
+        environment: "live",
+      });
+      const res = await postQuery(`?key=${plaintext}`, {
+        authorization: `Bearer ${plaintext}`,
+      });
+
+      expect(res.status).toBe(401);
+      expect(await res.json()).toMatchObject({
+        error: {
+          code: "unauthorized",
+          message: expect.stringMatching(/GET \/v1\/query only/),
+        },
+      });
+    });
+
+    it("the missing-header hint does not advertise ?key= on POST", async () => {
+      const res = await postQuery("");
+
+      expect(res.status).toBe(401);
+      const body = (await res.json()) as { error: { message: string } };
+      expect(body.error.message).toMatch(/Missing Authorization header/);
+      expect(body.error.message).not.toMatch(/\?key=/);
+    });
+  });
 });

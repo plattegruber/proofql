@@ -77,7 +77,14 @@ Marginal cost of a free tenant at 500 reviews: ~1,000 halfvec vectors ≈ 2 MB s
 
 ## 3. API contract (v0)
 
-Base URL `https://api.proofql.com`. JSON everywhere. Standard error envelope `{ "error": { "code", "message", "doc_url" } }`. Versioned by path prefix.
+The OpenAPI spec at [docs/api/openapi.yaml](api/openapi.yaml) is the source of truth; this section is the narrative. Base URL `https://api.proofql.com`. JSON everywhere, `snake_case` fields, versioned by path prefix. Every response carries an `x-request-id` header. Standard error envelope on every non-2xx response:
+
+```json
+{ "error": { "code": "validation_failed", "message": "…", "doc_url": "https://docs.proofql.com/errors#validation_failed",
+             "request_id": "…", "details": [{ "path": "0.rating", "message": "…" }] } }
+```
+
+`code` is a short stable string to switch on; `message` is for a human and may change; `doc_url` points at the docs anchor for the code; `request_id` is the same value as the header; `details` is present for `validation_failed` only. Codes and their statuses: `unauthorized` 401, `forbidden` 403, `not_found` 404, `payload_too_large` 413, `validation_failed` and `review_limit_reached` 422, `rate_limited` and `query_quota_exceeded` 429, `internal` 500, `embedding_unavailable` 503. Unknown fields anywhere — body or query string — are a `422 validation_failed` naming the field, never ignored.
 
 ### Keys
 
@@ -88,11 +95,13 @@ Two kinds, both per project, both prefixed so they are greppable and so a leaked
 | `pq_sk_live_…` / `pq_sk_test_…` | Secret | Everything: ingest, manage, query | Servers only |
 | `pq_pk_live_…` / `pq_pk_test_…` | Publishable | Query only, CORS-restricted to the project's allowed origins | Browser, the snippet |
 
-Keys are hashed at rest with SHA-256; the plaintext is shown once. Test keys hit the same database with a `test` environment column on every row so a project can wipe test data without touching live.
+Keys are hashed at rest with SHA-256; the plaintext is shown once. Test keys hit the same database with a `test` environment column on every row so a project can wipe test data without touching live. A publishable key on a secret-only route is a `403 forbidden`, decided before any lookup.
+
+**Rate limits**, per key: 300 requests per minute for a secret key, 120 per minute for a publishable key, advertised on every authenticated response in `RateLimit-Policy` and `RateLimit-Limit`; a refused request is a `429 rate_limited` with `Retry-After`. Separately, `/v1/query` is subject to the project's monthly quota of *uncached* queries (free tier: 50,000, §2); at the quota a cache miss is a `429 query_quota_exceeded` with `Retry-After` set to the seconds until the next UTC month, while cached answers keep being served.
 
 ### Ingest
 
-`POST /v1/reviews` with a secret key. Body is one review or an array (max 100). Upsert keyed on `(project, source, external_id)`.
+`POST /v1/reviews` with a secret key. Body is one review or an array (1 to 100), at most 1 MiB (`413 payload_too_large`). Upsert keyed on `(project, environment, source, external_id)`, where project and environment come from the key.
 
 ```json
 {
@@ -109,9 +118,9 @@ Keys are hashed at rest with SHA-256; the plaintext is shown once. Test keys hit
 }
 ```
 
-`source` is a free string from a known set (`google`, `yelp`, `facebook`, `trustpilot`, `custom`). `rating` is nullable for sources without stars. `metadata` is a flat string-to-string map the customer can filter on at query time. Response returns the stored reviews with `id` and `status: "indexing" | "indexed"`. Indexing is asynchronous via the pipeline; a review is queryable within seconds.
+`source` is a closed enum: `google`, `yelp`, `facebook`, `trustpilot`, `custom` (`custom` is the escape hatch; a new value is a code change). `rating` is nullable for sources without stars. `metadata` is a flat string-to-string map the customer can filter on at query time. The response is `200` with `{ "reviews": [{ "id", "external_id", "source", "status" }] }` in request order — a receipt, not the full review — where `status` is `"indexing"` until the pipeline has embedded the review, then `"indexed"`. Indexing is asynchronous; a review is queryable within seconds. The plan's review cap (free: 5,000 per project) is checked before anything is written, so a batch lands whole or not at all: `422 review_limit_reached`.
 
-Also: `GET /v1/reviews`, `GET /v1/reviews/:id`, `PATCH /v1/reviews/:id` (hide, unhide, edit metadata), `DELETE /v1/reviews/:id`. Deleting a review purges its excerpts and the query cache.
+Also: `GET /v1/reviews` (cursor-paginated, `limit` 1–100, filters `source`, `min_rating`, `hidden`), `GET /v1/reviews/:id`, `PATCH /v1/reviews/:id` (hide, unhide, replace metadata; body at most 64 KiB), `DELETE /v1/reviews/:id`. These return the full review resource (text, rating, author, source, sentiment, hidden state, index status, timestamps). Deleting a review purges its excerpts and the query cache. A review in another project or the other environment is a `404`, indistinguishable from one that never existed.
 
 ### Query
 
@@ -126,14 +135,15 @@ Also: `GET /v1/reviews`, `GET /v1/reviews/:id`, `PATCH /v1/reviews/:id` (hide, u
 }
 ```
 
-- `q` optional. Without it, results are the newest publishable reviews. With it, hybrid search.
-- Keys: `Authorization: Bearer …` for either kind. On `GET /v1/query` a **publishable** key may instead be passed as `?key=pq_pk_…`, which is what the snippet does: a GET with no custom headers is a CORS simple request, so the browser skips the preflight, and a preflight — when one does happen — cannot carry an `Authorization` header anyway. Secret keys are never accepted in the URL. Publishable requests must carry an `Origin` listed in the project's allowed origins (exact scheme + host + port); otherwise 403.
+- `q` optional, at most 500 characters. Without it, results are the newest publishable reviews and every `score` is `null`. With it, hybrid search. `limit` is 1–20 (default 5).
+- Keys: `Authorization: Bearer …` for either kind. On `GET /v1/query` **only**, a **publishable** key may instead be passed as `?key=pq_pk_…`, which is what the snippet does: a GET with no custom headers is a CORS simple request, so the browser skips the preflight, and a preflight — when one does happen — cannot carry an `Authorization` header anyway. On `POST /v1/query` a `?key=` is a `401 unauthorized` pointing at the header: a POST already needs a body and can carry one, and a key in a POST URL is surface with no caller. Secret keys are never accepted in the URL on any method. Publishable requests must carry an `Origin` listed in the project's allowed origins (exact scheme + host + port); otherwise 403.
 - `filters.metadata` is an object (`{ "metadata": { "location": "north" } }`); the flat spelling `"metadata.location": "north"` inside `filters` is accepted too and is the GET form (`metadata.location=north`). Unknown fields anywhere are a 422 `validation_failed`, never ignored.
-- `mode` is `excerpts` (default: the matching slice, best for placement) or `reviews` (whole review, deduplicated, scored by its best excerpt).
-- Response: `{ "results": [{ "score", "excerpt", "excerpt_id", "review": { … } }], "took_ms", "cached" }`. `score` is in [0, 1] and is the normalized vector similarity of the returned excerpt, not the fused rank, so it is comparable across queries.
+- `mode` is `excerpts` (default: the matching slice, best for placement) or `reviews` (whole review, deduplicated, scored by its best excerpt, with `review.text` present).
+- Response: `{ "results": [{ "score", "excerpt", "excerpt_id", "review": { … } }], "took_ms", "cached", "badge" }`. `score` is in [0, 1] and is the cosine similarity of the returned excerpt to the query, not the fused rank, so it is comparable across queries. `excerpt` is always a verbatim slice of the review's text. `cached` says whether `results` came from KV (also `x-cache: HIT|MISS|BYPASS`). `badge` mirrors the project's plan: `true` means the snippet must render the "Reviews by ProofQL" badge (free tier).
 - Relevance floor: candidates below the project's threshold (default 0.55 cosine, tunable per project and per environment) are dropped. The endpoint returns `results: []` rather than padding. Full-text-only hits with no vector proximity above the floor are dropped when `q` is present.
-- Policy applied in the same SQL as ranking: `hidden_at IS NULL`, `rating >= project.min_rating` (default 4), and for unrated reviews `sentiment <> 'negative'`. "The implant consult was a waste of money" matches `q=implants` hard; the one-star rating on it is why it never renders.
-- Rate limited per key. Cached in KV keyed on `(project, environment, normalized query, filters)`; purged on ingest, delete, hide, or policy change for that project.
+- Policy applied in the same SQL as ranking: `hidden_at IS NULL`, `rating >= project.min_rating` (default 4), and for unrated reviews `sentiment <> 'negative'`. A request's `filters.min_rating` can only tighten the project's policy, never loosen it. "The implant consult was a waste of money" matches `q=implants` hard; the one-star rating on it is why it never renders.
+- If the embedding service is down the response is a `503 embedding_unavailable`, deliberately not a degraded full-text-only answer — that is exactly what the floor exists to prevent. Retry shortly.
+- Rate limited per key (above). Cached in KV keyed on `(project, environment, normalized query, filters, policy)`; purged on ingest, delete, hide, or policy change for that project. `Cache-Control: no-cache` on the request bypasses the lookup and still stores the fresh result.
 
 ### Snippet
 

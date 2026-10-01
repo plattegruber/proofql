@@ -64,8 +64,9 @@ export const reviewMetadataSchema = z
 /**
  * One review as the push API accepts it.
  *
- * - Unknown keys are rejected (strict object) so a typo surfaces as a 400
- *   with a field name instead of silently dropping data.
+ * - Unknown keys are rejected (strict object) so a typo surfaces as a
+ *   `422 validation_failed` with a field name instead of silently dropping
+ *   data.
  * - `rating`, `author_avatar_url`, and `url` may be `null` or omitted; both
  *   normalize to `null` in the parsed output.
  * - `text` and `author_name` are trimmed and must be non-empty afterwards.
