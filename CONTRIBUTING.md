@@ -7,7 +7,7 @@ Start with the [README](README.md) for what the product is and [docs/scope.md](d
 - Work happens on short-lived branches off `main`, named `<area>/<slug>` — e.g. `api/query-endpoint`, `db/reviews-table`, `infra/scaffold`.
 - One PR per issue. Every PR references its issue in the body: `Closes #N`. If you find adjacent work, file an issue rather than growing the diff.
 - Fill in the [PR template](.github/pull_request_template.md): **What** (with the `Closes #N` line), **Why**, **Testing** (which levels ran), **Screenshots** (dashboard and snippet PRs; "n/a" elsewhere).
-- CI (#12) runs **lint**, **typecheck**, **test** (unit), and **integration** (real Postgres) on every PR. All of them must be green before merge; a red check blocks the merge button, for admins too.
+- CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml), #12) runs five parallel checks on every PR and every push to `main`: **lint**, **typecheck**, **test** (unit), **integration** (real Postgres with pgvector in a service container), and **migration-check** (the append-only and no-drift gates from [Database migrations](#database-migrations)). All five are required by branch protection ([`infra/README.md`](infra/README.md)); a red check blocks the merge button, for admins too.
 - PRs are **squash-merged**. Keep the PR title in the imperative — it becomes the commit message on `main`.
 - If `main` moved since your branch was created, update the branch (rebase or merge `main` in, re-push) and let CI re-run before merging.
 - All review conversations must be resolved before merge.
@@ -19,7 +19,7 @@ Two levels, from cheapest to most expensive.
 | Level | How to run |
 |---|---|
 | Unit | `pnpm test` — Vitest, colocated `*.test.ts` files in every workspace; excludes `*.integration.test.ts`; needs no services |
-| Integration | `pnpm test:integration` — Vitest against a real local Postgres (docker compose, #11); file convention `*.integration.test.ts`; harness arrives with the `db` package (#15) |
+| Integration | `pnpm test:integration` — Vitest against the real local Postgres from `pnpm run setup` (docker compose); set `DATABASE_URL=postgres://proofql:proofql@localhost:54323/proofql` (the root `.env.example` carries it); file convention `*.integration.test.ts`; harness arrives with the `db` package (#15) |
 
 The split is by file glob and nothing else:
 
@@ -38,7 +38,7 @@ Ground rules that hold at every level:
 
 Schema lives in `packages/db/src/schema`; migrations live in `packages/db/migrations` (full workflow in `packages/db/README.md` once #15 lands).
 
-- **Migrations are append-only once merged.** A broken merged migration is fixed by a **new corrective migration**, never by editing the old one. CI diffs `origin/main...HEAD` and fails on any modification to an existing `*.sql` migration.
+- **Migrations are append-only once merged.** A broken merged migration is fixed by a **new corrective migration**, never by editing the old one. CI diffs the PR against its merge-base with the base branch and fails on any modification, deletion, or rename of an existing `*.sql` migration.
 - **No drift.** If the schema changed, run `pnpm db:generate` and commit the SQL, the `meta/*_snapshot.json`, and the `meta/_journal.json` update together. CI re-runs `generate` and fails if it produces anything.
 - **Expand → migrate → contract.** Migrations run before workers deploy, so every migration must be compatible with the *currently deployed* code. Add first, ship code that uses it, remove the old shape later.
 - Use the pinned workspace `drizzle-kit` via the pnpm scripts, never a global one.
