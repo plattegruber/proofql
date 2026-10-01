@@ -50,7 +50,7 @@ identical across workers and environments.
 | -------------- | ----------------- | -------- | -------- | --------- | -------------------------------------------------- | ------------------------------------------------ |
 | `HYPERDRIVE`   | Hyperdrive        | yes      | yes      | yes       | docker compose Postgres (see below)                | `proofql-hyperdrive-<env>` config → Neon         |
 | `CACHE`        | KV namespace      | yes      | yes      | yes       | Miniflare simulator (id ignored)                   | `proofql-cache-<env>`                            |
-| `INGEST_QUEUE` | Queue producer    | yes      | —        | —         | `proofql-ingest` (Miniflare)                       | `proofql-ingest-<env>`                           |
+| `INGEST_QUEUE` | Queue producer    | yes      | yes      | —         | `proofql-ingest` (Miniflare)                       | `proofql-ingest-<env>`                           |
 | (consumer)     | Queue consumer    | —        | yes      | —         | `proofql-ingest`, DLQ `proofql-ingest-dlq`         | `proofql-ingest-<env>`, DLQ `proofql-ingest-dlq-<env>` |
 | `AI`           | Workers AI        | yes      | yes      | —         | **not bound** — no simulator; code must treat `env.AI` as optional and use the deterministic fake provider | account-level, no id |
 | `RL_SECRET`    | Rate limit        | yes      | —        | —         | Miniflare simulator, 300 req / 60 s per key        | namespace `1001`, 300 req / 60 s per key         |
@@ -65,7 +65,9 @@ serves from and fills the cache (CACHE), enqueues ingested reviews
 `namespace_id` is an account-unique integer we pick, nothing is provisioned;
 code treats both as optional and falls back to an in-memory limiter, see
 `workers/api/src/rate-limit.ts`). The pipeline consumes the queue, embeds and classifies (AI),
-writes Postgres, and purges the cache for the project it just indexed. The
+writes Postgres, and purges the cache for the project it just indexed; its
+five-minute cron (`triggers.crons`) also *produces* to the same queue to
+re-enqueue reviews stuck with `indexed_at IS NULL` (#72). The
 dashboard reads/writes Postgres for projects, keys, and policy, and purges the
 cache on policy change; it never embeds.
 

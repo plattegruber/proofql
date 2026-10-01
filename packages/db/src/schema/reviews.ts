@@ -15,7 +15,11 @@
  * review is stored before the pipeline has looked at it.
  *
  * `indexed_at` is the pipeline's "chunks and embeddings exist" marker; the
- * API reports `status: "indexing"` while it is null. `metadata` is the
+ * API reports `status: "indexing"` while it is null. `index_attempts`
+ * counts how many times the pipeline's re-enqueue sweep (#72) has put a
+ * still-unindexed review back on the queue; the sweep stops at five so a
+ * review the pipeline can never index is not re-sent every five minutes
+ * forever, and a successful index resets it to 0. `metadata` is the
  * customer's flat string→string map (`{"location": "north"}`) and is
  * filterable at query time; it is jsonb rather than columns because its
  * keys are the customer's, not ours.
@@ -93,6 +97,8 @@ export const reviews = pgTable(
     hiddenAt: timestamp("hidden_at", { withTimezone: true }),
     /** Set by the pipeline once chunks and embeddings exist. */
     indexedAt: timestamp("indexed_at", { withTimezone: true }),
+    /** Re-enqueue sweeps so far while `indexed_at` stayed null (#72); 0 after a successful index. */
+    indexAttempts: smallint("index_attempts").notNull().default(0),
     ...timestamps,
   },
   (table) => [
@@ -108,6 +114,12 @@ export const reviews = pgTable(
       table.projectId,
       table.environment,
     ),
+    // The re-enqueue sweep (#72) scans "unindexed, oldest first" across all
+    // tenants every five minutes; a partial index keeps that a few rows
+    // wide no matter how large `reviews` grows.
+    index("reviews_unindexed_updated_at_idx")
+      .on(table.updatedAt)
+      .where(sql`${table.indexedAt} IS NULL`),
     check(
       "reviews_rating_range",
       sql`${table.rating} IS NULL OR (${table.rating} BETWEEN 1 AND 5)`,

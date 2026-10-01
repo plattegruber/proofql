@@ -21,7 +21,9 @@
  * it is set exactly once per transition, and only that transition bumps the
  * project's cache generation (src/cache.ts): a redelivered message for an
  * already-indexed review re-embeds its freshly rewritten chunks to the same
- * vectors and leaves `indexed_at` and the cache alone. Every chunk is a
+ * vectors and leaves `indexed_at` and the cache alone. Either way a
+ * complete review zeroes `index_attempts`, the re-enqueue sweep's counter
+ * (#72). Every chunk is a
  * verbatim slice of a non-empty review, so there is always at least one
  * chunk and never a token-free text to embed.
  *
@@ -94,6 +96,7 @@ export async function embedChunks(
 
   const newlyIndexed = await markIndexed(ctx.db, review.id);
   if (newlyIndexed) await bumpProjectGeneration(ctx.cache, review.projectId);
+  await resetIndexAttempts(ctx.db, review.id);
 
   return {
     pending: pending.length,
@@ -151,17 +154,21 @@ async function writeEmbeddings(
   `);
 }
 
-/**
- * `indexed_at := now()` iff it is null and no chunk of the review lacks an
- * embedding. Resolves to whether this call made the transition.
- */
-async function markIndexed(db: Db, reviewId: string): Promise<boolean> {
-  const stillPending = db
+/** `EXISTS` over the review's chunks that still lack an embedding. */
+function pendingChunks(db: Db, reviewId: string) {
+  return db
     .select({ one: sql`1` })
     .from(reviewChunks)
     .where(
       and(eq(reviewChunks.reviewId, reviewId), isNull(reviewChunks.embedding)),
     );
+}
+
+/**
+ * `indexed_at := now()` iff it is null and no chunk of the review lacks an
+ * embedding. Resolves to whether this call made the transition.
+ */
+async function markIndexed(db: Db, reviewId: string): Promise<boolean> {
   const flipped = await db
     .update(reviews)
     .set({ indexedAt: sql`now()` })
@@ -169,9 +176,28 @@ async function markIndexed(db: Db, reviewId: string): Promise<boolean> {
       and(
         eq(reviews.id, reviewId),
         isNull(reviews.indexedAt),
-        notExists(stillPending),
+        notExists(pendingChunks(db, reviewId)),
       ),
     )
     .returning({ id: reviews.id });
   return flipped.length > 0;
+}
+
+/**
+ * A fully embedded review has been indexed successfully, whether this call
+ * or an earlier one flipped `indexed_at`: zero the re-enqueue sweep's
+ * attempt counter (#72, src/sweep.ts). A no-op (no row matches) when the
+ * counter is already 0, which is the common case.
+ */
+async function resetIndexAttempts(db: Db, reviewId: string): Promise<void> {
+  await db
+    .update(reviews)
+    .set({ indexAttempts: 0 })
+    .where(
+      and(
+        eq(reviews.id, reviewId),
+        sql`${reviews.indexAttempts} <> 0`,
+        notExists(pendingChunks(db, reviewId)),
+      ),
+    );
 }

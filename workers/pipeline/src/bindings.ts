@@ -7,6 +7,8 @@
  * shared with the producer in workers/api.
  */
 
+import type { IngestMessage } from "@proofql/core";
+
 export interface PipelineBindings {
   /** "local" | "preview" | "prod" — from `vars` in wrangler.jsonc. */
   ENVIRONMENT: string;
@@ -14,6 +16,11 @@ export interface PipelineBindings {
   HYPERDRIVE: Hyperdrive;
   /** Query-result cache; purged for a project after its reviews are indexed. */
   CACHE: KVNamespace;
+  /**
+   * Producer side of the same queue this worker consumes: the cron sweep
+   * (src/sweep.ts) re-enqueues reviews stuck with `indexed_at IS NULL`.
+   */
+  INGEST_QUEUE: Queue<IngestMessage>;
   /**
    * Workers AI for embeddings and sentiment. Bound in preview/prod only —
    * there is no local simulator — so code must treat it as optional.

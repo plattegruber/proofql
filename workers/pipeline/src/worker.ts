@@ -5,6 +5,10 @@
  *
  * - `queue`: `proofql-ingest` batches land here. The body type is `unknown`
  *   on purpose — the handler validates every message before trusting it.
+ * - `scheduled`: the every-five-minutes cron (`triggers.crons` in
+ *   wrangler.jsonc) re-enqueues reviews stuck with `indexed_at IS NULL`
+ *   (#72). Locally: `wrangler dev --test-scheduled`, then GET
+ *   `/__scheduled?cron=<the cron expression, URL-encoded>` on port 8798.
  * - `fetch`: `GET /health` so `pnpm dev` has something to smoke-test.
  */
 
@@ -13,6 +17,7 @@ import {
   createQueueContext,
   handleFetch,
   handleQueueBatch,
+  handleScheduled,
 } from "./handlers.js";
 
 export default {
@@ -24,5 +29,8 @@ export default {
     } finally {
       await close();
     }
+  },
+  scheduled: async (_controller, env) => {
+    await handleScheduled(env);
   },
 } satisfies ExportedHandler<PipelineBindings, unknown>;
