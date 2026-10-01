@@ -39,4 +39,11 @@ The idea comes from [well-regarded](https://github.com/plattegruber/well-regarde
 
 ## Quickstart
 
-Not yet. The first milestone sets up the monorepo, local Postgres, and CI; the README gains a real quickstart when it lands.
+```sh
+git clone https://github.com/plattegruber/proofql && cd proofql
+corepack enable            # pnpm 10 (pinned in package.json), Node 22 (.nvmrc)
+pnpm i
+pnpm lint && pnpm typecheck && pnpm test
+```
+
+That works today against placeholder workspaces. `pnpm run setup` (local Postgres via docker compose) lands in #11 and `pnpm dev` (wrangler for the workers and dashboard) in #13; the README gains a real quickstart when they do. See [CONTRIBUTING.md](CONTRIBUTING.md) for branches, PRs, and the test split.
