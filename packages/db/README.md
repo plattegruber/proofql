@@ -81,6 +81,44 @@ is a partial HNSW index for that tenant or table partitioning by project,
 not a global index. A test in `test/harness.integration.test.ts` fails if
 anyone adds an HNSW or IVFFlat index without updating this section.
 
+## Hybrid search
+
+`searchChunks(db, params)` in `src/queries/searchChunks.ts` is the query
+behind `POST /v1/query`: one SQL statement that filters `review_chunks` to
+`(project_id, environment)`, joins `reviews`, applies the publication policy
+(`hidden_at IS NULL`, `rating >= min_rating`, unrated reviews must not be
+`negative`) and the caller's `source` / `since` / `metadata` filters, ranks
+by exact cosine similarity and by `ts_rank_cd`, fuses the two with
+Reciprocal Rank Fusion (k = 60; pure functions in `src/queries/fusion.ts`),
+drops anything under the similarity floor, and keeps the best chunk per
+review. Without a query embedding it returns the newest publishable
+reviews instead. The module header documents the ranking, the score
+normalization, and why there is no vector index.
+
+```ts
+const results = await searchChunks(db, {
+  projectId,
+  environment: "live",
+  queryEmbedding: await embedder.embedText(q), // omit for newest-first
+  queryText: q,
+  limit: 5,
+  policy: { minRating: project.minRating, similarityFloor: project.similarityFloor },
+  filters: { source: ["google"], metadata: { location: "north" } },
+  mode: "excerpts",
+});
+```
+
+Benchmark (`scripts/bench-search.ts`, not a test): exact scan over 5,000
+chunks in one tenant, hybrid query, limit 5 — **12.1 ms median, 12.4 ms
+p95** end to end from Node against the compose Postgres on an Apple-silicon
+laptop; 11.8 ms server-side per `EXPLAIN ANALYZE`. Re-run it when a tenant
+approaches the ~50k-vector line below:
+
+```sh
+DATABASE_URL=postgres://proofql:proofql@localhost:54323/proofql \
+  pnpm --filter @proofql/db exec tsx scripts/bench-search.ts 5000 --explain
+```
+
 ## Verbatim slices
 
 A chunk's `text` is always a slice of its parent review:
