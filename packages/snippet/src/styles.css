@@ -1,0 +1,151 @@
+/*
+ * Default look for the snippet (#33). Injected once as
+ * <style data-proofql-styles> the first time something renders.
+ *
+ * Rules of the file:
+ * - Every selector is scoped under a `pq-` class; nothing leaks to the host.
+ * - No web fonts: the text inherits the host's family, the small metadata
+ *   line uses the system monospace stack.
+ * - Colours derive from `currentColor`, so the same stylesheet reads on a
+ *   white page and on a dark one; the host's text colour is the ink. Only
+ *   the accent is an absolute colour, and it never carries text on its own.
+ * - Defaults live in `var(--pq-*, fallback)` rather than on `.pq-list`, so a
+ *   host can override from any ancestor: `[data-proofql] { --pq-accent: #c00 }`.
+ * - No animation beyond a hairline colour transition, off under reduced motion.
+ *
+ * Custom properties: --pq-font, --pq-font-mono, --pq-color, --pq-muted,
+ * --pq-accent, --pq-border, --pq-radius (0), --pq-gap.
+ */
+
+.pq-list,
+.pq-badge {
+  box-sizing: border-box;
+  font-family: var(--pq-font, inherit);
+  color: var(--pq-color, inherit);
+  text-align: left;
+}
+
+.pq-list {
+  display: grid;
+  gap: var(--pq-gap, 12px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 15px;
+  line-height: 1.55;
+  font-weight: 400;
+}
+
+.pq-item {
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--pq-border, rgba(127, 127, 127, 0.35));
+  border-radius: var(--pq-radius, 0);
+}
+
+.pq-stars {
+  display: block;
+  margin: 0 0 6px;
+  font-size: 14px;
+  line-height: 1;
+  letter-spacing: 2px;
+  color: var(--pq-accent, #00915a);
+}
+
+.pq-stars-off {
+  color: var(--pq-muted, color-mix(in srgb, currentColor 55%, transparent));
+}
+
+.pq-excerpt {
+  margin: 0;
+  padding: 0;
+  quotes: none;
+  text-wrap: pretty;
+}
+
+.pq-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin: 10px 0 0;
+  font-family: var(
+    --pq-font-mono,
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace
+  );
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--pq-muted, color-mix(in srgb, currentColor 72%, transparent));
+}
+
+.pq-meta > * + *::before {
+  content: "";
+  display: inline-block;
+  width: 1px;
+  height: 0.9em;
+  margin-right: 12px;
+  vertical-align: -0.1em;
+  background: var(--pq-border, rgba(127, 127, 127, 0.35));
+}
+
+.pq-author {
+  font-weight: 500;
+}
+
+.pq-source,
+.pq-badge {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--pq-border, rgba(127, 127, 127, 0.35));
+  text-underline-offset: 3px;
+  transition: text-decoration-color 120ms;
+}
+
+.pq-source:hover,
+.pq-badge:hover {
+  text-decoration-color: var(--pq-accent, #00915a);
+}
+
+.pq-source:focus-visible,
+.pq-badge:focus-visible {
+  outline: 2px solid var(--pq-accent, #00915a);
+  outline-offset: 2px;
+  border-radius: var(--pq-radius, 0);
+}
+
+.pq-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: var(--pq-gap, 12px);
+  font-family: var(
+    --pq-font-mono,
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace
+  );
+  font-size: 11px;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  color: var(--pq-muted, color-mix(in srgb, currentColor 72%, transparent));
+}
+
+.pq-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  background: var(--pq-accent, #00915a);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pq-source,
+  .pq-badge {
+    transition: none;
+  }
+}
