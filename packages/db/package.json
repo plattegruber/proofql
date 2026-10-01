@@ -18,6 +18,11 @@
       "types": "./test/globalSetup.ts",
       "import": "./test/globalSetup.ts",
       "default": "./test/globalSetup.ts"
+    },
+    "./seed": {
+      "types": "./src/seed/index.ts",
+      "import": "./dist/seed/index.js",
+      "default": "./dist/seed/index.js"
     }
   },
   "scripts": {
@@ -25,6 +30,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:studio": "drizzle-kit studio",
+    "seed": "pnpm --filter \"@proofql/db^...\" build && tsx src/seed/cli.ts",
     "test": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "lint": "biome check .",
@@ -40,6 +46,8 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
+    "@proofql/ai": "workspace:*",
+    "@proofql/core": "workspace:*",
     "drizzle-orm": "^0.45.3",
     "postgres": "^3.4.9"
   }

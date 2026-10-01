@@ -65,6 +65,66 @@ Re-running is a no-op.
 - `drizzle-kit` is a Node-only dev tool in `devDependencies`. Nothing under
   `src/` may import it, so it is never bundled into a Worker.
 
+## Demo seed
+
+`pnpm seed` (root) or `pnpm --filter @proofql/db seed` wipes and recreates
+the demo account — **Cedar Ridge Dental**, a fictional two-location dental
+practice — and prints its API keys. `pnpm run setup` runs it after the
+migrations. The seed lives in `src/seed/` (`cli.ts` is the entrypoint,
+`run.ts` exports `runSeed(db)`, the corpus is `fixtures/reviews.ts`) and
+connects via `DATABASE_URL`, defaulting to the canonical local compose
+string.
+
+What the dataset contains:
+
+- **1 account** (`clerk_org_id = org_demo_proofql`, free plan) and **1
+  project** (`cedar-ridge-dental`, fixed id `DEMO_PROJECT_ID`,
+  `allowed_origins` = the local dashboard and `localhost:3000`, default
+  policy: `min_rating 4`, `similarity_floor 0.55`).
+- **4 API keys**: a secret + publishable pair for `live` and one for
+  `test`. Plaintexts are printed at the end of the run and nowhere else;
+  every run mints new ones.
+- **80 live reviews** (56 Google, 14 Yelp, 10 custom) and **10 test
+  reviews**, `occurred_at` spread over the 18 months before `SEED_ANCHOR`,
+  `metadata.location` in `{north, downtown}`, fictional authors. Ratings
+  skew 4–5 with **11 reviews rated 1–3 that are topically on-point**
+  (implants, Invisalign, billing, parking, front desk, a named hygienist,
+  an emergency visit, kids, sedation, insurance) so the policy gate has
+  something to exclude. Five custom reviews are unrated and carry a
+  hand-labeled `sentiment` (`sentiment_source = 'model'`), two of them
+  negative. Text length is ~60% one to two sentences, ~30% three to five,
+  ~10% long multi-topic.
+- **Chunks for every review**: one `full` chunk, plus 2–3 sentence
+  `window` chunks overlapping by one for reviews with more than three
+  sentences. Every chunk passes `assertVerbatimSlice` before insert. All
+  chunks are embedded with `fakeEmbed` from `@proofql/ai`, so a query
+  vector built with the same fake lands near the right rows.
+  `indexed_at` is set; `review_count` on the project is the live count.
+
+The chunker in `src/seed/chunking.ts` is a **seed-only stand-in** for the
+pipeline's (#23): `Intl.Segmenter` sentences, honorifics (`Dr.`, `St.`)
+merged, windows of three overlapping by one. When the real chunker lands
+the seed should import it and this file should go. Nothing outside
+`src/seed/` may import it.
+
+Rules and properties:
+
+- **Scoped and idempotent.** One transaction: delete the account with
+  `clerk_org_id = org_demo_proofql` (cascades take projects, keys,
+  reviews, chunks, usage) and re-insert. Other tenants are never touched;
+  a second run yields identical counts. Data is deterministic (fixed ids
+  for account and project, fixture text, `SEED_ANCHOR`-relative dates);
+  only the API keys change per run.
+- **Guarded.** Refuses a `DATABASE_URL` whose host is not loopback unless
+  `--force` is passed (`src/seed/guard.ts`).
+- **`SEED_VERSION`** (`src/seed/constants.ts`, currently 1) is written
+  into the account name — `"ProofQL Demo (seed v1)"` — so any local
+  database shows which fixture set it holds. Bump it with **any** change to
+  what the seed produces and call the bump out in the PR: integration
+  tests and the playground import `DEMO_REVIEW_FIXTURES` from
+  `@proofql/db/seed` and treat the corpus as a contract
+  (`src/seed/fixtures/reviews.test.ts` pins its shape).
+
 ## Vector search: no HNSW, on purpose
 
 `review_chunks.embedding` is `halfvec(1024)` (bge-m3, half precision) with

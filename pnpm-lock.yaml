@@ -60,6 +60,12 @@ importers:
 
   packages/db:
     dependencies:
+      '@proofql/ai':
+        specifier: workspace:*
+        version: link:../ai
+      '@proofql/core':
+        specifier: workspace:*
+        version: link:../core
       drizzle-orm:
         specifier: ^0.45.3
         version: 0.45.3(@cloudflare/workers-types@5.20261001.1)(postgres@3.4.9)
@@ -67,9 +73,6 @@ importers:
         specifier: ^3.4.9
         version: 3.4.9
     devDependencies:
-      '@proofql/ai':
-        specifier: workspace:*
-        version: link:../ai
       '@proofql/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig

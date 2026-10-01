@@ -59,7 +59,7 @@ pnpm dev        # boot every worker side by side (turbo terminal UI — one pane
 > pnpm's own built-in `setup` command (which configures `PNPM_HOME` and edits
 > your shell rc) instead of the repo script. See Troubleshooting.
 
-`pnpm run setup` is idempotent — run it whenever you pull new migrations. It never overwrites an existing `.env` or `.dev.vars`. Migrations and the demo seed run automatically once `@proofql/db` ships them (#15); until then the script says so and skips those steps.
+`pnpm run setup` is idempotent — run it whenever you pull new migrations. It never overwrites an existing `.env` or `.dev.vars`. It applies migrations and then reseeds the demo project (Cedar Ridge Dental, 80 reviews, live and test API keys printed at the end — see `packages/db/README.md` "Demo seed"); `pnpm seed` reruns just the seed.
 
 After `pnpm run setup && pnpm dev` you have:
 
