@@ -6,6 +6,8 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    // Leave CSS to Vite so `./styles.css?raw` is the stylesheet, not "".
+    css: true,
     include: ["src/**/*.test.ts"],
   },
 });

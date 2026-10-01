@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ProofQL snippet demo</title>
+  <!--
+    Static visual-check page for packages/snippet (#33). Not deployed (#35
+    does the hosted demo). To run it against the local API:
+
+      pnpm run setup                       # Postgres, migrations, seed → prints keys
+      pnpm --filter @proofql/api dev       # API on http://localhost:8797
+      pnpm --filter @proofql/snippet demo  # builds, serves http://localhost:3000/demo/
+
+    then paste the seed's *live publishable* key (pq_pk_live_…) into the
+    script tag at the bottom in place of pq_pk_test_REPLACE_ME. Do not commit
+    a key. localhost:3000 is one of the seed's allowed origins.
+
+    Local note: the seed embeds with a bag-of-words fake, so short natural
+    queries fall under the relevance floor and render nothing (the correct
+    behaviour). The sections below use filters and near-verbatim queries so
+    every one renders against the seed.
+  -->
+  <style>
+    /* The host page's own styles — deliberately generic. The snippet must
+       look at home in whatever this is. */
+    body { margin: 0; font-family: Georgia, "Times New Roman", serif; }
+    .host { padding: 48px 24px 64px; }
+    .host > div { max-width: 640px; margin: 0 auto; }
+    .light { background: #fff; color: #1a1a1a; }
+    .dark { background: #0c0f0e; color: #f5f7f6; }
+    h1 { font-size: 28px; margin: 0 0 4px; }
+    h2 { font-size: 15px; font-weight: normal; opacity: .7; margin: 40px 0 12px; font-family: ui-monospace, Menlo, monospace; }
+    p.lede { margin: 0 0 8px; max-width: 640px; }
+    /* A host override: one rule restyles the second dark section. */
+    .brand { --pq-accent: #ffb703; --pq-radius: 6px; --pq-gap: 8px; --pq-font: "Helvetica Neue", Arial, sans-serif; }
+    /* The template section's own look. */
+    .card { display: grid; grid-template-columns: 56px 1fr; gap: 14px; padding: 14px 0; border-top: 1px dashed currentColor; }
+    .card .avatar { width: 56px; height: 56px; border-radius: 50%; background: #e3e6e4; display: grid; place-items: center; font-weight: bold; color: #0c0f0e; }
+    .card blockquote { margin: 0 0 6px; font-style: italic; }
+    .card figcaption { font-size: 13px; opacity: .75; }
+    .card a { color: inherit; }
+  </style>
+</head>
+<body>
+
+<section class="host light">
+  <div>
+    <h1>Cedar Ridge Dental</h1>
+    <p class="lede">A light host page in a serif. Three sections: the default look, a filtered <code>reviews</code> mode, and a <code>data-template</code>.</p>
+
+    <h2>1 · default — newest excerpts, limit 3</h2>
+    <div data-proofql data-limit="3"></div>
+
+    <h2>2 · reviews mode, Google only, 5 stars, north location</h2>
+    <div data-proofql data-mode="reviews" data-source="google" data-min-rating="5" data-meta-location="north" data-limit="2"></div>
+
+    <h2>3 · data-template escape hatch</h2>
+    <template id="card">
+      <figure class="card">
+        <div class="avatar" aria-hidden="true">★</div>
+        <div>
+          <blockquote data-pq="excerpt"></blockquote>
+          <figcaption>
+            <span data-pq="stars"></span>
+            <b data-pq="author"></b> on
+            <a data-pq="url" href="https://proofql.com/" target="_blank"><span data-pq="source">source</span></a>,
+            <time data-pq="date"></time>
+          </figcaption>
+        </div>
+      </figure>
+    </template>
+    <div data-proofql data-template="#card" data-source="yelp" data-limit="2"></div>
+  </div>
+</section>
+
+<section class="host dark">
+  <div>
+    <h1>Same snippet, dark host</h1>
+    <p class="lede">Nothing changes in the tag; the defaults read from <code>currentColor</code>.</p>
+
+    <h2>4 · default — a query (phrased to match the seed locally)</h2>
+    <div data-proofql data-query="best hygienist gentle thorough explains" data-limit="2"></div>
+
+    <h2>5 · host overrides: --pq-accent, --pq-radius, --pq-gap, --pq-font</h2>
+    <div class="brand" data-proofql data-limit="2" data-meta-location="downtown"></div>
+
+    <h2>6 · a query the floor drops — renders nothing, the fallback stays</h2>
+    <div data-proofql data-query="quantum chromodynamics lecture notes"><p><em>No matching reviews yet.</em></p></div>
+  </div>
+</section>
+
+<script async src="../dist/v1.js" data-key="pq_pk_test_REPLACE_ME" data-api="http://localhost:8797"></script>
+</body>
+</html>

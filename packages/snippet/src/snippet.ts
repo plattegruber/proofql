@@ -1,6 +1,8 @@
 /**
  * The snippet's life cycle (#32): read the script tag, find every
- * `[data-proofql]`, fetch, render, fail silent.
+ * `[data-proofql]`, fetch, render, fail silent. Rendering goes through the
+ * default structure (./render.ts) or the host's own `<template>`
+ * (./template.ts), with the default stylesheet injected once (./styles.ts).
  *
  * Failure policy — the one quality property that matters (scope.md §1,
  * "empty beats irrelevant"): empty `results`, a non-2xx response, a network
@@ -13,6 +15,8 @@
 import { findScript, readScriptConfig, type SnippetConfig } from "./config.js";
 import { buildQueryUrl, readElementQuery } from "./query.js";
 import { renderInto } from "./render.js";
+import { ensureStyles } from "./styles.js";
+import { findTemplate, renderTemplate } from "./template.js";
 import type { QueryResponse, QueryResult } from "./types.js";
 
 export const SELECTOR = "[data-proofql]";
@@ -93,7 +97,11 @@ export async function renderElement(
       el.removeAttribute(RENDERED_ATTR);
       return;
     }
-    renderInto(el, response, query.mode ?? "excerpts");
+    const mode = query.mode ?? "excerpts";
+    ensureStyles(el.ownerDocument);
+    const template = findTemplate(el);
+    if (template !== null) renderTemplate(el, template, response, mode);
+    else renderInto(el, response, mode);
   } catch (error) {
     debug("render failed", error);
     el.removeAttribute(RENDERED_ATTR);
