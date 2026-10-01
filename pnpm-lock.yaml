@@ -108,6 +108,12 @@ importers:
       '@proofql/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@proofql/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      drizzle-orm:
+        specifier: ^0.45.3
+        version: 0.45.3(@cloudflare/workers-types@5.20261001.1)(postgres@3.4.9)
       hono:
         specifier: ^4.13.12
         version: 4.13.12
@@ -118,6 +124,9 @@ importers:
       '@proofql/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
+      '@types/node':
+        specifier: ^26.6.3
+        version: 26.6.3
       typescript:
         specifier: ^5.9.2
         version: 5.9.3

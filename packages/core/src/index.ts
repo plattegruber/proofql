@@ -1,6 +1,9 @@
-// Domain logic shared by every deployable: API keys, the review shape, sentiment.
+// Domain logic shared by every deployable: API keys, plan limits, the ingest
+// queue message, the review shape, sentiment.
 // Pure functions and schemas only — no I/O, no database, no platform bindings.
 export * from "./apiKeys.js";
+export * from "./limits.js";
+export * from "./queue.js";
 export * from "./review.js";
 export * from "./sentiment.js";
 

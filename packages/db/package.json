@@ -8,6 +8,16 @@
       "types": "./src/index.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./test": {
+      "types": "./test/index.ts",
+      "import": "./test/index.ts",
+      "default": "./test/index.ts"
+    },
+    "./test/globalSetup": {
+      "types": "./test/globalSetup.ts",
+      "import": "./test/globalSetup.ts",
+      "default": "./test/globalSetup.ts"
     }
   },
   "scripts": {
