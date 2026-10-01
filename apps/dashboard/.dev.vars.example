@@ -25,3 +25,8 @@ CLERK_SECRET_KEY=
 # --forward-to http://localhost:8799/webhooks/clerk` prints one. Empty ⇒
 # the endpoint answers 503 and nothing else changes.
 CLERK_WEBHOOK_SIGNING_SECRET=
+# Signs the one-shot flash cookie that carries a success toast across an
+# action's redirect (app/lib/flash.server.ts). Empty locally ⇒ a fixed
+# dev-only secret; outside ENVIRONMENT=local the app refuses to start a
+# flash without it (`wrangler secret put SESSION_SECRET`; docs/secrets.md).
+SESSION_SECRET=

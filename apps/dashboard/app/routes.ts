@@ -20,6 +20,9 @@ export default [
   // runs with an account in hand.
   layout("routes/app.tsx", [
     route("app", "routes/app._index.tsx"),
+    // Create a project (#37). Declared before `:slug` and `new` is a reserved
+    // slug (app/lib/projects.ts), so the two can never collide.
+    route("app/projects/new", "routes/app.projects.new.tsx"),
     route("app/projects/:slug", "routes/app.projects.$slug.tsx", [
       index("routes/app.projects.$slug._index.tsx"),
       route("reviews", "routes/app.projects.$slug.reviews.tsx"),

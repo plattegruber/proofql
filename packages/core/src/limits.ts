@@ -21,6 +21,16 @@ export const PLAN_QUERY_LIMITS = {
   paid: 2_000_000,
 } as const satisfies Record<Plan, number>;
 
+/**
+ * Projects per account (scope.md §2: free = 1, paid = "many"). Enforced by
+ * the dashboard's create-project action (#37); the paid number is a cap
+ * against runaway scripts, not a product limit.
+ */
+export const PLAN_PROJECT_LIMITS = {
+  free: 1,
+  paid: 50,
+} as const satisfies Record<Plan, number>;
+
 export type Plan = keyof typeof PLAN_REVIEW_LIMITS;
 
 /** Reviews per project for a plan; unknown plans get the free-tier number. */
@@ -31,6 +41,11 @@ export function reviewLimitForPlan(plan: string): number {
 /** Uncached queries per project per month; unknown plans get the free number. */
 export function queryLimitForPlan(plan: string): number {
   return limitFor(PLAN_QUERY_LIMITS, plan);
+}
+
+/** Projects per account for a plan; unknown plans get the free-tier number. */
+export function projectLimitForPlan(plan: string): number {
+  return limitFor(PLAN_PROJECT_LIMITS, plan);
 }
 
 /**

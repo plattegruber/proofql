@@ -72,10 +72,14 @@ describe("overview route", () => {
     expect(await screen.findByText("No projects yet")).toBeTruthy();
     expect(screen.getByText("Paid plan")).toBeTruthy();
     expect(screen.getByText("0 projects")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /new project/i })).toHaveProperty(
-      "disabled",
-      true,
-    );
+    expect(
+      screen.getByRole("link", { name: "New project" }).getAttribute("href"),
+    ).toBe("/app/projects/new");
+    expect(
+      screen
+        .getByRole("link", { name: "Create your first project" })
+        .getAttribute("href"),
+    ).toBe("/app/projects/new");
     expect(container.textContent).not.toContain("!");
   });
 });
