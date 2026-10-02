@@ -78,6 +78,8 @@ identical across workers and environments.
 | `RL_PUBLISHABLE_PAID` | Rate limit | yes      | —        | —         | Miniflare simulator, 600 req / 60 s per key        | namespace `1004`, 600 req / 60 s per key (paid plan, publishable keys) |
 | `ENVIRONMENT`  | var               | yes      | yes      | yes       | `"local"`                                          | `"preview"` / `"prod"`                           |
 | `API_URL`      | var               | —        | —        | yes       | `http://localhost:8797`                            | the api worker's public origin                   |
+| `SNIPPET_SRC`  | var               | —        | —        | yes       | `http://localhost:8800/v1.js` (the local cdn worker) | `https://cdn.proofql.com/v1.js` — where the onboarding's snippet tag and preview load the snippet from (#53) |
+| `AUTH_STUB_ORG_ID` | var (optional) | —      | —        | yes       | `.dev.vars`; set ⇒ the local auth stub acts as an empty account with this Clerk org id (created on first load) instead of the seeded demo | unset; ignored outside the stub |
 | `CLERK_PUBLISHABLE_KEY` | var      | —        | —        | yes       | `.dev.vars` (optional)                             | the Clerk instance's publishable key (`pk_test_…` preview, `pk_live_…` prod) |
 | `CLERK_SECRET_KEY` | secret        | —        | —        | yes       | `.dev.vars`; **unset ⇒ local auth stub** (acts as the seeded demo account) | `wrangler secret put` per env; required — no stub outside local |
 | `CLERK_WEBHOOK_SIGNING_SECRET` | secret | —   | —        | yes       | `.dev.vars` (optional; `POST /webhooks/clerk` answers 503 without it) | `wrangler secret put` per env |

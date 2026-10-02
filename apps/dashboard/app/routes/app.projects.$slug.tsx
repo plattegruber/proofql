@@ -3,6 +3,7 @@
 // a child route here.
 import { data, Outlet } from "react-router";
 
+import { FinishSetupBanner } from "~/components/onboarding/finish-setup-banner";
 import { PageHeader } from "~/components/shell/page-header";
 import { LinkTabs } from "~/components/ui/link-tabs";
 import { requireAccount } from "~/lib/account.server";
@@ -44,6 +45,7 @@ export default function ProjectShell({ loaderData }: Route.ComponentProps) {
           </span>
         }
       />
+      {project.reviewCount === 0 && <FinishSetupBanner slug={project.slug} />}
       <LinkTabs
         className="mb-6"
         tabs={[

@@ -103,21 +103,26 @@ export async function requireAccount(
   }
 
   if (mode === "stub") {
-    const account = await deps.withDb(args.context, (db) =>
-      findAccountByClerkOrgId(db, DEMO_ACCOUNT_CLERK_ORG_ID),
-    );
+    // AUTH_STUB_ORG_ID (.dev.vars) points the stub at another account — an
+    // empty one is created on first load — so the guided onboarding (#53)
+    // can be walked through from a fresh account without Clerk.
+    const override = env.AUTH_STUB_ORG_ID?.trim() || undefined;
+    const orgId = override ?? DEMO_ACCOUNT_CLERK_ORG_ID;
+    const account = await deps.withDb(args.context, async (db) => {
+      const existing = await findAccountByClerkOrgId(db, orgId);
+      if (existing || override === undefined) return existing;
+      return upsertAccountByClerkOrgId(db, {
+        clerkOrgId: orgId,
+        name: "Local stub account",
+      });
+    });
     if (!account) {
       // Local dev without seed data: say so plainly instead of a blank page.
       throw data("Demo account not found — run `pnpm seed` first.", {
         status: 503,
       });
     }
-    return {
-      account,
-      orgId: DEMO_ACCOUNT_CLERK_ORG_ID,
-      userId: STUB_USER_ID,
-      mode,
-    };
+    return { account, orgId, userId: STUB_USER_ID, mode };
   }
 
   const auth = await deps.getAuth(args);

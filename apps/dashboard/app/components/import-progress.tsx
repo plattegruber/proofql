@@ -116,7 +116,8 @@ export function ImportProgress({
   );
 }
 
-function Meter({
+/** One flat progress rule with its count; the onboarding's indexing step (#53) reuses it. */
+export function Meter({
   label,
   value,
   total,

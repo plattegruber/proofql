@@ -21,6 +21,7 @@ const demoAccount: Account = {
   plan: "free",
   stripeCustomerId: null,
   deletedAt: null,
+  onboardingCompletedAt: null,
   createdAt: new Date(0),
   updatedAt: new Date(0),
 };
@@ -138,6 +139,20 @@ describe("requireAccount — local auth stub", () => {
     const res = await thrown(requireAccount(args(env()), deps));
     expect(res.status).toBe(503);
     expect(res.text).toContain("pnpm seed");
+  });
+
+  it("AUTH_STUB_ORG_ID points the stub at another account, created empty on first load", async () => {
+    const { deps, table } = fakeDeps({ userId: null }, [demoAccount]);
+    const e = env({ AUTH_STUB_ORG_ID: "org_fresh" } as Partial<Env>);
+    const ctx = await requireAccount(args(e), deps);
+    expect(ctx.orgId).toBe("org_fresh");
+    expect(ctx.account.clerkOrgId).toBe("org_fresh");
+    expect(ctx.account.name).toBe("Local stub account");
+    expect(ctx.mode).toBe("stub");
+    expect(table.get(DEMO_ACCOUNT_CLERK_ORG_ID)).toEqual(demoAccount);
+    // Second load finds the row instead of upserting again.
+    const again = await requireAccount(args(e), deps);
+    expect(again.account).toEqual(ctx.account);
   });
 });
 

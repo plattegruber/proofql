@@ -30,3 +30,9 @@ CLERK_WEBHOOK_SIGNING_SECRET=
 # dev-only secret; outside ENVIRONMENT=local the app refuses to start a
 # flash without it (`wrangler secret put SESSION_SECRET`; docs/secrets.md).
 SESSION_SECRET=
+# Local auth stub only (CLERK_SECRET_KEY empty, ENVIRONMENT local): act as a
+# different account than the seeded demo. Set it to any `org_…` string and the
+# stub creates an empty account with that id on first load — the way to walk
+# through the guided onboarding (#53) from a fresh account without Clerk.
+# Ignored outside the stub.
+AUTH_STUB_ORG_ID=

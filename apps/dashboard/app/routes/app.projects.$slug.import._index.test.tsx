@@ -24,6 +24,7 @@ function renderUpload(actionData?: { error: string }) {
         <ImportUpload
           loaderData={{
             project: { slug: "cedar-ridge-dental", name: "Cedar Ridge Dental" },
+            onboarding: false,
             maxBytes: 10 * 1024 * 1024,
           }}
           actionData={actionData}
