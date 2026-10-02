@@ -72,10 +72,11 @@ identical across workers and environments.
 | (consumer)     | Queue consumer    | —        | yes      | —         | `proofql-ingest`, DLQ `proofql-ingest-dlq`         | `proofql-ingest-<env>`, DLQ `proofql-ingest-dlq-<env>` |
 | `UPLOADS`      | R2 bucket         | —        | —        | yes       | `proofql-uploads` (Miniflare)                      | `proofql-uploads-<env>` (by name; no id to paste) |
 | `AI`           | Workers AI        | yes      | yes      | —         | **not bound** — no simulator; code must treat `env.AI` as optional and use the deterministic fake provider | account-level, no id |
-| `RL_SECRET`    | Rate limit        | yes      | —        | —         | Miniflare simulator, 300 req / 60 s per key        | namespace `1001`, 300 req / 60 s per key         |
-| `RL_PUBLISHABLE` | Rate limit      | yes      | —        | —         | Miniflare simulator, 120 req / 60 s per key        | namespace `1002`, 120 req / 60 s per key         |
+| `RL_SECRET`    | Rate limit        | yes      | —        | —         | Miniflare simulator, 300 req / 60 s per key        | namespace `1001`, 300 req / 60 s per key (free plan, secret keys) |
+| `RL_PUBLISHABLE` | Rate limit      | yes      | —        | —         | Miniflare simulator, 120 req / 60 s per key        | namespace `1002`, 120 req / 60 s per key (free plan, publishable keys) |
+| `RL_SECRET_PAID` | Rate limit      | yes      | —        | —         | Miniflare simulator, 1000 req / 60 s per key       | namespace `1003`, 1000 req / 60 s per key (paid plan, secret keys) |
+| `RL_PUBLISHABLE_PAID` | Rate limit | yes      | —        | —         | Miniflare simulator, 600 req / 60 s per key        | namespace `1004`, 600 req / 60 s per key (paid plan, publishable keys) |
 | `ENVIRONMENT`  | var               | yes      | yes      | yes       | `"local"`                                          | `"preview"` / `"prod"`                           |
-| `RATE_LIMITS`  | var (optional)    | yes      | —        | —         | unset                                              | unset; JSON override of the advertised per-kind limits, must mirror the `ratelimits` entries when set |
 | `API_URL`      | var               | —        | —        | yes       | `http://localhost:8797`                            | the api worker's public origin                   |
 | `CLERK_PUBLISHABLE_KEY` | var      | —        | —        | yes       | `.dev.vars` (optional)                             | the Clerk instance's publishable key (`pk_test_…` preview, `pk_live_…` prod) |
 | `CLERK_SECRET_KEY` | secret        | —        | —        | yes       | `.dev.vars`; **unset ⇒ local auth stub** (acts as the seeded demo account) | `wrangler secret put` per env; required — no stub outside local |
@@ -95,9 +96,11 @@ it; `scripts/check-provisioning.mjs` lists it as `ok` in every environment.
 
 Why the split: the api embeds queries (AI), reads/writes Postgres (HYPERDRIVE),
 serves from and fills the cache (CACHE), enqueues ingested reviews
-(INGEST_QUEUE), and counts requests per API key (RL_SECRET / RL_PUBLISHABLE —
-`namespace_id` is an account-unique integer we pick, nothing is provisioned;
-code treats both as optional and falls back to an in-memory limiter, see
+(INGEST_QUEUE), and counts requests per API key (the `RL_*` bindings — one per
+plan and key kind, because a binding's limit is fixed in wrangler.jsonc and the
+numbers come from `PLANS` in `packages/core/src/plans.ts`; `namespace_id` is an
+account-unique integer we pick, nothing is provisioned; code treats all four as
+optional and falls back to an in-memory limiter, see
 `workers/api/src/rate-limit.ts`). The pipeline consumes the queue, embeds and classifies (AI),
 writes Postgres, and purges the cache for the project it just indexed; its
 five-minute cron (`triggers.crons`) also *produces* to the same queue to

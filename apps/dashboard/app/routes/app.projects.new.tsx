@@ -1,8 +1,9 @@
 // Create a project (#37). The slug derives from the name as you type until
 // you edit it yourself; the server re-validates everything and enforces the
-// plan's project allowance (scope.md §2: one project on the free tier).
-// At the limit the form is replaced by the upgrade message — a disabled
-// form would only pose a question it cannot answer.
+// plan's project allowance (PLANS in @proofql/core: one project on the free
+// tier). At the limit the form is replaced by the upgrade message — a
+// disabled form would only pose a question it cannot answer.
+import { PRICING_URL, planLabel } from "@proofql/core";
 import { useState } from "react";
 import { data, Form, Link, redirect } from "react-router";
 
@@ -52,7 +53,7 @@ export async function action(args: Route.ActionArgs) {
         ? { slug: ["Another project in this account already uses this slug."] }
         : {
             "": [
-              `Your ${PLAN_LABEL[account.plan] ?? account.plan} plan allows ${pluralProjects(result.quota?.limit ?? 1)}. Upgrade to add more.`,
+              `Your ${planLabel(account.plan)} plan allows ${pluralProjects(result.quota?.limit ?? 1)}. Upgrade at ${PRICING_URL} to add more.`,
             ],
           };
     return data({ fieldErrors }, { status: 422 });
@@ -72,8 +73,6 @@ export async function action(args: Route.ActionArgs) {
     }),
   });
 }
-
-const PLAN_LABEL: Record<string, string> = { free: "Free", paid: "Paid" };
 
 function pluralProjects(n: number) {
   return n === 1 ? "1 project" : `${n} projects`;
@@ -100,7 +99,7 @@ export default function NewProject({
           <div className="flex flex-col gap-3 text-small text-gray-600">
             <p className="m-0">
               <Badge tone={plan === "paid" ? "positive" : "neutral"}>
-                {PLAN_LABEL[plan] ?? plan} plan
+                {planLabel(plan)} plan
               </Badge>{" "}
               <span className="ml-1">
                 {pluralProjects(quota.limit)} included; you have {quota.used}.
@@ -108,10 +107,21 @@ export default function NewProject({
             </p>
             <p className="m-0">
               {plan === "free"
-                ? "The paid plan adds more projects, raises the review limit, and removes the snippet badge. Upgrading opens with billing (M3); until then, delete a project to make room."
+                ? "The paid plan adds more projects, raises the review and query limits, and removes the snippet badge. Until billing opens, delete a project to make room."
                 : "Delete a project to make room, or ask us to raise the limit for this account."}
             </p>
-            <div className="mt-1">
+            <div className="mt-1 flex items-center gap-3">
+              {plan === "free" && (
+                <a
+                  href={PRICING_URL}
+                  className={cn(
+                    buttonVariants({ variant: "primary", size: "sm" }),
+                    "no-underline",
+                  )}
+                >
+                  Upgrade
+                </a>
+              )}
               <Link
                 to="/app"
                 className={cn(
