@@ -11,6 +11,7 @@ import type {
   ApiKeyKind,
   IngestMessage,
   Logger,
+  Plan,
 } from "@proofql/core";
 import type { Db } from "@proofql/db";
 
@@ -31,20 +32,18 @@ export interface ApiBindings {
    */
   AI?: Ai;
   /**
-   * Cloudflare rate limiting bindings, one per key kind (`ratelimits` in
-   * wrangler.jsonc). Optional: absent (unit tests, a wrangler without the
-   * config) the worker falls back to an in-memory limiter per isolate so
-   * the behavior stays observable locally. See src/rate-limit.ts.
+   * Cloudflare rate limiting bindings, one per (plan, key kind) pair
+   * (`ratelimits` in wrangler.jsonc). A binding's limit is fixed in the
+   * config, so each plan needs its own pair; the numbers must mirror
+   * `PLANS[plan].rateLimits` from @proofql/core (a unit test checks).
+   * Optional: absent (unit tests, a wrangler without the config) the worker
+   * falls back to an in-memory limiter per isolate so the behavior stays
+   * observable locally. See src/rate-limit.ts.
    */
   RL_SECRET?: RateLimit;
   RL_PUBLISHABLE?: RateLimit;
-  /**
-   * Optional JSON override of the per-kind limits the worker advertises and
-   * the in-memory limiter enforces, e.g.
-   * `{"secret":{"limit":300,"period":60},"publishable":{"limit":120,"period":60}}`.
-   * Must mirror the `ratelimits` entries when those bindings are present.
-   */
-  RATE_LIMITS?: string;
+  RL_SECRET_PAID?: RateLimit;
+  RL_PUBLISHABLE_PAID?: RateLimit;
 }
 
 /**
@@ -58,8 +57,6 @@ export interface ProjectPolicy {
   minRating: number;
   /** Cosine-similarity floor (`projects.similarity_floor`). */
   similarityFloor: number;
-  /** Whether the snippet must render the badge (`projects.show_badge`). */
-  showBadge: boolean;
 }
 
 /** What a resolved API key grants a request (set by `requireApiKey`). */
@@ -69,6 +66,13 @@ export interface AuthContext {
   /** Scopes every row the request reads or writes. */
   environment: ApiKeyEnvironment;
   kind: ApiKeyKind;
+  /**
+   * The owning account's plan (`accounts.plan`), read with the key. Every
+   * plan-driven decision on the request — the badge in the query response,
+   * the rate limit, the monthly quota — derives from `planFor(plan)`;
+   * `projects.show_badge` is only a cached mirror and is never read here.
+   */
+  plan: Plan;
   project: ProjectPolicy;
 }
 

@@ -7,7 +7,7 @@
  * charged" rule is pinned.
  */
 
-import { PLAN_QUERY_LIMITS } from "@proofql/core";
+import { PLANS, PRICING_URL } from "@proofql/core";
 import { schema } from "@proofql/db";
 import { account, project, setupTestDb } from "@proofql/db/test";
 import { eq } from "drizzle-orm";
@@ -114,7 +114,7 @@ describe("monthly query quota", () => {
 
   it("at quota: 429 query_quota_exceeded with Retry-After to month end; no increment", async () => {
     const { project: p, plaintext } = await setup();
-    await seedUsage(p.id, thisMonth, PLAN_QUERY_LIMITS.free);
+    await seedUsage(p.id, thisMonth, PLANS.free.queriesPerMonth);
 
     const { res, json } = await query(plaintext);
 
@@ -128,33 +128,38 @@ describe("monthly query quota", () => {
     });
     expect(json.error.message).toMatch(/free plan/);
     expect(json.error.message).toMatch(/upgrade/i);
+    expect(json.error.message).toContain(PRICING_URL);
     const retryAfter = Number(res.headers.get("Retry-After"));
     expect(retryAfter).toBeGreaterThanOrEqual(1);
     expect(retryAfter).toBeLessThanOrEqual(31 * 86_400);
     expect(await usageRows(p.id)).toEqual([
-      { month: thisMonth, queries: PLAN_QUERY_LIMITS.free, cacheHits: 0 },
+      { month: thisMonth, queries: PLANS.free.queriesPerMonth, cacheHits: 0 },
     ]);
   });
 
   it("one below quota is still served (the request that reaches the limit)", async () => {
     const { project: p, plaintext } = await setup();
-    await seedUsage(p.id, thisMonth, PLAN_QUERY_LIMITS.free - 1);
+    await seedUsage(p.id, thisMonth, PLANS.free.queriesPerMonth - 1);
 
     expect((await query(plaintext)).res.status).toBe(200);
     expect((await query(plaintext, "/v1/query?limit=2")).res.status).toBe(429);
     expect(await usageRows(p.id)).toEqual([
-      { month: thisMonth, queries: PLAN_QUERY_LIMITS.free, cacheHits: 0 },
+      { month: thisMonth, queries: PLANS.free.queriesPerMonth, cacheHits: 0 },
     ]);
   });
 
   it("cached hits do not count: at the limit on `queries` alone, cache hits make room", async () => {
     const { project: p, plaintext } = await setup();
     // 50,000 answered, 10 of them from cache → 49,990 uncached: under.
-    await seedUsage(p.id, thisMonth, PLAN_QUERY_LIMITS.free, 10);
+    await seedUsage(p.id, thisMonth, PLANS.free.queriesPerMonth, 10);
 
     expect((await query(plaintext)).res.status).toBe(200);
     expect(await usageRows(p.id)).toEqual([
-      { month: thisMonth, queries: PLAN_QUERY_LIMITS.free + 1, cacheHits: 10 },
+      {
+        month: thisMonth,
+        queries: PLANS.free.queriesPerMonth + 1,
+        cacheHits: 10,
+      },
     ]);
   });
 
@@ -184,7 +189,7 @@ describe("monthly query quota", () => {
     expect((await query(plaintext)).cache).toBe("MISS");
     await t.db
       .update(schema.usage)
-      .set({ queries: PLAN_QUERY_LIMITS.free, cacheHits: 0 })
+      .set({ queries: PLANS.free.queriesPerMonth, cacheHits: 0 })
       .where(eq(schema.usage.projectId, p.id));
 
     const hit = await query(plaintext);
@@ -192,7 +197,11 @@ describe("monthly query quota", () => {
     expect(hit.cache).toBe("HIT");
     expect(hit.json.cached).toBe(true);
     expect(await usageRows(p.id)).toEqual([
-      { month: thisMonth, queries: PLAN_QUERY_LIMITS.free + 1, cacheHits: 1 },
+      {
+        month: thisMonth,
+        queries: PLANS.free.queriesPerMonth + 1,
+        cacheHits: 1,
+      },
     ]);
 
     const miss = await query(plaintext, "/v1/query?limit=2");
@@ -200,7 +209,11 @@ describe("monthly query quota", () => {
     expect(miss.json.error.code).toBe("query_quota_exceeded");
     expect(miss.cache).toBeNull();
     expect(await usageRows(p.id)).toEqual([
-      { month: thisMonth, queries: PLAN_QUERY_LIMITS.free + 1, cacheHits: 1 },
+      {
+        month: thisMonth,
+        queries: PLANS.free.queriesPerMonth + 1,
+        cacheHits: 1,
+      },
     ]);
   });
 
@@ -216,13 +229,13 @@ describe("monthly query quota", () => {
 
   it("the paid plan gets the higher limit", async () => {
     const { project: p, plaintext } = await setup({ plan: "paid" });
-    await seedUsage(p.id, thisMonth, PLAN_QUERY_LIMITS.free);
+    await seedUsage(p.id, thisMonth, PLANS.free.queriesPerMonth);
 
     expect((await query(plaintext)).res.status).toBe(200);
 
     await t.db
       .update(schema.usage)
-      .set({ queries: PLAN_QUERY_LIMITS.paid })
+      .set({ queries: PLANS.paid.queriesPerMonth })
       .where(eq(schema.usage.projectId, p.id));
     const { res, json } = await query(plaintext, "/v1/query?limit=2");
     expect(res.status).toBe(429);
@@ -231,13 +244,17 @@ describe("monthly query quota", () => {
 
   it("month rollover: last month's exhausted row does not count; this month starts at 0", async () => {
     const { project: p, plaintext } = await setup();
-    await seedUsage(p.id, lastMonth, PLAN_QUERY_LIMITS.free + 500);
+    await seedUsage(p.id, lastMonth, PLANS.free.queriesPerMonth + 500);
 
     const { res } = await query(plaintext);
 
     expect(res.status).toBe(200);
     expect(await usageRows(p.id)).toEqual([
-      { month: lastMonth, queries: PLAN_QUERY_LIMITS.free + 500, cacheHits: 0 },
+      {
+        month: lastMonth,
+        queries: PLANS.free.queriesPerMonth + 500,
+        cacheHits: 0,
+      },
       { month: thisMonth, queries: 1, cacheHits: 0 },
     ]);
   });
@@ -245,7 +262,7 @@ describe("monthly query quota", () => {
   it("quota is per project: another project's exhaustion is irrelevant", async () => {
     const a = await setup();
     const b = await setup();
-    await seedUsage(a.project.id, thisMonth, PLAN_QUERY_LIMITS.free);
+    await seedUsage(a.project.id, thisMonth, PLANS.free.queriesPerMonth);
 
     expect((await query(a.plaintext)).res.status).toBe(429);
     expect((await query(b.plaintext)).res.status).toBe(200);

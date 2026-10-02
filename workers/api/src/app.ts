@@ -36,9 +36,9 @@ import { queryRoutes } from "./query/route.js";
 import {
   bindingProvider,
   injectedProvider as injectedRateLimiters,
+  type PlanRateLimiters,
   type RateLimiter,
   type RateLimiterProvider,
-  type RateLimiters,
   rateLimitMiddleware,
 } from "./rate-limit.js";
 import { requestContext } from "./request-id.js";
@@ -55,7 +55,7 @@ export interface CreateAppOptions {
   /** Full control over how a request obtains its embedder. */
   embedderProvider?: EmbedderProvider;
   /** Tests: use this limiter (one for both kinds, or one per kind). */
-  rateLimiter?: RateLimiter | Partial<RateLimiters>;
+  rateLimiter?: RateLimiter | Partial<PlanRateLimiters>;
   /** Full control over how a request obtains its rate limiters. */
   rateLimiterProvider?: RateLimiterProvider;
   /** Tests: capture log lines (`recordingSink().sink`) instead of the console. */

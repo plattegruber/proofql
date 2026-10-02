@@ -46,10 +46,11 @@
  *
  * The `results` array of the response as JSON, with `{ generation,
  * storedAt }` as KV metadata. `took_ms`, `cached`, and `badge` are
- * per-request: the first two by definition, `badge` because it mirrors
- * `projects.show_badge`, which arrives with the key on every request and
- * must flip the moment the project's plan does, not when the cache turns
- * over. Only successful searches are stored; errors are never cached.
+ * per-request: the first two by definition, `badge` because it is derived
+ * from the account's plan, which arrives with the key on every request and
+ * must flip the moment the plan does, not when the cache turns over — so a
+ * plan change needs no generation bump. Only successful searches are
+ * stored; errors are never cached.
  */
 
 import { bumpProjectGeneration, type GenerationKv } from "@proofql/core";

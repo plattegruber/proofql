@@ -16,10 +16,11 @@
  * rows. Steps 1–3 need no database, which keeps garbage and misconfigured
  * traffic from costing a digest or a round-trip.
  *
- * Step 4 joins `projects`, so the context also carries the project's
- * publication policy, CORS allowlist, and badge flag (`ProjectPolicy`): the
- * query route reads policy exactly once per request, in the same statement
- * as the key, and never again downstream.
+ * Step 4 joins `projects` and `accounts`, so the context also carries the
+ * project's publication policy and CORS allowlist (`ProjectPolicy`) and the
+ * account's plan: the query route reads policy exactly once per request, in
+ * the same statement as the key, and never again downstream, and every
+ * plan-driven decision (badge, rate limit, quota) starts from `auth.plan`.
  *
  * `?key=` (the query route only): a `GET /v1/query?key=pq_pk_…&q=…` with no
  * custom headers is a CORS "simple request", so the snippet's browser sends
@@ -43,7 +44,12 @@
  * response, via `waitUntil` — a dashboard hint, never on the hot path.
  */
 
-import { type ApiKeyKind, hashApiKey, parseApiKey } from "@proofql/core";
+import {
+  type ApiKeyKind,
+  hashApiKey,
+  normalizePlan,
+  parseApiKey,
+} from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
 import { and, eq, isNull } from "drizzle-orm";
 import type { Context } from "hono";
@@ -120,7 +126,7 @@ export async function lookupApiKey(
   const parsed = parseApiKey(token);
   if (parsed === null) return null;
   const keyHash = await hashApiKey(token);
-  const { apiKeys, projects } = schema;
+  const { apiKeys, projects, accounts } = schema;
   const [row] = await db
     .select({
       id: apiKeys.id,
@@ -131,10 +137,11 @@ export async function lookupApiKey(
       allowedOrigins: projects.allowedOrigins,
       minRating: projects.minRating,
       similarityFloor: projects.similarityFloor,
-      showBadge: projects.showBadge,
+      plan: accounts.plan,
     })
     .from(apiKeys)
     .innerJoin(projects, eq(projects.id, apiKeys.projectId))
+    .innerJoin(accounts, eq(accounts.id, projects.accountId))
     .where(and(eq(apiKeys.keyHash, keyHash), isNull(apiKeys.revokedAt)))
     .limit(1);
 
@@ -153,11 +160,11 @@ export async function lookupApiKey(
       projectId: row.projectId,
       environment: row.environment,
       kind: row.kind,
+      plan: normalizePlan(row.plan),
       project: {
         allowedOrigins: row.allowedOrigins,
         minRating: row.minRating,
         similarityFloor: row.similarityFloor,
-        showBadge: row.showBadge,
       },
     },
     lastUsedAt: row.lastUsedAt,

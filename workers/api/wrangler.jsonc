@@ -69,10 +69,12 @@
     }
   ],
 
-  // Per-key rate limits (src/rate-limit.ts), one limiter per key kind.
+  // Per-key rate limits (src/rate-limit.ts), one limiter per (plan, key
+  // kind): a binding's limit is fixed here, so each plan needs its own pair.
   // `namespace_id` is an account-unique integer we choose, not a provisioned
-  // resource. The numbers mirror DEFAULT_RATE_LIMITS; change both together
-  // (or set the RATE_LIMITS var to match). `period` may only be 10 or 60.
+  // resource. The numbers mirror PLANS[plan].rateLimits in
+  // packages/core/src/plans.ts; src/rate-limit.test.ts reads this file and
+  // fails when they drift. `period` may only be 10 or 60.
   "ratelimits": [
     {
       "name": "RL_SECRET",
@@ -83,6 +85,16 @@
       "name": "RL_PUBLISHABLE",
       "namespace_id": "1002",
       "simple": { "limit": 120, "period": 60 }
+    },
+    {
+      "name": "RL_SECRET_PAID",
+      "namespace_id": "1003",
+      "simple": { "limit": 1000, "period": 60 }
+    },
+    {
+      "name": "RL_PUBLISHABLE_PAID",
+      "namespace_id": "1004",
+      "simple": { "limit": 600, "period": 60 }
     }
   ],
 
@@ -120,6 +132,16 @@
           "name": "RL_PUBLISHABLE",
           "namespace_id": "1002",
           "simple": { "limit": 120, "period": 60 }
+        },
+        {
+          "name": "RL_SECRET_PAID",
+          "namespace_id": "1003",
+          "simple": { "limit": 1000, "period": 60 }
+        },
+        {
+          "name": "RL_PUBLISHABLE_PAID",
+          "namespace_id": "1004",
+          "simple": { "limit": 600, "period": 60 }
         }
       ],
       "ai": { "binding": "AI" }
@@ -150,6 +172,16 @@
           "name": "RL_PUBLISHABLE",
           "namespace_id": "1002",
           "simple": { "limit": 120, "period": 60 }
+        },
+        {
+          "name": "RL_SECRET_PAID",
+          "namespace_id": "1003",
+          "simple": { "limit": 1000, "period": 60 }
+        },
+        {
+          "name": "RL_PUBLISHABLE_PAID",
+          "namespace_id": "1004",
+          "simple": { "limit": 600, "period": 60 }
         }
       ],
       "ai": { "binding": "AI" }

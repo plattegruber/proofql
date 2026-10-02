@@ -1,37 +1,46 @@
 /**
- * Per-key rate limiting (scope.md §3 "Rate limited per key"; issue #29).
+ * Per-key rate limiting (scope.md §3 "Rate limited per key"; issues #29, #54).
  *
  * Every authenticated `/v1/*` request is counted against its API key:
  * `requireApiKey` calls `enforceRateLimit(c)` right after it resolves the
  * key, so a route cannot forget to opt in and a rotated key starts fresh
- * (the counter is keyed on `api_keys.id`, not the project). Limits are per
- * key *kind* — publishable keys live in browsers and get the lower number:
+ * (the counter is keyed on `api_keys.id`, not the project). Limits come from
+ * the plan table (`PLANS[plan].rateLimits`, @proofql/core) and are per key
+ * *kind* — publishable keys live in browsers and get the lower number:
  *
- *   secret       300 requests / 60 s
- *   publishable  120 requests / 60 s
+ *                 secret   publishable   (requests / 60 s)
+ *   free            300           120
+ *   paid          1,000           600
  *
- * The counting is done by Cloudflare's rate limiting binding
- * (`RL_SECRET` / `RL_PUBLISHABLE`, `ratelimits` in wrangler.jsonc), which
- * is approximate and per colo — good enough for abuse protection, and the
- * only option with zero per-request storage cost. Behind the `RateLimiter`
- * interface so unit tests use a fake and a worker without the bindings
- * falls back to an in-memory sliding window per isolate (`wrangler dev`
- * without the config, Node tests).
+ * The counting is done by Cloudflare's rate limiting bindings (`ratelimits`
+ * in wrangler.jsonc), which are approximate and per colo — good enough for
+ * abuse protection, and the only option with zero per-request storage cost.
+ * A binding's limit is fixed in the config, so there is one binding per
+ * (plan, kind) pair — `RL_SECRET` / `RL_PUBLISHABLE` for free,
+ * `RL_SECRET_PAID` / `RL_PUBLISHABLE_PAID` for paid (`RATE_LIMIT_BINDINGS`)
+ * — selected by the plan that arrived with the key (`auth.plan`). The
+ * config must mirror the plan table; `rate-limit.test.ts` reads
+ * wrangler.jsonc and fails when the two disagree, so a new plan tier is one
+ * edit in PLANS plus the matching `ratelimits` entries. Behind the
+ * `RateLimiter` interface so unit tests use a fake and a worker without the
+ * bindings falls back to an in-memory sliding window per isolate (`wrangler
+ * dev` without the config, Node tests), configured from the same table.
  *
  * A refused request gets 429 `rate_limited` with `Retry-After` (seconds to
  * the next period boundary — the binding does not expose a precise reset)
  * and the IETF draft `RateLimit-Policy` / `RateLimit-Limit` headers, which
  * every limited response carries so clients can pace themselves before
  * they hit the wall.
- *
- * `RATE_LIMITS` (optional JSON var) overrides the numbers the worker
- * advertises and the in-memory limiter enforces; when the Cloudflare
- * bindings are present it must mirror their `simple` config, because the
- * binding's own limit is fixed in wrangler.jsonc. The hook is there so a
- * later plan tier can raise limits without a code change.
  */
 
-import type { ApiKeyKind } from "@proofql/core";
+import {
+  type ApiKeyKind,
+  normalizePlan,
+  PLAN_NAMES,
+  type Plan,
+  planFor,
+  RATE_LIMIT_PERIOD_SECONDS,
+} from "@proofql/core";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 
@@ -52,57 +61,49 @@ export interface RateLimitConfig {
 }
 
 export type RateLimitConfigs = Record<ApiKeyKind, RateLimitConfig>;
-export type RateLimiters = Record<ApiKeyKind, RateLimiter>;
+/** One limiter per key kind — the set that applies to one plan. */
+export type PlanRateLimiters = Record<ApiKeyKind, RateLimiter>;
+/** Every plan's limiters; `enforceRateLimit` picks by `auth.plan`. */
+export type RateLimiters = Record<Plan, PlanRateLimiters>;
 
-export const DEFAULT_RATE_LIMITS: RateLimitConfigs = {
-  secret: { limit: 300, period: 60 },
-  publishable: { limit: 120, period: 60 },
-};
+export const KEY_KINDS: readonly ApiKeyKind[] = ["secret", "publishable"];
+
+/** The plan table's number for one (plan, kind) pair, as a limiter config. */
+export function rateLimitConfig(
+  plan: string,
+  kind: ApiKeyKind,
+): RateLimitConfig {
+  return {
+    limit: planFor(plan).rateLimits[kind],
+    period: RATE_LIMIT_PERIOD_SECONDS,
+  };
+}
+
+/** Both kinds for a plan. */
+export function rateLimitConfigs(plan: string): RateLimitConfigs {
+  return {
+    secret: rateLimitConfig(plan, "secret"),
+    publishable: rateLimitConfig(plan, "publishable"),
+  };
+}
+
+/** Binding names in `ApiBindings` that carry `RateLimit` bindings. */
+export type RateLimitBindingName = {
+  [K in keyof ApiBindings]-?: NonNullable<ApiBindings[K]> extends RateLimit
+    ? K
+    : never;
+}[keyof ApiBindings];
 
 /**
- * Merge a `RATE_LIMITS` JSON override onto the defaults. Each kind is
- * optional and may set `limit` and/or `period`; anything that is not a
- * positive integer, or JSON that does not parse, is rejected loudly — a
- * silently ignored typo would advertise one limit and enforce another.
+ * Which wrangler.jsonc `ratelimits` binding counts each (plan, kind). The
+ * free pair keeps the original names (#29); later plans add a suffix.
  */
-export function parseRateLimits(json: string | undefined): RateLimitConfigs {
-  if (json === undefined || json.trim() === "") return DEFAULT_RATE_LIMITS;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(json);
-  } catch (error) {
-    throw new Error("RATE_LIMITS is not valid JSON", { cause: error });
-  }
-  if (!isRecord(parsed)) throw new Error("RATE_LIMITS must be a JSON object");
-
-  const merged: RateLimitConfigs = {
-    secret: { ...DEFAULT_RATE_LIMITS.secret },
-    publishable: { ...DEFAULT_RATE_LIMITS.publishable },
-  };
-  for (const [kind, override] of Object.entries(parsed)) {
-    if (kind !== "secret" && kind !== "publishable") {
-      throw new Error(`RATE_LIMITS: unknown key kind "${kind}"`);
-    }
-    if (!isRecord(override)) {
-      throw new Error(`RATE_LIMITS.${kind} must be an object`);
-    }
-    for (const field of ["limit", "period"] as const) {
-      const value = override[field];
-      if (value === undefined) continue;
-      if (!Number.isInteger(value) || (value as number) <= 0) {
-        throw new Error(
-          `RATE_LIMITS.${kind}.${field} must be a positive integer`,
-        );
-      }
-      merged[kind][field] = value as number;
-    }
-  }
-  return merged;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+export const RATE_LIMIT_BINDINGS: Readonly<
+  Record<Plan, Readonly<Record<ApiKeyKind, RateLimitBindingName>>>
+> = {
+  free: { secret: "RL_SECRET", publishable: "RL_PUBLISHABLE" },
+  paid: { secret: "RL_SECRET_PAID", publishable: "RL_PUBLISHABLE_PAID" },
+};
 
 /** Adapt a Cloudflare `RateLimit` binding to the interface. */
 export function cloudflareLimiter(binding: RateLimit): RateLimiter {
@@ -168,48 +169,63 @@ export type RateLimiterProvider = (
   env: ApiBindings | undefined,
 ) => RateLimiters;
 
-/** Isolate-wide fallbacks, created once per config so counts persist. */
+/** Isolate-wide fallbacks, created once per (plan, kind) so counts persist. */
 const memoryLimiters = new Map<string, MemoryRateLimiter>();
 
-function memoryLimiterFor(
-  kind: ApiKeyKind,
-  config: RateLimitConfig,
-): MemoryRateLimiter {
-  const id = `${kind}:${config.limit}/${config.period}`;
+function memoryLimiterFor(plan: Plan, kind: ApiKeyKind): MemoryRateLimiter {
+  const id = `${plan}:${kind}`;
   let limiter = memoryLimiters.get(id);
   if (limiter === undefined) {
-    limiter = new MemoryRateLimiter(config);
+    limiter = new MemoryRateLimiter(rateLimitConfig(plan, kind));
     memoryLimiters.set(id, limiter);
   }
   return limiter;
 }
 
-/** The real thing: the bindings when bound, else the in-memory fallback. */
-export const bindingProvider: RateLimiterProvider = (env) => {
-  const configs = parseRateLimits(env?.RATE_LIMITS);
-  return {
-    secret: env?.RL_SECRET
-      ? cloudflareLimiter(env.RL_SECRET)
-      : memoryLimiterFor("secret", configs.secret),
-    publishable: env?.RL_PUBLISHABLE
-      ? cloudflareLimiter(env.RL_PUBLISHABLE)
-      : memoryLimiterFor("publishable", configs.publishable),
-  };
-};
+/** Build a `RateLimiters` table from a per-(plan, kind) factory. */
+function limitersFrom(
+  pick: (plan: Plan, kind: ApiKeyKind) => RateLimiter,
+): RateLimiters {
+  const table = {} as RateLimiters;
+  for (const plan of PLAN_NAMES) {
+    table[plan] = {
+      secret: pick(plan, "secret"),
+      publishable: pick(plan, "publishable"),
+    };
+  }
+  return table;
+}
 
-/** For tests: one fake for both kinds, or one per kind. */
+/**
+ * The real thing: the plan's binding when bound, else the in-memory
+ * fallback for that plan and kind. Bindings are resolved per pair, so a
+ * config that binds only the free pair still enforces paid limits (in
+ * memory) instead of counting paid keys against the free binding.
+ */
+export const bindingProvider: RateLimiterProvider = (env) =>
+  limitersFrom((plan, kind) => {
+    const binding = env?.[RATE_LIMIT_BINDINGS[plan][kind]];
+    return binding ? cloudflareLimiter(binding) : memoryLimiterFor(plan, kind);
+  });
+
+/**
+ * For tests: one fake for every plan and kind, or one per kind (applied to
+ * every plan). The plan a request resolves to is still observable through
+ * the advertised headers.
+ */
 export function injectedProvider(
-  limiters: RateLimiter | Partial<RateLimiters>,
+  limiters: RateLimiter | Partial<PlanRateLimiters>,
 ): RateLimiterProvider {
-  const perKind: RateLimiters =
+  const perKind: PlanRateLimiters =
     "limit" in limiters && typeof limiters.limit === "function"
       ? { secret: limiters, publishable: limiters }
       : {
-          secret: (limiters as Partial<RateLimiters>).secret ?? allowAll,
+          secret: (limiters as Partial<PlanRateLimiters>).secret ?? allowAll,
           publishable:
-            (limiters as Partial<RateLimiters>).publishable ?? allowAll,
+            (limiters as Partial<PlanRateLimiters>).publishable ?? allowAll,
         };
-  return () => perKind;
+  const table = limitersFrom((_plan, kind) => perKind[kind]);
+  return () => table;
 }
 
 const allowAll: RateLimiter = { limit: async () => ({ success: true }) };
@@ -246,16 +262,14 @@ export function secondsToNextPeriod(
  */
 export async function enforceRateLimit(c: Context<AppEnv>): Promise<void> {
   const auth = c.get("auth");
-  // `c.env` is undefined under `app.request()` with no bindings (see
-  // RateLimiterProvider); the type says otherwise, hence the cast.
-  const env = c.env as ApiBindings | undefined;
-  const config = parseRateLimits(env?.RATE_LIMITS)[auth.kind];
+  const plan = normalizePlan(auth.plan);
+  const config = rateLimitConfig(plan, auth.kind);
   // Advertised on every limited response, refused or not (IETF draft
   // ratelimit-headers), so a client can pace itself.
   c.header("RateLimit-Policy", `${config.limit};w=${config.period}`);
   c.header("RateLimit-Limit", String(config.limit));
 
-  const limiter = c.get("getRateLimiters")()[auth.kind];
+  const limiter = c.get("getRateLimiters")()[plan][auth.kind];
   const { success } = await limiter.limit(auth.apiKeyId);
   if (success) return;
 
@@ -276,7 +290,7 @@ export async function enforceRateLimit(c: Context<AppEnv>): Promise<void> {
   });
   throw new ApiError(
     "rate_limited",
-    `Rate limit of ${config.limit} requests per ${config.period} seconds reached for this ${auth.kind} key. Retry after ${retryAfter} seconds.`,
+    `Rate limit of ${config.limit} requests per ${config.period} seconds reached for this ${auth.kind} key (${plan} plan). Retry after ${retryAfter} seconds.`,
   );
 }
 
