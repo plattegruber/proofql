@@ -161,12 +161,7 @@ export default function ImportRun({ loaderData }: Route.ComponentProps) {
             <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-hairline pt-5">
               <Link
                 to={reviewsPath}
-                // `!`: the unlayered `a` rule in styles/tokens/base.css
-                // outranks layered utilities, so these must be important.
-                className={cn(
-                  buttonVariants({ size: "md" }),
-                  "text-on-dark! no-underline! hover:text-on-dark!",
-                )}
+                className={cn(buttonVariants({ size: "md" }), "no-underline")}
               >
                 Open reviews
               </Link>
@@ -176,7 +171,7 @@ export default function ImportRun({ loaderData }: Route.ComponentProps) {
                   download={`import-${run.id.slice(0, 8)}-errors.csv`}
                   className={cn(
                     buttonVariants({ variant: "secondary", size: "md" }),
-                    "text-ink-900! no-underline! hover:text-ink-900!",
+                    "no-underline",
                   )}
                 >
                   Download error report
@@ -186,7 +181,7 @@ export default function ImportRun({ loaderData }: Route.ComponentProps) {
                 to={importPath(project.slug)}
                 className={cn(
                   buttonVariants({ variant: "ghost", size: "md" }),
-                  "text-ink-900! no-underline! hover:text-ink-900!",
+                  "no-underline",
                 )}
               >
                 Import another file
