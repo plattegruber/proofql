@@ -38,7 +38,12 @@
  * invariant, and the overshoot is bounded by concurrency.
  */
 
-import { queryLimitForPlan } from "@proofql/core";
+import {
+  PRICING_URL,
+  planFor,
+  secondsToMonthEnd,
+  usageMonthStart,
+} from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
 import { and, eq, sql } from "drizzle-orm";
 import type { Context } from "hono";
@@ -50,17 +55,8 @@ import { ApiError } from "./errors.js";
 import { logFor } from "./request-id.js";
 
 /** `YYYY-MM-01` for the UTC month containing `now` — the `usage.month` key. */
-export function monthStart(now: Date = new Date()): string {
-  const year = now.getUTCFullYear();
-  const month = String(now.getUTCMonth() + 1).padStart(2, "0");
-  return `${year}-${month}-01`;
-}
-
-/** Whole seconds from `now` until the first instant of next UTC month. */
-export function secondsToMonthEnd(now: Date = new Date()): number {
-  const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
-  return Math.max(1, Math.ceil((next - now.getTime()) / 1000));
-}
+export const monthStart = usageMonthStart;
+export { secondsToMonthEnd };
 
 export interface QuotaStatus {
   plan: string;

@@ -1,4 +1,5 @@
-// Domain logic shared by every deployable: API keys, plan limits, the ingest
+// Domain logic shared by every deployable: API keys, the plan table and its
+// limits, the ingest
 // queue message, the review shape, sentiment, chunking, CSV import, the query-cache
 // generation counter, and the structured logger.
 // Pure functions and schemas only — no I/O beyond the logger's sink, no
@@ -9,9 +10,11 @@ export * from "./chunking.js";
 export * from "./csv/index.js";
 export * from "./limits.js";
 export * from "./log.js";
+export * from "./plans.js";
 export * from "./queue.js";
 export * from "./review.js";
 export * from "./sentiment.js";
+export * from "./usage.js";
 
 /** Kept from the scaffold (#10): the workers' build-graph smoke tests import it. */
 export const PACKAGE_NAME = "@proofql/core";

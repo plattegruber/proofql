@@ -1,5 +1,7 @@
 /**
- * Plan limits (scope.md §2 "Free tier"). v0 numbers; tune with data.
+ * Plan limits — thin wrappers over the plan table in ./plans.ts, kept so
+ * the call sites from #21/#29/#37 keep compiling. New code reads `PLANS`
+ * via `planFor(plan)` directly; everything exported here is deprecated.
  *
  * Reviews are enforced at the write path: `POST /v1/reviews` rejects a batch
  * that would push `projects.review_count` past the account's limit before
@@ -8,51 +10,50 @@
  * Queries are enforced per calendar month (UTC) at `/v1/query` from the
  * `usage` table: the number compared against the limit is uncached queries
  * (`queries - cache_hits`), because cached hits are free on every plan.
- * The paid number is a placeholder for "metered" until billing lands (M3).
  */
 
-export const PLAN_REVIEW_LIMITS = {
-  free: 5_000,
-  paid: 100_000,
-} as const;
+import { PLANS, type Plan, planFor } from "./plans.js";
 
-export const PLAN_QUERY_LIMITS = {
-  free: 50_000,
-  paid: 2_000_000,
-} as const satisfies Record<Plan, number>;
+export type { Plan };
+
+/** @deprecated Read `PLANS[plan].reviewsPerProject` via `planFor`. */
+export const PLAN_REVIEW_LIMITS: Readonly<Record<Plan, number>> = {
+  free: PLANS.free.reviewsPerProject,
+  paid: PLANS.paid.reviewsPerProject,
+};
+
+/** @deprecated Read `PLANS[plan].queriesPerMonth` via `planFor`. */
+export const PLAN_QUERY_LIMITS: Readonly<Record<Plan, number>> = {
+  free: PLANS.free.queriesPerMonth,
+  paid: PLANS.paid.queriesPerMonth,
+};
+
+/** @deprecated Read `PLANS[plan].projects` via `planFor`. */
+export const PLAN_PROJECT_LIMITS: Readonly<Record<Plan, number>> = {
+  free: PLANS.free.projects,
+  paid: PLANS.paid.projects,
+};
 
 /**
- * Projects per account (scope.md §2: free = 1, paid = "many"). Enforced by
- * the dashboard's create-project action (#37); the paid number is a cap
- * against runaway scripts, not a product limit.
+ * Reviews per project for a plan; unknown plans get the free-tier number.
+ * @deprecated Use `planFor(plan).reviewsPerProject`.
  */
-export const PLAN_PROJECT_LIMITS = {
-  free: 1,
-  paid: 50,
-} as const satisfies Record<Plan, number>;
-
-export type Plan = keyof typeof PLAN_REVIEW_LIMITS;
-
-/** Reviews per project for a plan; unknown plans get the free-tier number. */
 export function reviewLimitForPlan(plan: string): number {
-  return limitFor(PLAN_REVIEW_LIMITS, plan);
-}
-
-/** Uncached queries per project per month; unknown plans get the free number. */
-export function queryLimitForPlan(plan: string): number {
-  return limitFor(PLAN_QUERY_LIMITS, plan);
-}
-
-/** Projects per account for a plan; unknown plans get the free-tier number. */
-export function projectLimitForPlan(plan: string): number {
-  return limitFor(PLAN_PROJECT_LIMITS, plan);
+  return planFor(plan).reviewsPerProject;
 }
 
 /**
- * `hasOwn`, not a bare index: `plan` comes from a database enum today, but
- * a string like "toString" must still resolve to the free number rather
- * than an inherited property.
+ * Uncached queries per project per month; unknown plans get the free number.
+ * @deprecated Use `planFor(plan).queriesPerMonth`.
  */
-function limitFor(table: Record<Plan, number>, plan: string): number {
-  return Object.hasOwn(table, plan) ? table[plan as Plan] : table.free;
+export function queryLimitForPlan(plan: string): number {
+  return planFor(plan).queriesPerMonth;
+}
+
+/**
+ * Projects per account for a plan; unknown plans get the free-tier number.
+ * @deprecated Use `planFor(plan).projects`.
+ */
+export function projectLimitForPlan(plan: string): number {
+  return planFor(plan).projects;
 }

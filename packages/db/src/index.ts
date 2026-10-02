@@ -42,3 +42,8 @@ export {
   searchChunks,
 } from "./queries/searchChunks.js";
 export * as schema from "./schema/index.js";
+export {
+  type SetAccountPlanResult,
+  setAccountPlan,
+  syncProjectBadges,
+} from "./tenancy/plan.js";
