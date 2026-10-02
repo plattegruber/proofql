@@ -9,11 +9,13 @@ import {
   INGEST_SAMPLE,
   indexingSettled,
   ingestCurl,
+  MIN_REVIEWS_FOR_SUGGESTION,
   onboardingPath,
   onboardingResourcePath,
   onboardingSnippet,
   onboardingStepNumber,
   QUERY_STOP_WORDS,
+  suggestQuery,
   suggestQueryFromTexts,
 } from "./onboarding";
 
@@ -73,6 +75,35 @@ describe("suggestQueryFromTexts", () => {
     const b = suggestQueryFromTexts(["apple zebra", "zebra apple"]);
     expect(a).toBe("apple zebra");
     expect(b).toBe("apple zebra");
+  });
+});
+
+describe("suggestQuery", () => {
+  // Twenty-plus reviews whose common topic is unambiguous.
+  const corpus = Array.from({ length: MIN_REVIEWS_FOR_SUGGESTION }, (_, i) =>
+    i % 2 === 0
+      ? `Dr. Patel did my implant and parking was easy (${i}).`
+      : `The implant consult was thorough; parking behind the building (${i}).`,
+  );
+
+  it("suggests nothing below the review threshold, even when the words would pair", () => {
+    expect(MIN_REVIEWS_FOR_SUGGESTION).toBe(20);
+    expect(suggestQuery(DENTAL)).toBeNull();
+    expect(
+      suggestQuery(corpus.slice(0, MIN_REVIEWS_FOR_SUGGESTION - 1)),
+    ).toBeNull();
+    expect(suggestQuery([])).toBeNull();
+    // The sample the API path imports is three reviews: never a suggestion.
+    expect(suggestQuery(INGEST_SAMPLE.map((s) => String(s.text)))).toBeNull();
+  });
+
+  it("keeps the co-occurrence suggestion at and above the threshold", () => {
+    expect(suggestQuery(corpus)).toBe("implant parking");
+    expect(suggestQuery([...corpus, "Whitening was quick."])).toBe(
+      "implant parking",
+    );
+    // The threshold is a parameter so a caller can lower it.
+    expect(suggestQuery(DENTAL, 5)).toBe("parking easy");
   });
 });
 

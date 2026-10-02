@@ -1,7 +1,8 @@
 // Onboarding step 4 (#53): your snippet. The one tag from
 // packages/snippet/README.md, prefilled with the live publishable key from
 // step 1 and a `data-query` suggested from the project's most common review
-// topics; a copy button; a live preview in an iframe that loads the snippet
+// topics (only once MIN_REVIEWS_FOR_SUGGESTION reviews are indexed, #106;
+// below that the tag runs in recency mode); a copy button; a live preview in an iframe that loads the snippet
 // from SNIPPET_SRC against this project's own data; three lines on where to
 // paste it; the hosted demo. Finishing marks the account's onboarding done
 // and opens the Playground.
@@ -19,6 +20,7 @@ import { withRequestDb } from "~/lib/db.server";
 import { setFlash } from "~/lib/flash.server";
 import {
   demoUrl,
+  MIN_REVIEWS_FOR_SUGGESTION,
   onboardingResourcePath,
   onboardingSnippet,
 } from "~/lib/onboarding";
@@ -162,10 +164,13 @@ export default function OnboardingSnippet({
                 </>
               ) : (
                 <>
-                  Without <span className="font-mono">data-query</span> the tag
-                  shows your newest reviews. Add{" "}
-                  <span className="font-mono">data-query="…"</span> to match a
-                  page's topic.
+                  Add a query once you have more reviews; without one the
+                  snippet shows your newest reviews. With{" "}
+                  {MIN_REVIEWS_FOR_SUGGESTION} or more indexed, this step
+                  suggests a <span className="font-mono">data-query</span> from
+                  your most common topic; set{" "}
+                  <span className="font-mono">data-query="…"</span> yourself to
+                  match a page's topic any time.
                 </>
               )}
             </p>
