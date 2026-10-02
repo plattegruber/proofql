@@ -3,7 +3,7 @@ title: Snippet
 description: One script tag and one div render relevant reviews on any site. Attributes, keys and origins, styling variables, your own markup, single-page apps, and what happens when something fails.
 ---
 
-The snippet is a pure client of [`GET /v1/query`](/api/operations/queryreviewsget): vanilla JavaScript, no dependencies, one minified file under 5 KB gzipped, served from `https://cdn.proofql.com/v1.js`.
+The snippet is a pure client of [`GET /v1/query`](/api/operations/queryreviewsget): vanilla JavaScript, no dependencies, one minified file under 5 KB gzipped, served from `https://cdn.proofql.com/v1.js`. To see it on a page before touching your own, open the [hosted demo](https://cdn.proofql.com/demo/): a small-business site with four sections asking four different questions of the same reviews, using the default stylesheet throughout.
 
 ```html
 <div data-proofql data-query="dental implants" data-limit="3"></div>
@@ -139,6 +139,6 @@ Empty `results`, a non-2xx response, a network error, malformed JSON: all render
 
 This is deliberate. An empty block is better than an irrelevant review ([Relevance and the floor](/query#relevance)), and a broken key is better found in the console than announced to visitors. When a page you expected to show reviews is blank, open the console: the line carries the API's `code` and `message`, and [Errors](/errors) has the fix for each code.
 
-:::note
-The hosted bundle at `cdn.proofql.com/v1.js` is published by [#34](https://github.com/plattegruber/proofql/issues/34). Until then, `pnpm --filter @proofql/snippet build` produces `dist/v1.js` from the repo.
-:::
+## The hosted file
+
+`https://cdn.proofql.com/v1.js` is the stable alias the script tag uses; a new release rolls to it within five minutes. Beside it, `/v1.<hash>.js` is the same build content-addressed and cached for a year: pin it where you also control the page that would need updating, and quote it in a bug report. `GET https://cdn.proofql.com/version.json` says which build is live (`{ version, hash, builtAt }`). Both files carry `Access-Control-Allow-Origin: *`, so fetch-based loaders and devtools work, and no request to the cdn ever sets a cookie.

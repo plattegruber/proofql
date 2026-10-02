@@ -84,7 +84,7 @@ On the page that should show reviews:
 <script async src="https://cdn.proofql.com/v1.js" data-key="pq_pk_live_…"></script>
 ```
 
-That is the whole integration. `data-query` is the question the page asks of your reviews; put the page's topic in it. Without a `data-query`, the newest publishable reviews render. One script tag serves any number of `[data-proofql]` elements, each with its own query. The attribute table, styling variables, and the `data-template` escape hatch are on the [Snippet](/snippet) page.
+That is the whole integration ([the hosted demo](https://cdn.proofql.com/demo/) is exactly this, four times, on a fictional dental practice's site). `data-query` is the question the page asks of your reviews; put the page's topic in it. Without a `data-query`, the newest publishable reviews render. One script tag serves any number of `[data-proofql]` elements, each with its own query. The attribute table, styling variables, and the `data-template` escape hatch are on the [Snippet](/snippet) page.
 
 If nothing shows up, that is the snippet doing its job: on an empty result, a refused key, or an unlisted origin it renders nothing and logs one `console.debug` line prefixed `[proofql]`. Open the console; the API's error message says what to fix, and the [Errors](/errors) page has a line for every code.
 
