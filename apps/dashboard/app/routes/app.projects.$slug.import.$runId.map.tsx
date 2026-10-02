@@ -40,6 +40,7 @@ import {
 import { withRequestDb } from "~/lib/db.server";
 import { SOURCE_LABELS } from "~/lib/import-labels";
 import { importPath, importRunPath } from "~/lib/import-paths";
+import { ONBOARDING_FLAG, onboardingPath } from "~/lib/onboarding";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/app.projects.$slug.import.$runId.map";
 
@@ -75,6 +76,7 @@ export async function loader(args: Route.LoaderArgs) {
   );
   const { detected, defaults } = proposeMapping(preview, options);
   return {
+    onboarding: url.searchParams.get(ONBOARDING_FLAG) === "1",
     project: { slug: project.slug, name: project.name },
     run: { id: run.id, environment: run.environment },
     preview,
@@ -121,6 +123,12 @@ export async function action(args: Route.ActionArgs) {
       fields: Object.keys(mapping.fields),
     });
     runImportInBackground(args.context, run.id);
+    // From the guided onboarding (#53), the progress shows on its step 3.
+    if (form.get(ONBOARDING_FLAG) === "1") {
+      return redirect(
+        onboardingPath("indexing", project.slug, { run: run.id }),
+      );
+    }
     return redirect(importRunPath(project.slug, run.id));
   } catch (error) {
     if (error instanceof ImportError) {
@@ -219,6 +227,9 @@ export default function ImportMap({
         ))}
         <input type="hidden" name="totalRows" value={preview.totalRows} />
         <input type="hidden" name="profile" value={detected.profile} />
+        {loaderData.onboarding && (
+          <input type="hidden" name={ONBOARDING_FLAG} value="1" />
+        )}
         {Object.entries(metadata).map(([column, key]) => (
           <input
             key={column}

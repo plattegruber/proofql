@@ -19,7 +19,9 @@ CLOUDFLARE_ENV=preview pnpm --filter @proofql/dashboard build && pnpm --filter @
 |---|---|
 | `workers/app.ts` | The Worker. Mints the request id, builds the request-bound logger, and puts `{ env, ctx, log, requestId }` on the router context (`app/lib/context.ts`). |
 | `app/root.tsx` | Fonts and tokens, the Clerk middleware/provider pair (mounted only when Clerk is configured), the error boundary. |
-| `app/routes.ts` | `/` → `/app`; `/sign-in/*`, `/sign-up/*`; `/app/workspace`; the protected `/app` layout with the overview, `/app/projects/new`, and `/app/projects/:slug/{reviews,import,playground,keys,settings}`; `POST /webhooks/clerk`; `GET /health`. |
+| `app/routes.ts` | `/` → `/app`; `/sign-in/*`, `/sign-up/*`; `/app/workspace`; the protected `/app` layout with the overview, the guided onboarding (`/app/onboarding`, `/app/onboarding/:slug/{reviews,indexing,snippet,preview,status}`), `/app/projects/new`, and `/app/projects/:slug/{reviews,import,playground,keys,settings}`; `POST /webhooks/clerk`; `GET /health`. |
+| `app/routes/app.onboarding*` | The guided onboarding (#53, below): step 1 names the project and mints both live keys; steps 2–4 add reviews, watch indexing, and hand over the prefilled snippet with a live preview. |
+| `app/lib/onboarding.ts`, `app/lib/onboarding.server.ts` | Pure rules (steps, the suggested first query, the prefilled tag, the ingest curl) and the server side (the one-hour onboarding cookie, project + keys in one transaction, indexing counts, completion). |
 | `app/routes/app.projects.$slug.import.*` | The CSV/JSON import (#38): `import` (step 1, upload → R2 + `ingest_runs` row), `import/:runId/map` (step 2, detected mapping as selects, live validation in the browser), `import/:runId` (steps 3–4, progress polling and the result), `import/:runId/errors.csv` (the per-row error report). |
 | `app/lib/csv.server.ts` | The import engine: upload, preview, plan, `runImport` (streams the file from R2, `normalizeRow` from `@proofql/core`, `upsertReviews` from `@proofql/db` in batches of 100, enqueues index messages), progress and the error report. Resumable from the run's counts. |
 | `app/lib/background.server.ts` | Hands `runImport` to `ctx.waitUntil` with its own DB client. |
@@ -52,6 +54,41 @@ changes go through `setAccountPlan` in `@proofql/db` (`pnpm db:set-plan`
 for ops), which also refreshes `projects.show_badge`; the api never reads
 that column to decide the badge — it derives it from `accounts.plan`.
 
+## Guided onboarding (#53)
+
+Scope §1: sign up → import → progress bar → copy the snippet, under five
+minutes, zero docs. After sign-in, an account with **zero projects** whose
+`accounts.onboarding_completed_at` is null is redirected from `/app` to
+`/app/onboarding` (the only onboarding logic in `app._index.tsx`). A
+project with zero reviews shows a "Finish setup" rule on every project tab
+linking back into step 2.
+
+| Step | Route | What happens |
+|---|---|---|
+| 1 Name your project | `/app/onboarding` | One field; the slug derives from it. The action runs `startOnboardingProject`: `createProject` + a **live publishable** and a **live secret** key in one transaction, and adds the dashboard's own origin to `allowed_origins` so step 4's preview can query (remove it in Keys when done). "I'll do this later" (`intent=skip`, or `?skip=1`) sets `onboarding_completed_at` and returns to the overview. |
+| 2 Add your reviews | `/app/onboarding/:slug/reviews` | Three equal cards: upload (the import wizard with `?onboarding=1`, which returns to step 3 with `?run=<id>` after the mapping is confirmed), connect Google (disabled — waiting on Google's API approval, #44), use the API (a ready-to-run `POST /v1/reviews` curl with the live secret key and three sample reviews; "Check for reviews" polls `…/status` every 2 s for a minute). |
+| 3 Indexing | `/app/onboarding/:slug/indexing` | `ImportProgress` for an upload, or one meter over the project's live `reviews` vs `indexed_at` ("Indexing 212 of 340 reviews"); revalidates every 2 s and advances itself once everything is indexed. Sixty seconds with no reviews offers the way back. |
+| 4 Your snippet | `/app/onboarding/:slug/snippet` | The tag from `packages/snippet/README.md` with the publishable key and `data-query` set to the suggested first query (the two most frequent co-occurring content words across the project's `full` chunks, `suggestQueryFromTexts`); copy; a live preview iframe (`…/preview`, a bare page carrying the same tag, loaded from `SNIPPET_SRC`); "Where to paste it"; the hosted demo (`<cdn>/demo/?key=…`). Finishing sets `onboarding_completed_at`, clears the cookie and opens the Playground. |
+
+**The keys are shown once.** Only SHA-256 hashes are stored
+(`api-keys.server.ts`). The plaintexts minted in step 1 live in the signed
+`__pq_onboarding` cookie (same `SESSION_SECRET` as the flash) for **one
+hour** (`ONBOARDING_COOKIE_MAX_AGE_S`), together with `startedAt` for the
+timing and the project id; the dashboard never persists them anywhere else.
+After the hour, steps 2 and 4 show a placeholder and point at Keys.
+
+**Timing.** Every step's loader logs `onboarding.step` with `elapsed_ms`
+since step 1 was first shown; `onboarding.completed` / `onboarding.dismissed`
+close the clock ([`docs/observability.md`](../../docs/observability.md)).
+
+**Local walkthrough from a fresh account.** The snippet loads from
+`SNIPPET_SRC` (`http://localhost:8800/v1.js` locally — run
+`pnpm --filter @proofql/cdn dev`; `https://cdn.proofql.com/v1.js`
+deployed) and the preview queries the local api, so run the api and the
+pipeline too. Set `AUTH_STUB_ORG_ID=org_anything` in `.dev.vars` and the
+auth stub acts as an empty account with that id (created on first load)
+instead of the seeded demo; clear it to go back.
+
 ## The auth seam: `requireAccount`
 
 Every data-backed loader starts with
@@ -62,7 +99,7 @@ env (`app/lib/auth-mode.ts`):
 | `CLERK_SECRET_KEY` | `ENVIRONMENT` | Mode | Behaviour |
 |---|---|---|---|
 | set | any | `clerk` | Clerk session via `clerkMiddleware`. No user → `/sign-in?redirect_url=…`. No active Organization → `/app/workspace` (Clerk's create/select UI). Otherwise the `accounts` row for the org, created on first load with the organization's name from Clerk's Backend API. |
-| empty | `local` | `stub` | **Local auth stub.** Every request acts as the seeded demo account (`org_demo_proofql`, `pnpm seed`), a "Local auth stub" banner shows, `/sign-in` and `/sign-up` redirect to `/app`. |
+| empty | `local` | `stub` | **Local auth stub.** Every request acts as the seeded demo account (`org_demo_proofql`, `pnpm seed`) — or, with `AUTH_STUB_ORG_ID` set in `.dev.vars`, as an empty account with that id, created on first load — a "Local auth stub" banner shows, `/sign-in` and `/sign-up` redirect to `/app`. |
 | empty | anything else | `unconfigured` | 503 with the fix. Never a silent stub outside local. |
 
 This is Well-Regarded's `requirePracticeContext()` pattern: when real auth

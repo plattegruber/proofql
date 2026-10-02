@@ -45,6 +45,7 @@ function renderMap(overrides: { reviewCount?: number } = {}) {
   const reviewCount = overrides.reviewCount ?? 80;
   const room = Math.max(0, 5_000 - reviewCount);
   const data = {
+    onboarding: false,
     project: { slug: "cedar-ridge-dental", name: "Cedar Ridge Dental" },
     run: {
       id: "11111111-1111-4111-8111-111111111111",

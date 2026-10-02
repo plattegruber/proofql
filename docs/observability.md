@@ -143,10 +143,16 @@ wire) and bind it in `handleQueueBatch`.
 | `import.paused` | info | `ingest_run_id`, `processed`, `total_rows` | The run yielded at its time budget; the progress page offers "Resume". A run that logs this and never a later `import.started` was abandoned by the user. |
 | `import.finished` | info | `ingest_run_id`, `created`, `updated`, `skipped`, `failed`, `duration_ms` | `ingest_runs.status = succeeded`. |
 | `import.failed` | warn / error | `ingest_run_id`, `error_message` (warn: a readable cause written to `ingest_runs.error`) or `error` (error: the background task threw) | The run was marked `failed`, or the `waitUntil` task died before it could. The second form is the one to alert on. |
+| `onboarding.step` | info | `step` (`project` \| `reviews` \| `indexing` \| `snippet`), `elapsed_ms`, `account_id`, `project_id` (from step 2) | A guided-onboarding step was shown ([#53](../apps/dashboard/app/routes/app.onboarding.tsx)). `elapsed_ms` is measured from the first time step 1 was shown (the `startedAt` in the onboarding cookie; null when the cookie is gone). This is how the five-minute target (scope §1) is measured: the distribution of `elapsed_ms` on `step = snippet`. |
+| `onboarding.completed` | info | `account_id`, `project_id`, `elapsed_ms` | "Finish" on step 4: `accounts.onboarding_completed_at` set. `elapsed_ms` here is the number to report against the five-minute target. |
+| `onboarding.dismissed` | info | `account_id`, `elapsed_ms` | "I'll do this later" (or `?skip=1`): the flag is set without a project. A high dismiss rate on `elapsed_ms` near zero means step 1 asks too much. |
 
 The import rows are the dashboard's first mutating surface; the loaders'
-account and project queries remain plain reads. Keys and settings (#37,
-#41) add their events here when they land.
+account and project queries remain plain reads. The onboarding (#53) also
+emits `project.created` (with `onboarding: true`) and two `api_key.created`
+lines from its step-1 action, the same events the project and Keys surfaces
+log. No onboarding line carries a key: `plaintext` and `key` are redacted
+fields, and the call sites log ids only.
 
 ## Tuning the similarity floor
 

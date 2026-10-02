@@ -20,6 +20,30 @@ export default [
   // runs with an account in hand.
   layout("routes/app.tsx", [
     route("app", "routes/app._index.tsx"),
+    // Guided onboarding (#53): step 1 creates the project, so it has no
+    // slug; steps 2–4 and the two resource routes (the preview iframe page
+    // and the counts the "Check for reviews" poll reads) hang off one.
+    route("app/onboarding", "routes/app.onboarding.tsx"),
+    route(
+      "app/onboarding/:slug/reviews",
+      "routes/app.onboarding.$slug.reviews.tsx",
+    ),
+    route(
+      "app/onboarding/:slug/indexing",
+      "routes/app.onboarding.$slug.indexing.tsx",
+    ),
+    route(
+      "app/onboarding/:slug/snippet",
+      "routes/app.onboarding.$slug.snippet.tsx",
+    ),
+    route(
+      "app/onboarding/:slug/preview",
+      "routes/app.onboarding.$slug.preview.ts",
+    ),
+    route(
+      "app/onboarding/:slug/status",
+      "routes/app.onboarding.$slug.status.ts",
+    ),
     // Create a project (#37). Declared before `:slug` and `new` is a reserved
     // slug (app/lib/projects.ts), so the two can never collide.
     route("app/projects/new", "routes/app.projects.new.tsx"),

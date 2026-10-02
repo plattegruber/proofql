@@ -51,6 +51,16 @@ export const accounts = pgTable("accounts", {
    * accounts, and re-creating the organization clears the mark.
    */
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  /**
+   * When the guided onboarding (#53) was finished or dismissed for this
+   * account. Null means a sign-in with zero projects lands on
+   * `/app/onboarding`; set, the overview shows as usual. On the account
+   * rather than in a cookie so the decision follows the user across
+   * devices and browsers.
+   */
+  onboardingCompletedAt: timestamp("onboarding_completed_at", {
+    withTimezone: true,
+  }),
   ...timestamps,
 });
 

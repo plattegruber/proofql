@@ -10,7 +10,7 @@ import {
   usageMonthStart,
 } from "@proofql/core";
 import { FolderOpen } from "lucide-react";
-import { Link } from "react-router";
+import { Link, redirect } from "react-router";
 
 import { Overline, PageHeader } from "~/components/shell/page-header";
 import { Badge } from "~/components/ui/badge";
@@ -20,6 +20,7 @@ import { UsageMeter } from "~/components/usage-meter";
 import { requireAccount } from "~/lib/account.server";
 import { listProjectsForAccount } from "~/lib/accounts";
 import { withRequestDb } from "~/lib/db.server";
+import { ONBOARDING_PATH } from "~/lib/onboarding";
 import { NO_USAGE, usageForProjects } from "~/lib/usage.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/app._index";
@@ -36,6 +37,11 @@ export async function loader(args: Route.LoaderArgs) {
     );
     return { projects, usage };
   });
+  // Nothing set up yet and the guided onboarding (#53) was neither finished
+  // nor dismissed: that flow is the overview.
+  if (projects.length === 0 && account.onboardingCompletedAt === null) {
+    throw redirect(ONBOARDING_PATH);
+  }
   const limits = planFor(account.plan);
   return {
     account: { name: account.name, plan: account.plan },

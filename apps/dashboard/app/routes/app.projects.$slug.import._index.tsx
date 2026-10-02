@@ -25,6 +25,7 @@ import {
   SOURCE_LABELS,
 } from "~/lib/import-labels";
 import { importMapPath } from "~/lib/import-paths";
+import { ONBOARDING_FLAG } from "~/lib/onboarding";
 import type { Route } from "./+types/app.projects.$slug.import._index";
 
 export async function loader(args: Route.LoaderArgs) {
@@ -36,6 +37,9 @@ export async function loader(args: Route.LoaderArgs) {
   return {
     project: { slug: project.slug, name: project.name },
     maxBytes: MAX_UPLOAD_BYTES,
+    // Started from the guided onboarding (#53): the run returns there.
+    onboarding:
+      new URL(args.request.url).searchParams.get(ONBOARDING_FLAG) === "1",
   };
 }
 
@@ -60,6 +64,7 @@ export async function action(args: Route.ActionArgs) {
 
   const form = await args.request.formData();
   const file = form.get("file");
+  const onboarding = form.get(ONBOARDING_FLAG) === "1";
   const environment = form.get("environment") === "test" ? "test" : "live";
   const options = uploadOptionsSchema.safeParse({
     profile: form.get("profile") || undefined,
@@ -100,6 +105,7 @@ export async function action(args: Route.ActionArgs) {
       importMapPath(project.slug, runId, {
         profile: options.data.profile,
         source: options.data.source,
+        ...(onboarding ? { [ONBOARDING_FLAG]: "1" } : {}),
       }),
     );
   } catch (error) {
@@ -133,6 +139,9 @@ export default function ImportUpload({
         className="max-w-2xl border border-hairline bg-surface-card p-5"
         aria-label="Upload a review export"
       >
+        {loaderData.onboarding && (
+          <input type="hidden" name={ONBOARDING_FLAG} value="1" />
+        )}
         <Field
           label="File"
           htmlFor="file"
