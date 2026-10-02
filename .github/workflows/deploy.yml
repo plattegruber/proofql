@@ -1,4 +1,4 @@
-# Deploy (#14): migrate Neon, then `wrangler deploy` the four workers.
+# Deploy (#14): migrate Neon, then `wrangler deploy` the five workers.
 #
 #   push to main            → preview  (migrate-preview → deploy-preview)
 #   workflow_dispatch       → preview by default, or prod via the
@@ -24,8 +24,8 @@
 # consumer) before api (the producer) so no message is ever enqueued without
 # a consumer attached, then the cdn (the snippet the demo and every customer
 # page load, built from packages/snippet right before the deploy, #34), then
-# the dashboard. Each `wrangler deploy` is its own step so a failure names
-# the worker.
+# the dashboard, then the docs site (#43; static assets, nothing depends on
+# it). Each `wrangler deploy` is its own step so a failure names the worker.
 name: Deploy
 
 on:
@@ -137,6 +137,19 @@ jobs:
           packageManager: pnpm
           workingDirectory: apps/dashboard
           command: deploy --env preview
+      # The docs site (#43) is an assets-only Worker: `astro build` writes
+      # docs/site/dist and `wrangler deploy` uploads it. No bindings, no
+      # placeholders, so it is outside check-provisioning.
+      - name: Build proofql-docs-preview
+        run: pnpm --filter @proofql/docs build
+      - name: Deploy proofql-docs-preview
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: docs/site
+          command: deploy --env preview
       # workers.dev URLs are deterministic once the account subdomain is
       # known (repository variable WORKERS_SUBDOMAIN, infra/provisioning.md).
       - name: Smoke check /health
@@ -153,6 +166,10 @@ jobs:
             curl --fail --silent --show-error --max-time 20 "$url"
             echo
           done
+          # The docs site has no /health (static assets); its front page is the smoke.
+          url="https://proofql-docs-preview.${SUBDOMAIN}.workers.dev/"
+          echo "GET $url"
+          curl --fail --silent --show-error --max-time 20 --output /dev/null "$url"
 
   # ------------------------------------------------------------------- prod
   # Both prod jobs carry `environment: production`, so the required reviewer
@@ -231,6 +248,19 @@ jobs:
           packageManager: pnpm
           workingDirectory: apps/dashboard
           command: deploy --env prod
+      # The docs site (#43) is an assets-only Worker: `astro build` writes
+      # docs/site/dist and `wrangler deploy` uploads it. No bindings, no
+      # placeholders, so it is outside check-provisioning.
+      - name: Build proofql-docs-prod
+        run: pnpm --filter @proofql/docs build
+      - name: Deploy proofql-docs-prod
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: docs/site
+          command: deploy --env prod
       # workers.dev URLs are deterministic once the account subdomain is
       # known (repository variable WORKERS_SUBDOMAIN, infra/provisioning.md).
       - name: Smoke check /health
@@ -247,3 +277,7 @@ jobs:
             curl --fail --silent --show-error --max-time 20 "$url"
             echo
           done
+          # The docs site has no /health (static assets); its front page is the smoke.
+          url="https://proofql-docs-prod.${SUBDOMAIN}.workers.dev/"
+          echo "GET $url"
+          curl --fail --silent --show-error --max-time 20 --output /dev/null "$url"

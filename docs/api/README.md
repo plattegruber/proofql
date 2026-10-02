@@ -6,6 +6,10 @@
 
 **Change the code → change the spec in the same PR.** A response-shape, status, header, or validation change in `workers/api` lands together with the matching edit here. CI enforces it from both sides: the `lint` job lints the spec, the `integration` job runs the contract tests against the real worker. (The same sentence is in [CONTRIBUTING](../../CONTRIBUTING.md).)
 
+## Rendered reference
+
+The docs site ([`docs/site`](../site/README.md), #43) renders this file at `https://docs.proofql.com/api` through `starlight-openapi`; nothing there is hand-written, so an edit here is the whole change. Its link check also holds `/errors` to the `ErrorCode` enum: every value needs an anchor on that page, because `doc_url` points there.
+
 ## Lint
 
 ```sh

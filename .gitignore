@@ -14,3 +14,6 @@ build/
 # init` and `clerk env pull` write `.env.local`).
 .env.local
 .env.*.local
+
+# Astro (docs/site): generated types
+.astro/

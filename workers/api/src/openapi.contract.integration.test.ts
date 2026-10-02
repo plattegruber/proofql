@@ -1043,6 +1043,16 @@ describe("POST /v1/query", () => {
     expect(anon.status).toBe(401);
     await conforms(anon, "post", PATH);
 
+    // #91: `?key=` is GET-only; on POST it is refused before any lookup,
+    // even from a listed origin.
+    const keyInUrl = await call(`${PATH}?key=${f.publishable}`, {
+      method: "POST",
+      headers: { origin: ORIGIN },
+      body: {},
+    });
+    expect(keyInUrl.status).toBe(401);
+    await conforms(keyInUrl, "post", PATH);
+
     const noOrigin = await call(PATH, {
       method: "POST",
       key: f.publishable,

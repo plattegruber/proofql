@@ -481,9 +481,9 @@ watch it, then approve `deploy-prod`. Smoke-check
 
 ## Custom domains (later, outside this checklist)
 
-Scope §7.6: `api.proofql.com` and `cdn.proofql.com` replace the workers.dev
-URLs once the domain is owned and its zone is on this Cloudflare account.
-Then:
+Scope §7.6: `api.proofql.com`, `cdn.proofql.com` and `docs.proofql.com`
+replace the workers.dev URLs once the domain is owned and its zone is on this
+Cloudflare account. Then:
 
 1. Add **Zone → Workers Routes: Edit** and **Zone → DNS: Edit** for that zone
    to the `proofql-github-actions` token (step 8).
@@ -498,6 +498,13 @@ Then:
 3. The api gets its route the same way, and `API_URL` in the dashboard
    config (step 9) and the smoke check in `deploy.yml` move to the new
    hostnames.
+4. `docs/site/wrangler.jsonc`: in `env.prod`, replace the
+   `TODO(docs.proofql.com)` comment with
+   `"routes": [{ "pattern": "docs.proofql.com", "custom_domain": true }]`
+   (#43). The api already emits `doc_url: https://docs.proofql.com/errors#<code>`
+   in every error envelope (`ERROR_DOCS_BASE_URL`, `workers/api/src/errors.ts`)
+   and the dashboard links `https://docs.proofql.com/query#relevance`, so until
+   this step those links 404; nothing else depends on it.
 
 ## Demo project on preview (after step 11, for #35)
 

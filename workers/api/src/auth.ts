@@ -28,6 +28,13 @@
  * ride. Secret keys are never accepted from the URL: URLs land in logs and
  * referrers. The Authorization header wins when both are present.
  *
+ * `?key=` is accepted on **GET only** (#91). The snippet never POSTs, a
+ * POST already needs a request body and so can carry a header, and a key in
+ * a POST URL is surface with no caller — so a `POST /v1/query?key=…` is a
+ * 401 that points at the Authorization header, before any lookup. The CORS
+ * preflight (`OPTIONS`) reads `?key=` through `presentedToken` because the
+ * snippet's URL is the only place a preflight can see a key.
+ *
  * Once the key is known the request is counted against its per-key rate
  * limit (`enforceRateLimit`, src/rate-limit.ts) — here rather than per
  * route, so no route can forget it.
@@ -54,8 +61,9 @@ export interface RequireApiKeyOptions {
   /** Require this kind; publishable keys get 403 on `secret` routes. */
   kind?: ApiKeyKind;
   /**
-   * Also accept a *publishable* key from `?key=` when there is no
-   * Authorization header (module doc). Only `/v1/query` turns this on.
+   * Also accept a *publishable* key from `?key=` on a GET with no
+   * Authorization header (module doc). Only `/v1/query` turns this on; on
+   * any other method a `?key=` is refused with 401.
    */
   keyParam?: boolean;
 }
@@ -63,6 +71,8 @@ export interface RequireApiKeyOptions {
 const USAGE_HINT = "Send `Authorization: Bearer <api key>`.";
 const KEY_PARAM_HINT =
   "Send `Authorization: Bearer <api key>`, or a publishable key as `?key=pq_pk_…`.";
+const KEY_PARAM_GET_ONLY =
+  "`?key=` is accepted on GET /v1/query only. Send `Authorization: Bearer <api key>` instead.";
 
 /** Pull the key out of the header, or null when the header is not Bearer. */
 export function extractBearerToken(
@@ -161,6 +171,13 @@ export async function lookupApiKey(
 export function requireApiKey(options: RequireApiKeyOptions = {}) {
   return createMiddleware<AppEnv>(async (c, next) => {
     const header = c.req.header("authorization");
+    // A key in the URL of anything but a GET is refused outright — even
+    // beside a valid header — so the pattern never takes root (module doc).
+    const keyParam = options.keyParam ? c.req.query("key") : undefined;
+    const keyParamAllowed = options.keyParam && c.req.method === "GET";
+    if (keyParam !== undefined && keyParam !== "" && !keyParamAllowed) {
+      throw new ApiError("unauthorized", KEY_PARAM_GET_ONLY);
+    }
     let token: string;
     let fromUrl = false;
     if (header !== undefined) {
@@ -173,14 +190,13 @@ export function requireApiKey(options: RequireApiKeyOptions = {}) {
       }
       token = bearer;
     } else {
-      const param = options.keyParam ? c.req.query("key") : undefined;
-      if (param === undefined || param === "") {
+      if (keyParam === undefined || keyParam === "") {
         throw new ApiError(
           "unauthorized",
-          `Missing Authorization header. ${options.keyParam ? KEY_PARAM_HINT : USAGE_HINT}`,
+          `Missing Authorization header. ${keyParamAllowed ? KEY_PARAM_HINT : USAGE_HINT}`,
         );
       }
-      token = param;
+      token = keyParam;
       fromUrl = true;
     }
     const parsed = parseApiKey(token);
@@ -237,5 +253,5 @@ export const requireSecretKey = requireApiKey({ kind: "secret" });
 /** Read routes: either kind. */
 export const requireAnyKey = requireApiKey();
 
-/** `/v1/query`: either kind, and a publishable key may ride in `?key=`. */
+/** `/v1/query`: either kind, and on GET a publishable key may ride in `?key=`. */
 export const requireQueryKey = requireApiKey({ keyParam: true });

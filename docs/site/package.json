@@ -1,0 +1,29 @@
+{
+  "name": "@proofql/docs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The developer docs site (docs.proofql.com): Astro Starlight, deployed as a Worker with static assets.",
+  "scripts": {
+    "dev": "astro dev --port 4321",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro build --force && node scripts/check-links.mjs",
+    "test": "pnpm check",
+    "lint": "biome check .",
+    "typecheck": "astro sync && tsc --noEmit",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.42.5",
+    "astro": "^7.3.5",
+    "starlight-openapi": "^0.26.3"
+  },
+  "devDependencies": {
+    "@proofql/tsconfig": "workspace:*",
+    "@types/node": "^26.6.3",
+    "typescript": "^5.9.2",
+    "wrangler": "^4.145.0",
+    "yaml": "2.9.1"
+  }
+}
