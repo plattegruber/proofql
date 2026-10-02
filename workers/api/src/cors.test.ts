@@ -15,11 +15,11 @@ function auth(
     projectId: "p",
     environment: "live",
     kind,
+    plan: "free",
     project: {
       allowedOrigins,
       minRating: 4,
       similarityFloor: 0.55,
-      showBadge: true,
     },
   };
 }

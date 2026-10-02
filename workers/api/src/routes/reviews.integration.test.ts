@@ -5,7 +5,7 @@
  * faked too, so `waitUntil` work (last_used_at) can be awaited and asserted.
  */
 
-import { generateApiKey, type IngestMessage } from "@proofql/core";
+import { generateApiKey, type IngestMessage, PRICING_URL } from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
 import { project, review, setupTestDb } from "@proofql/db/test";
 import { and, eq } from "drizzle-orm";
@@ -527,6 +527,11 @@ describe("POST /v1/reviews", () => {
         message: expect.stringMatching(/5000/),
       },
     });
+    // Names the plan, the limit, and where to go: the snippet shows nothing
+    // on an error, so this message is the whole story for the integrator.
+    expect(json.error.message).toMatch(/Free plan/);
+    expect(json.error.message).toContain(PRICING_URL);
+    expect(json.error.message).toMatch(/Nothing was written/);
     expect(queue.batches).toHaveLength(0);
 
     const rows = await storedReviews(t.db, p.id);

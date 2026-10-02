@@ -12,9 +12,10 @@
 
 import { FakeEmbeddingProvider, fakeEmbed } from "@proofql/ai";
 import { generateApiKey, recordingSink } from "@proofql/core";
-import type { Db } from "@proofql/db";
+import { type Db, setAccountPlan } from "@proofql/db";
 import {
   type ApiKey,
+  account,
   chunk,
   type Project,
   project,
@@ -353,10 +354,48 @@ describe("/v1/query", () => {
       ]);
     });
 
-    it("badge reflects projects.show_badge", async () => {
-      const paid = await fixture(t.db, { showBadge: false });
-      const body = await json<QueryResponse>(await post(app, paid.secret, {}));
+    it("badge derives from the account plan, not projects.show_badge", async () => {
+      // A paid account whose project still carries a stale `show_badge`
+      // mirror: the response must follow the plan.
+      const paid = await account(t.db, { plan: "paid" });
+      const stale = await fixture(t.db, {
+        accountId: paid.id,
+        showBadge: true,
+      });
+      const body = await json<QueryResponse>(await post(app, stale.secret, {}));
       expect(body.badge).toBe(false);
+    });
+
+    it("badge flips on the first request after a plan change, cache HIT or not", async () => {
+      const free = await fixture(t.db);
+      const first = await post(app, free.secret, { q: "implant tooth" });
+      expect(first.headers.get("x-cache")).toBe("MISS");
+      expect((await json<QueryResponse>(first)).badge).toBe(true);
+
+      const upgraded = await setAccountPlan(
+        t.db,
+        free.project.accountId,
+        "paid",
+      );
+      expect(upgraded?.projectsSynced).toBe(1);
+
+      // Same request, served from KV: `results` are the cached bytes, but
+      // `badge` is per request (cache.ts "What is stored"), so no generation
+      // bump is needed for the plan change to show.
+      const hit = await post(app, free.secret, { q: "implant tooth" });
+      expect(hit.headers.get("x-cache")).toBe("HIT");
+      const hitBody = await json<QueryResponse>(hit);
+      expect(hitBody.cached).toBe(true);
+      expect(hitBody.badge).toBe(false);
+      expect(hitBody.results.map((r) => r.review.id)).toEqual([
+        free.reviews.implant,
+      ]);
+
+      // And back down.
+      await setAccountPlan(t.db, free.project.accountId, "free");
+      const again = await post(app, free.secret, { q: "implant tooth" });
+      expect(again.headers.get("x-cache")).toBe("HIT");
+      expect((await json<QueryResponse>(again)).badge).toBe(true);
     });
 
     it("a project with a lower similarity floor sees more", async () => {

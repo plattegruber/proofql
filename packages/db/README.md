@@ -38,6 +38,7 @@ needs no database.
 | --- | --- |
 | `pnpm db:generate` | Diff `src/schema` against the last snapshot and emit SQL into `migrations/` |
 | `pnpm db:migrate` | Apply pending migrations from `migrations/` to `DATABASE_URL` (`scripts/migrate.ts`, drizzle's migrator; idempotent) |
+| `pnpm db:set-plan -- --account <uuid\|org_…> --plan free\|paid` | Ops (#54): change an account's plan and rewrite its projects' `show_badge` mirror in one transaction (`scripts/set-plan.ts` → `setAccountPlan`). `--sync` instead of `--plan` only repairs the mirror. The only way a plan changes until billing (M3). |
 
 Local dev: start Postgres (`docker compose up -d`, #11), then
 `DATABASE_URL=postgres://proofql:proofql@localhost:54322/proofql pnpm db:migrate`.

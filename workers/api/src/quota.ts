@@ -5,9 +5,9 @@
  * Two halves, both used by `/v1/query` only:
  *
  *   - `enforceQueryQuota(c)` — the handler calls it **after** a cache miss
- *     and before any uncached work. One statement joins `projects` →
- *     `accounts` for the plan and LEFT JOINs this month's `usage` row
- *     (`month` = first day of the UTC month). The enforced number is
+ *     and before any uncached work. The plan arrived with the key
+ *     (`auth.plan`, src/auth.ts), so the only read is this month's `usage`
+ *     row (`month` = first day of the UTC month). The enforced number is
  *     `queries - cache_hits`, as the `usage` schema documents: `queries`
  *     counts every query answered, `cache_hits` the subset served from KV,
  *     which no plan charges for. At or over the plan's limit → 429
@@ -38,7 +38,12 @@
  * invariant, and the overshoot is bounded by concurrency.
  */
 
-import { queryLimitForPlan } from "@proofql/core";
+import {
+  PRICING_URL,
+  planFor,
+  secondsToMonthEnd,
+  usageMonthStart,
+} from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
 import { and, eq, sql } from "drizzle-orm";
 import type { Context } from "hono";
@@ -50,59 +55,53 @@ import { ApiError } from "./errors.js";
 import { logFor } from "./request-id.js";
 
 /** `YYYY-MM-01` for the UTC month containing `now` — the `usage.month` key. */
-export function monthStart(now: Date = new Date()): string {
-  const year = now.getUTCFullYear();
-  const month = String(now.getUTCMonth() + 1).padStart(2, "0");
-  return `${year}-${month}-01`;
-}
+export const monthStart = usageMonthStart;
+export { secondsToMonthEnd };
 
-/** Whole seconds from `now` until the first instant of next UTC month. */
-export function secondsToMonthEnd(now: Date = new Date()): number {
-  const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
-  return Math.max(1, Math.ceil((next - now.getTime()) / 1000));
-}
-
-export interface QuotaStatus {
-  plan: string;
-  limit: number;
+export interface UsageCounters {
   /** Every query answered this month, cached or not. */
   queries: number;
   cacheHits: number;
+}
+
+export interface QuotaStatus extends UsageCounters {
+  plan: string;
+  limit: number;
   /** What the limit applies to: `queries - cacheHits`. */
   uncached: number;
 }
 
-/** Plan and this month's counters for a project, in one round-trip. */
-export async function readQuota(
+/** This month's counters for a project; zeros before its first query. */
+export async function readUsage(
   db: Db,
   projectId: string,
   month: string,
-): Promise<QuotaStatus> {
-  const { projects, accounts, usage } = schema;
+): Promise<UsageCounters> {
+  const { usage } = schema;
   const [row] = await db
     .select({
-      plan: accounts.plan,
       queries: sql<number>`coalesce(${usage.queries}, 0)`.mapWith(Number),
       cacheHits: sql<number>`coalesce(${usage.cacheHits}, 0)`.mapWith(Number),
     })
-    .from(projects)
-    .innerJoin(accounts, eq(accounts.id, projects.accountId))
-    .leftJoin(
-      usage,
-      and(eq(usage.projectId, projects.id), eq(usage.month, month)),
-    )
-    .where(eq(projects.id, projectId))
+    .from(usage)
+    .where(and(eq(usage.projectId, projectId), eq(usage.month, month)))
     .limit(1);
-  if (row === undefined) {
-    // The key resolved a moment ago; the project vanished underneath it.
-    throw new ApiError("unauthorized", "Unknown or revoked API key.");
-  }
+  return row ?? { queries: 0, cacheHits: 0 };
+}
+
+/** Where a project stands against its plan's monthly limit. */
+export async function readQuota(
+  db: Db,
+  projectId: string,
+  plan: string,
+  month: string,
+): Promise<QuotaStatus> {
+  const counters = await readUsage(db, projectId, month);
   return {
-    plan: row.plan,
-    limit: queryLimitForPlan(row.plan),
-    queries: row.queries,
-    cacheHits: row.cacheHits,
-    uncached: row.queries - row.cacheHits,
+    ...counters,
+    plan,
+    limit: planFor(plan).queriesPerMonth,
+    uncached: counters.queries - counters.cacheHits,
   };
 }
 
@@ -147,6 +146,7 @@ export async function enforceQueryQuota(c: Context<AppEnv>): Promise<void> {
   const quota = await readQuota(
     c.get("getDb")(),
     auth.projectId,
+    auth.plan,
     monthStart(now),
   );
   if (quota.uncached < quota.limit) return;
@@ -168,7 +168,7 @@ export async function enforceQueryQuota(c: Context<AppEnv>): Promise<void> {
   });
   throw new ApiError(
     "query_quota_exceeded",
-    `This project has used its ${quota.plan} plan quota of ${quota.limit.toLocaleString("en-US")} uncached queries for the month (cached queries are free). The quota resets at the start of next month (UTC); upgrade the account's plan in the dashboard to raise it.`,
+    `This project has used its ${quota.plan} plan quota of ${quota.limit.toLocaleString("en-US")} uncached queries for the month (cached queries are free). The quota resets at the start of next month (UTC); upgrade at ${PRICING_URL} to raise it.`,
   );
 }
 

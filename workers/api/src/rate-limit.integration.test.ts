@@ -5,14 +5,14 @@
  */
 
 import { generateApiKey } from "@proofql/core";
-import { project, setupTestDb } from "@proofql/db/test";
+import { account, project, setupTestDb } from "@proofql/db/test";
 import { describe, expect, it } from "vitest";
 
 import { issueKey, testEnv } from "../test/helpers.js";
 import { createApp } from "./app.js";
 import { requireAnyKey } from "./auth.js";
 import type { ApiBindings } from "./bindings.js";
-import type { RateLimiter, RateLimiters } from "./rate-limit.js";
+import type { PlanRateLimiters, RateLimiter } from "./rate-limit.js";
 
 const t = setupTestDb();
 
@@ -35,7 +35,7 @@ const env = testEnv({
 });
 
 /** The real app plus a read route either key kind may call. */
-function appWith(limiters: RateLimiter | Partial<RateLimiters>) {
+function appWith(limiters: RateLimiter | Partial<PlanRateLimiters>) {
   const app = createApp({ db: t.db, rateLimiter: limiters });
   app.get("/v1/read-stub", requireAnyKey, (c) => c.json({ ok: true }));
   return app;
@@ -106,6 +106,28 @@ describe("per-key rate limiting via requireApiKey", () => {
     expect(b.headers.get("RateLimit-Policy")).toBe("120;w=60");
     expect(secret.keys).toEqual([sk.row.id]);
     expect(publishable.keys).toEqual([pk.row.id]);
+  });
+
+  it("a paid account's key is limited by the paid plan's numbers", async () => {
+    const paid = await account(t.db, { plan: "paid" });
+    const p = await project(t.db, { accountId: paid.id });
+    const sk = await issueKey(t.db, p.id, "secret");
+    const pk = await issueKey(t.db, p.id, "publishable");
+    const app = appWith(recordingLimiter());
+
+    const a = await app.request(
+      "/v1/read-stub",
+      { headers: { authorization: `Bearer ${sk.plaintext}` } },
+      env,
+    );
+    const b = await app.request(
+      "/v1/read-stub",
+      { headers: { authorization: `Bearer ${pk.plaintext}` } },
+      env,
+    );
+
+    expect(a.headers.get("RateLimit-Policy")).toBe("1000;w=60");
+    expect(b.headers.get("RateLimit-Policy")).toBe("600;w=60");
   });
 
   it("never consults the limiter for a request that fails auth", async () => {

@@ -10,7 +10,7 @@
  * ## Search path
  *
  * 1. Policy is read once with the key (`requireAuth`): `min_rating`,
- *    `similarity_floor`, `show_badge`. The effective minimum rating is
+ *    `similarity_floor`, and the account's plan. The effective minimum rating is
  *    `max(project.min_rating, filters.min_rating)` — a caller can tighten
  *    the project's policy for one query, never loosen it.
  * 2. With `q`, the query is embedded at the edge with Workers AI (bge-m3;
@@ -71,11 +71,14 @@
  * is `null`. `excerpt` is a verbatim slice of `review.text`; in
  * `mode=excerpts` it is the best-matching chunk, in `mode=reviews` the
  * same best chunk accompanies the whole review as `review.text`. `badge`
- * mirrors `projects.show_badge` (free tier: true). `cached` says whether
+ * is `planFor(account.plan).badge` (free tier: true), derived per request
+ * from the plan that arrived with the key — never from the cached body and
+ * never from the `projects.show_badge` mirror — so it flips on the first
+ * request after a plan change, cache HIT or not. `cached` says whether
  * `results` came from KV. (#42: copy this block into OpenAPI.)
  */
 
-import { readProjectGeneration } from "@proofql/core";
+import { planFor, readProjectGeneration } from "@proofql/core";
 import type { SearchFilters, SearchResult } from "@proofql/db";
 import { searchChunks } from "@proofql/db";
 import { type Context, type Handler, Hono } from "hono";
@@ -325,7 +328,7 @@ function respond(
     results,
     took_ms: tookMs,
     cached,
-    badge: c.get("auth").project.showBadge,
+    badge: planFor(c.get("auth").plan).badge,
   };
   c.header(CACHE_HEADER, outcome);
   return c.json(body);

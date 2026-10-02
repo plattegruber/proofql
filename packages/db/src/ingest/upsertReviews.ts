@@ -26,8 +26,10 @@
 
 import {
   type IngestMessage,
+  PRICING_URL,
+  planFor,
+  planLabel,
   type ReviewInput,
-  reviewLimitForPlan,
   sentimentFromRating,
 } from "@proofql/core";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
@@ -82,10 +84,11 @@ export class ReviewLimitError extends Error {
     readonly limit: number,
     readonly reviewCount: number,
     readonly wouldAdd: number,
+    readonly plan: string = "free",
   ) {
     const remaining = Math.max(0, limit - reviewCount);
     super(
-      `This project can hold ${limit} reviews on its plan; it has ${reviewCount} and this request would add ${wouldAdd} (${remaining} remaining). Nothing was written.`,
+      `This project can hold ${limit} reviews on the ${planLabel(plan)} plan; it has ${reviewCount} and this request would add ${wouldAdd} (${remaining} remaining). Nothing was written. Upgrade at ${PRICING_URL} to raise the limit, or delete reviews to make room.`,
     );
     this.remaining = remaining;
   }
@@ -150,11 +153,16 @@ export async function upsertReviews(
       else toUpdate.push({ input, row });
     }
 
-    const limit = reviewLimitForPlan(project.plan);
+    const limit = planFor(project.plan).reviewsPerProject;
     let rejected: ReviewInput[] = [];
     if (project.reviewCount + toInsert.length > limit) {
       if (onLimit === "reject") {
-        throw new ReviewLimitError(limit, project.reviewCount, toInsert.length);
+        throw new ReviewLimitError(
+          limit,
+          project.reviewCount,
+          toInsert.length,
+          project.plan,
+        );
       }
       const room = Math.max(0, limit - project.reviewCount);
       rejected = toInsert.slice(room);

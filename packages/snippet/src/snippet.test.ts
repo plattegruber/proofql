@@ -84,6 +84,20 @@ describe("renderElement", () => {
     expect(debugSpy.mock.calls[0]?.[0]).toContain("HTTP 403");
   });
 
+  it("renders nothing on 429 — quota or rate limit — and never retries on its own", async () => {
+    // The api's two 429s (`rate_limited`, `query_quota_exceeded`) are what a
+    // free-tier site at its limit sees. The snippet must degrade to an empty
+    // widget, log at debug, and not hammer the endpoint.
+    const fetchStub = stubFetch({
+      status: 429,
+      body: { error: { code: "query_quota_exceeded" } },
+    });
+    vi.stubGlobal("fetch", fetchStub);
+    await untouched("429", host());
+    expect(debugSpy.mock.calls[0]?.[0]).toContain("HTTP 429");
+    expect(fetchStub.calls).toHaveLength(1);
+  });
+
   it("renders nothing on a network error", async () => {
     vi.stubGlobal(
       "fetch",

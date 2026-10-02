@@ -9,7 +9,7 @@
  * user-facing conflicts (slug taken, plan limit) — the actions turn those
  * into 422 field errors per docs/frontend-conventions.md.
  */
-import { projectLimitForPlan } from "@proofql/core";
+import { planFor } from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
 import { and, count, eq } from "drizzle-orm";
 
@@ -54,7 +54,7 @@ export async function projectQuota(
   account: { id: string; plan: string },
 ): Promise<ProjectQuota> {
   const used = await countProjectsForAccount(db, account.id);
-  const limit = projectLimitForPlan(account.plan);
+  const limit = planFor(account.plan).projects;
   return { used, limit, atLimit: used >= limit };
 }
 
@@ -76,7 +76,9 @@ export async function createProject(
     slug: string;
   },
 ): Promise<CreateProjectResult> {
-  const showBadge = input.account.plan !== "paid";
+  // `show_badge` is a cached mirror of the plan's badge flag (the api
+  // derives the real thing from `accounts.plan` on every request).
+  const showBadge = planFor(input.account.plan).badge;
   try {
     return await db.transaction(async (tx) => {
       const quota = await projectQuota(tx, input.account);

@@ -13,6 +13,7 @@
     "test:integration": "turbo run test:integration",
     "db:generate": "pnpm --filter @proofql/db db:generate",
     "db:migrate": "pnpm --filter @proofql/db db:migrate",
+    "db:set-plan": "pnpm --filter @proofql/db db:set-plan",
     "seed": "pnpm --filter @proofql/db seed",
     "lint": "turbo run lint && pnpm openapi:lint",
     "lint:fix": "biome check --write .",

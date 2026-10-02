@@ -24,6 +24,7 @@ CLOUDFLARE_ENV=preview pnpm --filter @proofql/dashboard build && pnpm --filter @
 | `app/lib/csv.server.ts` | The import engine: upload, preview, plan, `runImport` (streams the file from R2, `normalizeRow` from `@proofql/core`, `upsertReviews` from `@proofql/db` in batches of 100, enqueues index messages), progress and the error report. Resumable from the run's counts. |
 | `app/lib/background.server.ts` | Hands `runImport` to `ctx.waitUntil` with its own DB client. |
 | `app/components/import-progress.tsx` | `ImportProgress` + `useImportPolling`: the "spin" the onboarding (#53) reuses. |
+| `app/routes/app._index.tsx` | Overview (#36, #54): plan, badge state, an Upgrade link, and per project reviews / limit and this month's uncached queries / limit (`app/components/usage-meter.tsx`, `app/lib/usage.server.ts` reading the `usage` row the api counts into, `app/lib/usage.ts` for the meter math). |
 | `app/lib/account.server.ts` | `requireAccount(args)` — **the auth seam** (below). |
 | `app/lib/accounts.ts` | Account/project queries, including the idempotent upsert by `clerk_org_id`. |
 | `app/lib/clerk.server.ts` | Clerk middleware built per request with keys from the Workers env. |
@@ -37,6 +38,19 @@ CLOUDFLARE_ENV=preview pnpm --filter @proofql/dashboard build && pnpm --filter @
 | `app/routes/app.projects.$slug.keys.tsx` | Keys tab (#37): table, mint with one-time reveal, inline-confirm revoke, allowed-origins editor. |
 | `app/routes/app.projects.$slug.settings.tsx` | Settings tab (#41): `min_rating`, `similarity_floor`, name, slug; saving bumps the project's cache generation (`CACHE` KV). Danger: delete with typed-slug confirm. |
 | `app/components/` | Shell (top bar, left nav, page header), `ui/` primitives (button, badge, card, skeleton, link tabs, input, select, toaster, copy button), `form/` (field, submit button, inline confirm). |
+
+## Where limits live
+
+Every plan number the dashboard shows or enforces — the project allowance
+(`app/lib/projects.server.ts`, `/app/projects/new`), the review cap the CSV
+import truncates at (`app/lib/csv.server.ts`), the meters on the overview and
+the badge mirror written on project create — is read from `PLANS` in
+[`packages/core/src/plans.ts`](../../packages/core/src/plans.ts) via
+`planFor(plan)`; nothing here hard-codes a limit. "Upgrade" links point at
+`PRICING_URL` from the same module until billing (M3) replaces it. Plan
+changes go through `setAccountPlan` in `@proofql/db` (`pnpm db:set-plan`
+for ops), which also refreshes `projects.show_badge`; the api never reads
+that column to decide the badge — it derives it from `accounts.plan`.
 
 ## The auth seam: `requireAccount`
 

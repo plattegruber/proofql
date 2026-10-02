@@ -43,9 +43,9 @@ import {
   normalizeRow,
   parseCsvStream,
   parseJsonTable,
+  planFor,
   REVIEW_SOURCES,
   type ReviewInput,
-  reviewLimitForPlan,
   validateRows,
 } from "@proofql/core";
 import { type Db, schema, upsertReviews } from "@proofql/db";
@@ -288,7 +288,7 @@ export function capInfo(
   reviewCount: number,
   totalRows: number,
 ): CapInfo {
-  const limit = reviewLimitForPlan(plan);
+  const limit = planFor(plan).reviewsPerProject;
   const room = Math.max(0, limit - reviewCount);
   return {
     limit,
