@@ -117,6 +117,9 @@ importers:
       '@astrojs/starlight':
         specifier: ^0.42.5
         version: 0.42.5(astro@7.3.5(@types/node@26.6.3)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))(typescript@5.9.3)
+      '@proofql/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       astro:
         specifier: ^7.3.5
         version: 7.3.5(@types/node@26.6.3)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)

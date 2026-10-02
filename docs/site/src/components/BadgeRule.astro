@@ -1,0 +1,22 @@
+---
+// Which plans carry the "Reviews by ProofQL" badge, from @proofql/core's
+// PLANS (#103). The API derives `badge` in every query response from the
+// project's plan (workers/api query/route.ts) and the snippet renders the
+// badge whenever it is true, so this list is the rule, not a description of
+// it. scripts/check-limits.mjs verifies each item by its `data-plan`.
+import { PLAN_LABELS, PLAN_NAMES, PLANS } from "@proofql/core";
+---
+
+<ul id="badge-rule">
+  {
+    PLAN_NAMES.map((plan) => (
+      <li data-plan={plan}>
+        {PLAN_LABELS[plan]}: every query response says{" "}
+        <code>badge: {String(PLANS[plan].badge)}</code>
+        {PLANS[plan].badge
+          ? ", so the snippet shows the badge under the list."
+          : ", so the snippet renders no badge (your own markup may still credit ProofQL)."}
+      </li>
+    ))
+  }
+</ul>

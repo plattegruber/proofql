@@ -139,9 +139,11 @@ jobs:
           command: deploy --env preview
       # The docs site (#43) is an assets-only Worker: `astro build` writes
       # docs/site/dist and `wrangler deploy` uploads it. No bindings, no
-      # placeholders, so it is outside check-provisioning.
+      # placeholders, so it is outside check-provisioning. The Limits page
+      # imports @proofql/core at build time (#103), so build the workspace
+      # deps first (`...`), like the dashboard above.
       - name: Build proofql-docs-preview
-        run: pnpm --filter @proofql/docs build
+        run: pnpm --filter "@proofql/docs..." build
       - name: Deploy proofql-docs-preview
         uses: cloudflare/wrangler-action@v3
         with:
@@ -250,9 +252,11 @@ jobs:
           command: deploy --env prod
       # The docs site (#43) is an assets-only Worker: `astro build` writes
       # docs/site/dist and `wrangler deploy` uploads it. No bindings, no
-      # placeholders, so it is outside check-provisioning.
+      # placeholders, so it is outside check-provisioning. The Limits page
+      # imports @proofql/core at build time (#103), so build the workspace
+      # deps first (`...`), like the dashboard above.
       - name: Build proofql-docs-prod
-        run: pnpm --filter @proofql/docs build
+        run: pnpm --filter "@proofql/docs..." build
       - name: Deploy proofql-docs-prod
         uses: cloudflare/wrangler-action@v3
         with:
