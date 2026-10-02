@@ -1,35 +1,38 @@
 ---
 title: Limits
-description: The free tier's numbers, the request limits every plan shares, and what happens at each one.
+description: Every plan's numbers, the request limits every plan shares, and what happens at each one.
 ---
+
+import { PRICING_URL } from "@proofql/core";
+import BadgeRule from "../../components/BadgeRule.astro";
+import PlanTable from "../../components/PlanTable.astro";
+import RateLimitTable from "../../components/RateLimitTable.astro";
 
 ## Plans
 
-The free tier is meant to be enough for a small business for good. Paid removes the badge and raises the numbers; billing is not open yet (M3).
+The free tier is meant to be enough for a small business for good. Paid removes the badge and raises the numbers. The table is rendered at build time from the same plan table the API enforces (`PLANS` in `@proofql/core`), so what you read here is what the service does.
 
-| | Free | Paid |
-|---|---|---|
-| Projects | 1 | Many |
-| Reviews per project | 5,000 | 100,000 |
-| Queries | 50,000 uncached per month; cached hits are free | Metered |
-| Sources | CSV, push API, Google | Same, plus priority polling |
-| Snippet badge | "Reviews by ProofQL" under the list | Removable |
-| Keys | Live and test | Same |
+<PlanTable />
+
+Billing is not open yet (M3): the Paid column is the shape of the plan, not a price list, and its numbers are ceilings against runaway scripts rather than product promises. Pricing will be at <a href={PRICING_URL}>{PRICING_URL}</a>. Sources (CSV, the push API, Google) and key kinds (live and test) are the same on every plan; Paid adds priority polling for Google.
 
 At the review cap a `POST /v1/reviews` is a [`422 review_limit_reached`](/errors#review_limit_reached) and nothing from that batch is written. At the query quota a cache miss on `/v1/query` is a [`429 query_quota_exceeded`](/errors#query_quota_exceeded) with `Retry-After` set to the seconds until the next UTC month, while cached answers keep being served. The month is a calendar month in UTC.
 
 Queries are counted per project; a cache hit (`cached: true`, `x-cache: HIT`) is not counted. Identical requests from the snippet across your pages hit the same cache entry, so a site that asks the same handful of questions uses a small fraction of the quota however much traffic it gets.
 
+### Snippet badge
+
+<BadgeRule />
+
+The badge is derived from the plan on every request; it is never a per-project setting, so it changes the moment the plan does.
+
 ## Rate limits
 
 Counted per key, every authenticated request:
 
-| Key kind | Limit | Over the limit |
-|---|---|---|
-| Secret (`pq_sk_…`) | 300 requests per 60 s | [`429 rate_limited`](/errors#rate_limited) with `Retry-After` |
-| Publishable (`pq_pk_…`) | 120 requests per 60 s | same |
+<RateLimitTable />
 
-Every authenticated response carries `RateLimit-Policy` and `RateLimit-Limit` (IETF draft ratelimit headers).
+Over the limit the request is a [`429 rate_limited`](/errors#rate_limited) with `Retry-After`. Every authenticated response carries `RateLimit-Policy` and `RateLimit-Limit` (IETF draft ratelimit headers), so a client can read its own limit instead of hard-coding this table.
 
 ## Request limits
 

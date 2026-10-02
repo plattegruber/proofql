@@ -1,0 +1,29 @@
+---
+// The plan table, rendered at build time from @proofql/core's PLANS (#103) so
+// the Limits page cannot drift from the numbers the API enforces. The rows
+// and their wording are core's `planTableRows()` (the same shape behind
+// `planTableMarkdown()`); scripts/check-limits.mjs re-reads the built HTML
+// against PLANS after every build. The `id` is what that check looks for.
+import { PLAN_LABELS, PLAN_NAMES, planTableRows } from "@proofql/core";
+
+const rows = planTableRows();
+---
+
+<table id="plan-table">
+  <thead>
+    <tr>
+      <th>Limit</th>
+      {PLAN_NAMES.map((plan) => <th>{PLAN_LABELS[plan]}</th>)}
+    </tr>
+  </thead>
+  <tbody>
+    {
+      rows.map((row) => (
+        <tr>
+          <td>{row.limit}</td>
+          {PLAN_NAMES.map((plan) => <td>{row[plan]}</td>)}
+        </tr>
+      ))
+    }
+  </tbody>
+</table>

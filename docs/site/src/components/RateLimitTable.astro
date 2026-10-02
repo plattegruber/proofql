@@ -1,0 +1,43 @@
+---
+// Per-key rate limits by plan, from @proofql/core's PLANS and
+// RATE_LIMIT_PERIOD_SECONDS (#103): the same numbers workers/api's
+// rate-limit.ts enforces and advertises in RateLimit-Policy.
+// scripts/check-limits.mjs verifies the built table by its `id`.
+import {
+  PLAN_LABELS,
+  PLAN_NAMES,
+  PLANS,
+  RATE_LIMIT_PERIOD_SECONDS,
+} from "@proofql/core";
+
+const keyKinds = [
+  { kind: "secret", label: "Secret", prefix: "pq_sk_…" },
+  { kind: "publishable", label: "Publishable", prefix: "pq_pk_…" },
+] as const;
+
+const perPeriod = (n: number): string =>
+  `${n.toLocaleString("en-US")} requests per ${RATE_LIMIT_PERIOD_SECONDS} s`;
+---
+
+<table id="rate-limit-table">
+  <thead>
+    <tr>
+      <th>Key kind</th>
+      {PLAN_NAMES.map((plan) => <th>{PLAN_LABELS[plan]}</th>)}
+    </tr>
+  </thead>
+  <tbody>
+    {
+      keyKinds.map(({ kind, label, prefix }) => (
+        <tr>
+          <td>
+            {label} (<code>{prefix}</code>)
+          </td>
+          {PLAN_NAMES.map((plan) => (
+            <td>{perPeriod(PLANS[plan].rateLimits[kind])}</td>
+          ))}
+        </tr>
+      ))
+    }
+  </tbody>
+</table>
