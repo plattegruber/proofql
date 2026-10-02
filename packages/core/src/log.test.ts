@@ -1,13 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  consoleSink,
   createLogger,
+  defaultSink,
   errorFields,
   levelFor,
   REDACTED,
   REDACTED_FIELDS,
   recordingSink,
   redactFields,
+  silentSink,
 } from "./log.js";
 
 const NOW = new Date("2026-10-01T12:00:00.000Z");
@@ -59,18 +62,62 @@ describe("createLogger", () => {
     ]);
   });
 
-  it("writes to console.log when no sink is given", () => {
-    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
-    try {
-      createLogger({ service: "api", environment: "test" }).log("x.y");
-      expect(spy).toHaveBeenCalledOnce();
-      expect(JSON.parse(spy.mock.calls[0]?.[0] as string)).toMatchObject({
-        event: "x.y",
-        level: "info",
+  describe("default sink", () => {
+    it("is silent under Vitest when no sink is given", () => {
+      expect(defaultSink()).toBe(silentSink);
+      const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        createLogger({ service: "api", environment: "test" }).log("x.y");
+        expect(spy).not.toHaveBeenCalled();
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("still delivers every line to an injected sink under Vitest", () => {
+      const out = recordingSink();
+      const logger = createLogger({
+        service: "api",
+        environment: "test",
+        sink: out.sink,
       });
-    } finally {
-      spy.mockRestore();
-    }
+      logger.log("x.y", { n: 1 });
+      logger.child({ request_id: "r" }).log("x.z");
+      expect(out.only("x.y")).toMatchObject({ event: "x.y", n: 1 });
+      expect(out.only("x.z")).toMatchObject({ request_id: "r" });
+    });
+
+    it("sink: consoleSink opts a test back in to console.log", () => {
+      const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        createLogger({
+          service: "api",
+          environment: "test",
+          sink: consoleSink,
+        }).log("x.y");
+        expect(spy).toHaveBeenCalledOnce();
+        expect(JSON.parse(spy.mock.calls[0]?.[0] as string)).toMatchObject({
+          event: "x.y",
+          level: "info",
+        });
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("is console.log outside Vitest", () => {
+      vi.stubEnv("VITEST", undefined);
+      const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        expect(defaultSink()).toBe(consoleSink);
+        createLogger({ service: "api", environment: "prod" }).log("x.y");
+        expect(spy).toHaveBeenCalledOnce();
+      } finally {
+        spy.mockRestore();
+        vi.unstubAllEnvs();
+      }
+      expect(defaultSink()).toBe(silentSink);
+    });
   });
 
   describe("levels", () => {

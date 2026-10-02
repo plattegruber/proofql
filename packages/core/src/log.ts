@@ -3,7 +3,8 @@
  * is the catalogue of events and fields).
  *
  * One JSON object per line, written through a `sink` (default: the console,
- * which Workers Logs ingests and indexes field by field):
+ * which Workers Logs ingests and indexes field by field; a no-op under
+ * Vitest unless a sink is passed — see `defaultSink`):
  *
  *   { "ts", "service", "environment", "event", "level", ...bindings, ...fields }
  *
@@ -42,7 +43,11 @@ export interface LoggerOptions {
   service: LogService;
   /** `ENVIRONMENT` from wrangler vars: `local` | `preview` | `prod` (`test` in tests). */
   environment: string;
-  /** Where lines go; defaults to the console. Tests pass `recordingSink()`. */
+  /**
+   * Where lines go; defaults to the console, or to nothing under Vitest
+   * (`defaultSink`). Tests pass `recordingSink()`, or `consoleSink` to see
+   * the lines.
+   */
   sink?: LogSink;
   /** Field names to redact, at any depth. Defaults to `REDACTED_FIELDS`. */
   redact?: readonly string[];
@@ -86,13 +91,33 @@ const LEVELS: ReadonlySet<string> = new Set<LogLevel>([
   "error",
 ]);
 
-const consoleSink: LogSink = (line) => {
+/**
+ * One line per `console.log`; what every deployable writes through, and what
+ * Workers Logs ingests. The default sink everywhere except under Vitest
+ * (`defaultSink`); a test that wants to see lines passes `sink: consoleSink`.
+ */
+export const consoleSink: LogSink = (line) => {
   // biome-ignore lint/suspicious/noConsole: the one sanctioned console sink for every worker; Workers Logs ingests stdout
   console.log(line);
 };
 
+/** Drops every line. */
+export const silentSink: LogSink = () => {};
+
+/**
+ * `silentSink` under Vitest (`process.env.VITEST`), so suites that do not
+ * inject a sink do not print one JSON line per logged event (#97);
+ * `consoleSink` everywhere else. Read off `globalThis` because `process`
+ * does not exist on Workers without `nodejs_compat`.
+ */
+export function defaultSink(): LogSink {
+  const env = (globalThis as { process?: { env?: Record<string, unknown> } })
+    .process?.env;
+  return env?.VITEST ? silentSink : consoleSink;
+}
+
 export function createLogger(options: LoggerOptions): Logger {
-  const sink = options.sink ?? consoleSink;
+  const sink = options.sink ?? defaultSink();
   const redact = new Set(options.redact ?? REDACTED_FIELDS);
   const now = options.now ?? (() => new Date());
   const { service, environment } = options;
