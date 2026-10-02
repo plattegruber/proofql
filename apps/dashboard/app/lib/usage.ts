@@ -1,58 +1,10 @@
 /**
- * Usage against plan limits for the overview (#54). Plain functions over a
- * `Db` (like app/lib/accounts.ts) plus the pure math the panel renders
- * with, so the integration test exercises the query and the unit tests the
- * arithmetic.
- *
- * The `usage` row is the same one the api counts into (workers/api
- * src/quota.ts): `queries` is every query answered this month, `cache_hits`
- * the subset served from KV, and the number the plan limits is the
- * difference — cached hits are free on every plan.
+ * The pure math behind the overview's usage meters (#54): percent of a
+ * limit, how loudly to show it, and which PLANS numbers are metered. No
+ * database here — this file is imported by components and so reaches the
+ * browser bundle; the `usage` query lives in usage.server.ts.
  */
-import { type PlanLimits, planFor, usageMonthStart } from "@proofql/core";
-import { type Db, schema } from "@proofql/db";
-import { and, eq, inArray } from "drizzle-orm";
-
-export interface MonthUsage {
-  /** Every query answered this month, cached or not. */
-  queries: number;
-  cacheHits: number;
-  /** What the plan limits: `queries - cacheHits`. */
-  uncached: number;
-}
-
-export const NO_USAGE: MonthUsage = { queries: 0, cacheHits: 0, uncached: 0 };
-
-/** This month's counters for each of `projectIds`; absent rows are zeros. */
-export async function usageForProjects(
-  db: Db,
-  projectIds: readonly string[],
-  month: string = usageMonthStart(),
-): Promise<Map<string, MonthUsage>> {
-  const byProject = new Map<string, MonthUsage>();
-  if (projectIds.length === 0) return byProject;
-  const rows = await db
-    .select({
-      projectId: schema.usage.projectId,
-      queries: schema.usage.queries,
-      cacheHits: schema.usage.cacheHits,
-    })
-    .from(schema.usage)
-    .where(
-      and(
-        inArray(schema.usage.projectId, [...projectIds]),
-        eq(schema.usage.month, month),
-      ),
-    );
-  for (const row of rows) {
-    byProject.set(row.projectId, {
-      queries: row.queries,
-      cacheHits: row.cacheHits,
-      uncached: row.queries - row.cacheHits,
-    });
-  }
-  return byProject;
-}
+import { type PlanLimits, planFor } from "@proofql/core";
 
 /** Whole-number percent of `limit` used, clamped to 0–100 (a bar width). */
 export function usagePercent(used: number, limit: number): number {

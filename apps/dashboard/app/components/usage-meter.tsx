@@ -33,6 +33,7 @@ export function UsageMeter({ label, used, limit, note }: UsageMeterProps) {
           <span className="text-gray-500"> / {fmt(limit)}</span>
         </span>
       </div>
+      {/* biome-ignore lint/a11y/useSemanticElements: a native <meter> cannot take the hairline track and the plan-tone fill the design system asks for; the ARIA meter semantics are complete below. */}
       <div
         role="meter"
         aria-label={label}

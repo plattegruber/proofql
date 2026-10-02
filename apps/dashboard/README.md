@@ -24,7 +24,7 @@ CLOUDFLARE_ENV=preview pnpm --filter @proofql/dashboard build && pnpm --filter @
 | `app/lib/csv.server.ts` | The import engine: upload, preview, plan, `runImport` (streams the file from R2, `normalizeRow` from `@proofql/core`, `upsertReviews` from `@proofql/db` in batches of 100, enqueues index messages), progress and the error report. Resumable from the run's counts. |
 | `app/lib/background.server.ts` | Hands `runImport` to `ctx.waitUntil` with its own DB client. |
 | `app/components/import-progress.tsx` | `ImportProgress` + `useImportPolling`: the "spin" the onboarding (#53) reuses. |
-| `app/routes/app._index.tsx` | Overview (#36, #54): plan, badge state, an Upgrade link, and per project reviews / limit and this month's uncached queries / limit (`app/components/usage-meter.tsx`, `app/lib/usage.ts` reading the `usage` row the api counts into). |
+| `app/routes/app._index.tsx` | Overview (#36, #54): plan, badge state, an Upgrade link, and per project reviews / limit and this month's uncached queries / limit (`app/components/usage-meter.tsx`, `app/lib/usage.server.ts` reading the `usage` row the api counts into, `app/lib/usage.ts` for the meter math). |
 | `app/lib/account.server.ts` | `requireAccount(args)` — **the auth seam** (below). |
 | `app/lib/accounts.ts` | Account/project queries, including the idempotent upsert by `clerk_org_id`. |
 | `app/lib/clerk.server.ts` | Clerk middleware built per request with keys from the Workers env. |

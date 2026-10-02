@@ -20,7 +20,7 @@ import { UsageMeter } from "~/components/usage-meter";
 import { requireAccount } from "~/lib/account.server";
 import { listProjectsForAccount } from "~/lib/accounts";
 import { withRequestDb } from "~/lib/db.server";
-import { NO_USAGE, usageForProjects } from "~/lib/usage";
+import { NO_USAGE, usageForProjects } from "~/lib/usage.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/app._index";
 
