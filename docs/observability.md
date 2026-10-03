@@ -93,6 +93,7 @@ wire) and bind it in `handleQueueBatch`.
 | `request.failed` | error | `error`, `stack` (first 2,000 chars) | An unhandled exception became a 500 `internal`. The only line that carries a stack, and the only place the cause is recorded; the client sees the request id and nothing else. |
 | `ratelimit.rejected` | warn | `project_id`, `key_environment`, `key_kind`, `api_key_id`, `limit`, `period`, `retry_after` | A key hit its per-kind limit ([`rate-limit.ts`](../workers/api/src/rate-limit.ts)). Also produces a `*.rejected` with `code: rate_limited`; this line has the limiter's numbers. |
 | `quota.rejected` | warn | `project_id`, `key_environment`, `key_kind`, `plan`, `limit`, `uncached`, `queries`, `cache_hits`, `retry_after` | The project is at its plan's monthly uncached-query quota ([`quota.ts`](../workers/api/src/quota.ts)); only a cache miss can trigger it. |
+| `auth.throttled` | warn | `phase` (`failure` \| `penalty_box`), `limit`, `period`, `retry_after` | An address exceeded the per-IP budget of authentication failures ([`auth-throttle.ts`](../workers/api/src/auth-throttle.ts), #49): `failure` is the 401/403 that overflowed and was answered 429 instead; `penalty_box` is a later request from the same address refused before auth. The address is deliberately not logged (identifiers and measurements, never personal data); Cloudflare's request logs carry it. No `*.rejected` accompanies the `penalty_box` form. |
 
 `query.completed` field notes:
 
