@@ -12,6 +12,19 @@
  * times hybrid, vector-only and no-query searches. Fake embeddings from
  * `@proofql/ai`: the arithmetic pgvector does is identical for real ones.
  *
+ * ## Against an existing multi-tenant database
+ *
+ *   DATABASE_URL=… pnpm load:seed                     # 21 tenants, 90k chunks
+ *   DATABASE_URL=… pnpm --filter @proofql/db exec tsx scripts/bench-search.ts \
+ *     --project load-01 [--explain]                    # or load-large
+ *
+ * `--project <slug>` skips the clone and the seed and times the same
+ * scenarios against the named project in `DATABASE_URL` as it is. The
+ * two-tenant database cannot show costs that scale with the *table*
+ * rather than the tenant — the `reviews` join of #111 was invisible to it
+ * (`docs/performance.md` §2) — so re-run this mode on the load database
+ * after any change to the statement.
+ *
  * Not a test: numbers depend on the machine. The figure quoted in
  * `src/queries/searchChunks.ts` came from this script.
  */
@@ -119,10 +132,106 @@ function stats(samples: number[]): string {
   return `median ${at(0.5).toFixed(1)} ms, p95 ${at(0.95).toFixed(1)} ms, max ${(sorted.at(-1) ?? 0).toFixed(1)} ms (n=${samples.length})`;
 }
 
-async function main(): Promise<void> {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) throw new Error("DATABASE_URL is required");
-  const chunkCount = Number(process.argv[2] ?? 5000);
+/**
+ * Time every scenario against `projectId`, then (with `--explain`) print
+ * the hybrid plan.
+ */
+async function runScenarios(
+  db: ReturnType<typeof createDb>["db"],
+  sql: ReturnType<typeof createDb>["sql"],
+  projectId: string,
+): Promise<void> {
+  const [counted] = await sql<{ count: string }[]>`
+    SELECT count(*)::text AS count FROM review_chunks WHERE project_id = ${projectId}`;
+  const [table] = await sql<{ reviews: string; chunks: string }[]>`
+    SELECT (SELECT count(*) FROM reviews)::text AS reviews,
+           (SELECT count(*) FROM review_chunks)::text AS chunks`;
+  console.log(
+    `tenant has ${counted?.count} chunks; table has ${table?.reviews} reviews / ${table?.chunks} chunks\n`,
+  );
+
+  const queryText = "painless implant";
+  const [queryEmbedding] = fakeEmbed([queryText]);
+  const base = {
+    projectId,
+    environment: "live" as const,
+    limit: 5,
+    policy: { minRating: 4, similarityFloor: 0.3 },
+    mode: "excerpts" as const,
+  };
+
+  const scenarios = {
+    "hybrid (vector + fts)": { ...base, queryEmbedding, queryText },
+    "vector only": { ...base, queryEmbedding },
+    "hybrid + metadata filter": {
+      ...base,
+      queryEmbedding,
+      queryText,
+      filters: { metadata: { location: "north" } },
+    },
+    "hybrid, includeBelowFloor": {
+      ...base,
+      queryEmbedding,
+      queryText,
+      includeBelowFloor: true,
+    },
+    "no query (recency)": base,
+  };
+
+  for (const [name, params] of Object.entries(scenarios)) {
+    const samples: number[] = [];
+    let rows = 0;
+    for (let i = 0; i < 40; i++) {
+      const t0 = performance.now();
+      const results = await searchChunks(db, params);
+      samples.push(performance.now() - t0);
+      rows = results.length;
+    }
+    // Discard the first (cold) sample from the stats; report it separately.
+    const [cold = 0, ...warm] = samples;
+    console.log(
+      `${name}: ${stats(warm)}; cold ${cold.toFixed(1)} ms; ${rows} rows`,
+    );
+  }
+
+  if (process.argv.includes("--explain")) {
+    const plan = await db.execute<{ "QUERY PLAN": string }>(
+      dsql`EXPLAIN (ANALYZE, BUFFERS) ${searchChunksSql(scenarios["hybrid (vector + fts)"])}`,
+    );
+    console.log(`\n${plan.map((r) => r["QUERY PLAN"]).join("\n")}`);
+  }
+}
+
+/** `--project <slug>`: bench the named project in `DATABASE_URL` as it is. */
+function projectSlugArg(): string | undefined {
+  const i = process.argv.indexOf("--project");
+  if (i < 0) return undefined;
+  const slug = process.argv[i + 1];
+  if (!slug || slug.startsWith("--")) {
+    throw new Error("--project requires a project slug");
+  }
+  return slug;
+}
+
+async function benchExisting(databaseUrl: string, slug: string): Promise<void> {
+  const { db, sql } = createDb(databaseUrl, { max: 1 });
+  try {
+    const [found] = await sql<{ id: string }[]>`
+      SELECT id FROM projects WHERE slug = ${slug}`;
+    if (!found) throw new Error(`no project with slug ${JSON.stringify(slug)}`);
+    console.log(
+      `project ${slug} (${found.id}) in ${new URL(databaseUrl).pathname.slice(1)}`,
+    );
+    await runScenarios(db, sql, found.id);
+  } finally {
+    await sql.end();
+  }
+}
+
+async function benchSeeded(
+  databaseUrl: string,
+  chunkCount: number,
+): Promise<void> {
   const benchDb = `bench_search_${process.pid}`;
 
   const maintenance = postgres(withDatabase(databaseUrl, "postgres"), {
@@ -141,55 +250,7 @@ async function main(): Promise<void> {
     await seedTenant(db, "bench-b", chunkCount);
     await sql`ANALYZE review_chunks`;
     await sql`ANALYZE reviews`;
-
-    const [counted] = await sql<{ count: string }[]>`
-      SELECT count(*)::text AS count FROM review_chunks WHERE project_id = ${projectId}`;
-    console.log(`tenant has ${counted?.count} chunks\n`);
-
-    const queryText = "painless implant";
-    const [queryEmbedding] = fakeEmbed([queryText]);
-    const base = {
-      projectId,
-      environment: "live" as const,
-      limit: 5,
-      policy: { minRating: 4, similarityFloor: 0.3 },
-      mode: "excerpts" as const,
-    };
-
-    const scenarios = {
-      "hybrid (vector + fts)": { ...base, queryEmbedding, queryText },
-      "vector only": { ...base, queryEmbedding },
-      "hybrid + metadata filter": {
-        ...base,
-        queryEmbedding,
-        queryText,
-        filters: { metadata: { location: "north" } },
-      },
-      "no query (recency)": base,
-    };
-
-    for (const [name, params] of Object.entries(scenarios)) {
-      const samples: number[] = [];
-      let rows = 0;
-      for (let i = 0; i < 40; i++) {
-        const t0 = performance.now();
-        const results = await searchChunks(db, params);
-        samples.push(performance.now() - t0);
-        rows = results.length;
-      }
-      // Discard the first (cold) sample from the stats; report it separately.
-      const [cold = 0, ...warm] = samples;
-      console.log(
-        `${name}: ${stats(warm)}; cold ${cold.toFixed(1)} ms; ${rows} rows`,
-      );
-    }
-
-    if (process.argv.includes("--explain")) {
-      const plan = await db.execute<{ "QUERY PLAN": string }>(
-        dsql`EXPLAIN (ANALYZE, BUFFERS) ${searchChunksSql(scenarios["hybrid (vector + fts)"])}`,
-      );
-      console.log(`\n${plan.map((r) => r["QUERY PLAN"]).join("\n")}`);
-    }
+    await runScenarios(db, sql, projectId);
   } finally {
     await sql.end();
     await maintenance.unsafe(
@@ -197,6 +258,18 @@ async function main(): Promise<void> {
     );
     await maintenance.end();
   }
+}
+
+async function main(): Promise<void> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) throw new Error("DATABASE_URL is required");
+  const slug = projectSlugArg();
+  if (slug) {
+    await benchExisting(databaseUrl, slug);
+    return;
+  }
+  const positional = process.argv.slice(2).find((a) => !a.startsWith("--"));
+  await benchSeeded(databaseUrl, Number(positional ?? 5000));
 }
 
 main().catch((error) => {

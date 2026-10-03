@@ -122,17 +122,18 @@ Reading the two tables together:
 
 `packages/db/scripts/bench-search.ts` (two tenants of the given size,
 hybrid query, limit 5, floor 0.3, 39 warm runs from Node). Same machine,
-same day:
+same day (2026-10-02, before #111); the last three columns are the same
+rows re-measured after #111 landed (2026-10-03):
 
-| Chunks per tenant | Hybrid median | Hybrid p95 | Vector-only median | `EXPLAIN ANALYZE` execution |
-|---|---|---|---|---|
-| 5,000 | 12.8 ms | 13.2 ms | 10.3 ms | 12.8 ms |
-| 7,500 | 22.6 ms | 26.0 ms | 17.1 ms | |
-| 10,000 | 24.1 ms | 27.1 ms | 19.7 ms | |
-| 15,000 | 34.1 ms | 36.6 ms | 27.2 ms | |
-| 20,000 | 42.7 ms | 43.6 ms | 34.0 ms | |
-| 30,000 | 64.7 ms | 70.8 ms | 52.1 ms | |
-| 50,000 | 154.0 ms | 163.6 ms | 130.1 ms | 183.3 ms |
+| Chunks per tenant | Hybrid median | Hybrid p95 | Vector-only median | `EXPLAIN ANALYZE` execution | Hybrid median, after #111 | Hybrid p95, after #111 | Vector-only, after #111 |
+|---|---|---|---|---|---|---|---|
+| 5,000 | 12.8 ms | 13.2 ms | 10.3 ms | 12.8 ms | 12.4 ms | 13.1 ms | 10.1 ms |
+| 7,500 | 22.6 ms | 26.0 ms | 17.1 ms | | 17.5 ms | 19.3 ms | 14.2 ms |
+| 10,000 | 24.1 ms | 27.1 ms | 19.7 ms | | 23.1 ms | 30.1 ms | 18.1 ms |
+| 15,000 | 34.1 ms | 36.6 ms | 27.2 ms | | | | |
+| 20,000 | 42.7 ms | 43.6 ms | 34.0 ms | | | | |
+| 30,000 | 64.7 ms | 70.8 ms | 52.1 ms | | | | |
+| 50,000 | 154.0 ms | 163.6 ms | 130.1 ms | 183.3 ms | | | |
 
 ```sh
 DATABASE_URL=postgres://proofql:proofql@localhost:54323/proofql \
@@ -141,12 +142,15 @@ DATABASE_URL=postgres://proofql:proofql@localhost:54323/proofql \
 
 The cost is linear in the tenant's vectors at roughly **2.5–3 ms per 1,000
 chunks** (half-precision cosine over 1024 dims, no index), on top of a few
-ms of fixed work. The hybrid statement **crosses 20 ms between 5,000 and
-7,500 chunks** — i.e. around 3,000–3,500 reviews — not at 50,000. The 50k
-line in scope.md §2 is where the exact scan becomes *untenable* (150 ms+);
-the 20 ms *target* is lost an order of magnitude earlier. The free tier's
-5,000-review cap is ~10,000 chunks, so a maxed-out free tenant sits at
-~24 ms today.
+ms of fixed work. Before #111 the hybrid statement crossed 20 ms between
+5,000 and 7,500 chunks; with the `reviews` join fixed it **crosses 20 ms
+between 7,500 and 10,000 chunks** (about 8,500 by interpolation — i.e.
+around 4,000–4,500 reviews), not at 50,000. Even in the two-tenant
+database the fix is worth 5 ms at 7,500 chunks, because the old plan hashed
+every publishable review of *both* tenants. The 50k line in scope.md §2 is
+where the exact scan becomes *untenable* (150 ms+); the 20 ms *target* is
+lost an order of magnitude earlier. The free tier's 5,000-review cap is
+~10,000 chunks, so a maxed-out free tenant sits at ~23 ms today.
 
 Plans, both sizes (`--explain`): the vector branch and the text branch each
 start from `review_chunks_project_id_environment_idx` — a **Bitmap Index
@@ -184,19 +188,57 @@ them. The final result join does the same. The cost grows with the table,
 not the tenant — the cross-tenant leak the exact-scan design exists to
 avoid, hiding on the other side of the join.
 
-Experiment — the rendered statement with `AND r.project_id = $1 AND
-r.environment = $2` added to both `reviews` joins, 24 warm runs each:
+Experiment (2026-10-03, #50 PR) — the rendered statement with `AND
+r.project_id = $1 AND r.environment = $2` added to both `reviews` joins, 24
+warm runs each:
 
 | Tenant | Current | With tenant predicate on `reviews` | `reviews` access path |
 |---|---|---|---|
 | 2,000 chunks | **14.7 ms** median (p95 19.5) | **3.9 ms** median (p95 4.1) | Seq Scan 30,058 rows → Bitmap Index Scan on `reviews_project_id_environment_idx`, 664 rows |
 | 50,000 chunks | 92.4 ms (p95 94.9) | 95.8 ms (p95 110.8) | unchanged; the vector scan dominates |
 
-3.8× for the small tenant, which is every free tenant. Filed as **#111**
-(a `packages/db` change, not made in the #50 PR). After it lands, re-run
-`pnpm load:run cold` and the bench and update this section: the expectation
-is `search_ms` p50 around 5 ms for 2k-chunk tenants and the 20 ms line
-moving out to roughly 8,000–9,000 chunks.
+3.8× for the small tenant, which is every free tenant. Filed as **#111**.
+
+**Landed (#111, 2026-10-03).** `searchChunks` now carries the tenant
+predicate on every `reviews` join (`candidates`, both result joins, and the
+recency statement through one shared `tenant()` helper), and
+`bench-search.ts --project <slug>` times a named project in an existing
+database so the load database can be benched without a clone. Before and
+after, back to back on the same (busier than 10-02) host, 39 warm runs:
+
+| Tenant, load database | Before | After #111 | Server-side (`EXPLAIN ANALYZE`) |
+|---|---|---|---|
+| 2,000 chunks, hybrid | **18.3 ms** median (p95 19.8) | **7.4 ms** median (p95 9.5) | 35.6 → 5.8 ms; `reviews` Seq Scan 30,064 rows (21.1 ms) → Bitmap Index Scan `reviews_project_id_environment_idx` 1,000 rows, 664 after the policy filter |
+| 2,000 chunks, vector only | 15.6 ms | 5.1 ms | |
+| 2,000 chunks, hybrid + metadata filter | 23.2 ms | 6.0 ms | |
+| 2,000 chunks, hybrid, `includeBelowFloor` | 34.6 ms | 8.6 ms | |
+| 50,000 chunks, hybrid | 213.5 ms (p95 352.5) | 122.2 ms (p95 204.6) | contended host; the 10-02 experiment above (92 → 96 ms) is the cleaner read: the vector scan dominates |
+
+2.5× for the 2k tenant on this host (3.8× in the quieter experiment). The
+text branch and the final result join were already pkey nested loops in
+both plans; the Seq Scan was the vector branch's `candidates` CTE alone.
+`searchChunks.integration.test.ts` now asserts, with four tenants in the
+table, that every `reviews` access in the hybrid plans is an index scan on
+`reviews_project_id_environment_idx` and never a Seq Scan.
+
+Two things measured and **not** changed:
+
+- **A partial index for the policy predicate** — `reviews (project_id,
+  environment) WHERE hidden_at IS NULL` — created on the load database and
+  benched: 2k tenant 7.4 → 7.2 ms, 50k tenant 122 → 133 ms, both inside
+  run-to-run noise. The existing btree already narrows `reviews` to the
+  tenant's 1,000 rows and the policy filter on those is microseconds, so no
+  migration.
+- **The recency (no-query) statement** is 9.5 ms for the 2k tenant on the
+  load database and did not move: it already carried the tenant predicate,
+  and the planner answers "newest five" with a *Parallel Seq Scan* over the
+  whole table plus a top-N sort rather than the tenant index. A
+  `(project_id, environment, occurred_at DESC)` index would make it an
+  index scan that stops after `limit` rows. Filed as **#117**.
+
+Still to do after #111: re-run `pnpm load:run cold` on a quiet machine and
+refresh the §1 `cold` row; the expectation is `search_ms` p50 around
+5–8 ms for 2k-chunk tenants.
 
 ### Large tenant on the load database
 
@@ -254,12 +296,14 @@ connection) waits for a staging measurement. Not fixed here.
 
 ## 4. Recommendations
 
-1. **Fix the `reviews` join first (#111).** It is the only finding that
-   affects every tenant, it is a two-line SQL change, and it is worth more
-   to the free tier than any index: 14.7 → 3.9 ms for a 2k-chunk tenant.
+1. **Fix the `reviews` join first (#111) — done.** It was the only finding
+   that affected every tenant, it was a two-line SQL change, and it was
+   worth more to the free tier than any index: 14.7 → 3.9 ms (18.3 → 7.4 ms
+   on a busier host) for a 2k-chunk tenant. The recency statement's own
+   table scan is the follow-up (#117).
 2. **Per-tenant partial HNSW index: not yet, and not at 50k.** The exact
    scan is ~2.5–3 ms per 1,000 chunks. With #111 in, the 20 ms `search_ms`
-   target holds to roughly 8,000 chunks (~4,000 reviews); the free cap
+   target holds to roughly 8,500 chunks (~4,000 reviews); the free cap
    (5,000 reviews ≈ 10,000 chunks) lands around 15–20 ms; a paid tenant at
    50,000 chunks is ~120 ms and at 100,000 reviews (the paid cap, ~200,000
    chunks) would be ~500 ms. The trigger for a partial index

@@ -153,7 +153,9 @@ anyone adds an HNSW or IVFFlat index without updating this section.
 
 `searchChunks(db, params)` in `src/queries/searchChunks.ts` is the query
 behind `POST /v1/query`: one SQL statement that filters `review_chunks` to
-`(project_id, environment)`, joins `reviews`, applies the publication policy
+`(project_id, environment)`, joins `reviews` on the same tenant predicate
+(so the join side is an index scan for the tenant, never a scan of every
+tenant's reviews — #111), applies the publication policy
 (`hidden_at IS NULL`, `rating >= min_rating`, unrated reviews must not be
 `negative`) and the caller's `source` / `since` / `metadata` filters, ranks
 by exact cosine similarity and by `ts_rank_cd`, fuses the two with
@@ -177,14 +179,24 @@ const results = await searchChunks(db, {
 ```
 
 Benchmark (`scripts/bench-search.ts`, not a test): exact scan over 5,000
-chunks in one tenant, hybrid query, limit 5 — **12.1 ms median, 12.4 ms
-p95** end to end from Node against the compose Postgres on an Apple-silicon
-laptop; 11.8 ms server-side per `EXPLAIN ANALYZE`. Re-run it when a tenant
-approaches the ~50k-vector line below:
+chunks in one of two equal tenants, hybrid query, limit 5 — **12.4 ms
+median, 13.1 ms p95** end to end from Node against the compose Postgres on
+an Apple-silicon laptop; 11.9 ms server-side per `EXPLAIN ANALYZE`. That
+two-tenant database cannot show costs that scale with the *table*: on the
+21-tenant load database (`pnpm load:seed`, 45k reviews) a 2,000-chunk
+tenant went from **18.3 ms to 7.4 ms median** (server-side 35.6 → 5.8 ms)
+when the `reviews` join gained the tenant predicate (#111) — the full
+before/after is in [`docs/performance.md`](../../docs/performance.md) §2.
+Re-run both when the statement changes or a tenant approaches the
+~50k-vector line below:
 
 ```sh
 DATABASE_URL=postgres://proofql:proofql@localhost:54323/proofql \
   pnpm --filter @proofql/db exec tsx scripts/bench-search.ts 5000 --explain
+# against the load database, one named tenant, no seeding:
+pnpm load:seed
+DATABASE_URL=postgres://proofql:proofql@localhost:54323/proofql \
+  pnpm --filter @proofql/db exec tsx scripts/bench-search.ts --project load-01 --explain
 ```
 
 ## Verbatim slices

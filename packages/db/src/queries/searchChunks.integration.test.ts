@@ -8,18 +8,21 @@
  */
 
 import { fakeEmbed } from "@proofql/ai";
+import { sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { chunk, project, type Review, review } from "../../test/factories.js";
 import { setupTestDb } from "../../test/harness.js";
 import type { Db } from "../client.js";
-import type { reviews } from "../schema/reviews.js";
+import { reviewChunks } from "../schema/reviewChunks.js";
+import { reviews } from "../schema/reviews.js";
 import { normalizeRrf, rrfScore } from "./fusion.js";
 import {
   MAX_SEARCH_LIMIT,
   type SearchChunksParams,
   type SearchPolicy,
   searchChunks,
+  searchChunksSql,
 } from "./searchChunks.js";
 
 type ReviewInsert = typeof reviews.$inferInsert;
@@ -302,6 +305,140 @@ describe("tenant isolation", () => {
       mode: "excerpts",
     });
     expect(recency.map((r) => r.reviewId)).toEqual([own.id]);
+  });
+});
+
+describe("tenant isolation: the reviews join is planned per tenant (#111)", () => {
+  const t = setupTestDb();
+
+  /** One `EXPLAIN (FORMAT JSON)` plan node, recursively. */
+  type PlanNode = {
+    "Node Type": string;
+    "Relation Name"?: string;
+    "Index Name"?: string;
+    Plans?: PlanNode[];
+  };
+
+  function walk(node: PlanNode, visit: (n: PlanNode) => void): void {
+    visit(node);
+    for (const child of node.Plans ?? []) walk(child, visit);
+  }
+
+  async function explain(
+    db: Db,
+    params: SearchChunksParams,
+  ): Promise<PlanNode> {
+    const rows = await db.execute<{ "QUERY PLAN": [{ Plan: PlanNode }] }>(
+      sql`EXPLAIN (FORMAT JSON) ${searchChunksSql(params)}`,
+    );
+    const plan = rows[0]?.["QUERY PLAN"][0]?.Plan;
+    if (!plan) throw new Error("EXPLAIN returned no plan");
+    return plan;
+  }
+
+  /**
+   * `count` publishable reviews for `projectId`, each with an embedded
+   * `full` chunk, inserted in bulk — a tenant the size the factories would
+   * take seconds to build one row at a time.
+   */
+  async function bulkTenant(
+    db: Db,
+    projectId: string,
+    count: number,
+  ): Promise<void> {
+    const BATCH = 250;
+    for (let start = 0; start < count; start += BATCH) {
+      const n = Math.min(BATCH, count - start);
+      const inserted = await db
+        .insert(reviews)
+        .values(
+          Array.from({ length: n }, (_, j) => ({
+            projectId,
+            environment: "live" as const,
+            source: "google",
+            externalId: `bulk_${start + j}`,
+            rating: 5,
+            text: `${IMPLANT} Visit ${start + j}.`,
+            occurredAt: new Date(Date.UTC(2026, 0, 1) + (start + j) * 60_000),
+          })),
+        )
+        .returning({ id: reviews.id, text: reviews.text });
+      await db.insert(reviewChunks).values(
+        inserted.map((r) => ({
+          reviewId: r.id,
+          projectId,
+          environment: "live" as const,
+          kind: "full" as const,
+          text: r.text,
+          startOffset: 0,
+          embedding: embed(r.text),
+        })),
+      );
+    }
+  }
+
+  it("reads reviews through reviews_project_id_environment_idx, never a Seq Scan, with other tenants in the table", async () => {
+    // Four tenants of equal size: the planner has no reason to prefer a
+    // table scan for one of them, *provided* the statement tells it which
+    // tenant the join side belongs to. Without the tenant predicate on the
+    // `reviews` join (#111) this plan was a Seq Scan over every tenant's
+    // reviews, hashed, then probed with the tenant's chunks.
+    const mine = await project(t.db);
+    const others = await Promise.all([
+      project(t.db),
+      project(t.db),
+      project(t.db),
+    ]);
+    await bulkTenant(t.db, mine.id, 500);
+    for (const other of others) await bulkTenant(t.db, other.id, 500);
+    await t.db.execute(sql`ANALYZE reviews`);
+    await t.db.execute(sql`ANALYZE review_chunks`);
+
+    // The three hybrid shapes share the `candidates` CTE and the result
+    // join. The recency statement is not asserted: it already carried the
+    // predicate, and whether the planner answers "newest five" with the
+    // tenant index or a (parallel) seq scan plus top-N sort is its own
+    // costing call — see the issue linked from docs/performance.md §2.
+    const params = query(mine.id, "painless implant", { limit: 5 });
+    const variants: Array<[string, SearchChunksParams]> = [
+      ["hybrid", params],
+      ["vector only", { ...params, queryText: undefined }],
+      ["includeBelowFloor", { ...params, includeBelowFloor: true }],
+    ];
+
+    for (const [name, p] of variants) {
+      const plan = await explain(t.db, p);
+      const reviewScans: PlanNode[] = [];
+      const indexes = new Set<string>();
+      walk(plan, (n) => {
+        if (n["Relation Name"] === "reviews") reviewScans.push(n);
+        if (n["Index Name"]?.startsWith("reviews_"))
+          indexes.add(n["Index Name"]);
+      });
+
+      expect(
+        reviewScans.length,
+        `${name}: reviews is read at all`,
+      ).toBeGreaterThan(0);
+      expect(
+        reviewScans.map((n) => n["Node Type"]),
+        `${name}: no Seq Scan on reviews`,
+      ).not.toContain("Seq Scan");
+      expect(
+        indexes,
+        `${name}: the tenant index drives the reviews access`,
+      ).toContain("reviews_project_id_environment_idx");
+    }
+
+    // And the fix changed the plan, not the answer: the tenant's rows only.
+    const results = await searchChunks(t.db, params);
+    expect(results).toHaveLength(5);
+    const [row] = await t.db
+      .select({ projectId: reviews.projectId })
+      .from(reviews)
+      .where(sql`${reviews.id} IN ${results.map((r) => r.reviewId)}`)
+      .groupBy(reviews.projectId);
+    expect(row?.projectId).toBe(mine.id);
   });
 });
 

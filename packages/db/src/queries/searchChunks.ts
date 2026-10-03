@@ -4,7 +4,9 @@
  * "Query").
  *
  * One SQL statement does all of it: restrict `review_chunks` to
- * `(project_id, environment)` through the btree index, join `reviews`,
+ * `(project_id, environment)` through the btree index, join `reviews`
+ * **on the same tenant predicate** (so the join side is an index scan too,
+ * never a scan of every tenant's reviews — #111, `tenant()` below),
  * apply the publication policy and the caller's filters, rank the
  * survivors by exact cosine similarity and by full-text rank, fuse the two
  * rankings with Reciprocal Rank Fusion (k = 60, `./fusion.ts`), keep the
@@ -29,10 +31,14 @@
  * two tenants of 2,500 reviews / 5,000 embedded chunks each, so the tenant
  * filter is doing real work; hybrid query with both branches, limit 5,
  * timed end to end from Node, 39 warm runs): **exact scan over 5,000
- * chunks: 12.1 ms median, 12.4 ms p95**, 13.0 ms cold; vector-only 9.7 ms;
- * no-query recency mode 5.1 ms. `EXPLAIN ANALYZE` puts server-side
- * execution at 11.8 ms, both branches starting from a bitmap scan on
- * `review_chunks_project_id_environment_idx`. The #16 target is under 20 ms.
+ * chunks: 12.4 ms median, 13.1 ms p95**, 14.1 ms cold; vector-only
+ * 10.1 ms; no-query recency mode 5.0 ms. `EXPLAIN ANALYZE` puts
+ * server-side execution at 11.9 ms, both branches starting from a bitmap
+ * scan on `review_chunks_project_id_environment_idx`. On the 21-tenant
+ * load database (`pnpm load:seed`) a 2,000-chunk tenant is 7.4 ms median
+ * (was 18.3 ms before the `reviews` join carried the tenant predicate,
+ * #111). The #16 target is under 20 ms; the hybrid statement crosses it
+ * between 7,500 and 10,000 chunks (`docs/performance.md` §2).
  *
  * **Revisit when a single tenant exceeds ~50k vectors.** The fix at that
  * point is a partial HNSW index for that tenant (`WHERE project_id = …`)
@@ -299,6 +305,23 @@ function publishable(params: SearchChunksParams): SQL {
   return sql.join(clauses, sql` AND `);
 }
 
+/**
+ * `reviews r` is the caller's tenant. Semantically redundant on every
+ * join below — a chunk's review is always in the chunk's project and
+ * environment, the FK and the denormalized columns guarantee it — but the
+ * planner cannot know that. Without it, `candidates` joined `reviews` on
+ * `id` alone and Postgres seq-scanned and hashed **every publishable review
+ * in the table** to serve one tenant: 30,058 rows for a tenant with 1,000
+ * of them on the 21-tenant load database, 14.7 → 3.9 ms median (#111,
+ * `docs/performance.md` §2). With the predicate the join starts from
+ * `reviews_project_id_environment_idx` and the cost scales with the tenant,
+ * not the table — the same property the exact scan over `review_chunks`
+ * already had.
+ */
+function tenant(params: SearchChunksParams): SQL {
+  return sql`r.project_id = ${params.projectId} AND r.environment = ${params.environment}`;
+}
+
 /** The `reviews r` columns every result carries. */
 const reviewColumns = sql`
   r.rating,
@@ -315,7 +338,8 @@ const reviewColumns = sql`
  * planned as its own index scan on `(project_id, environment)` rather than
  * spooling every embedding into a tuplestore once; the vector branch is
  * the driving set (inner join), which is what applies the floor to the
- * fused result.
+ * fused result. Every `reviews` join carries `tenant()` so the join side
+ * is index-scanned for the tenant too (#111).
  */
 function hybridStatement(
   params: SearchChunksParams,
@@ -342,7 +366,7 @@ function hybridStatement(
       SELECT c.id, c.review_id, c.text, c.start_offset, c.embedding, c.tsv,
              r.occurred_at
       FROM review_chunks c
-      JOIN reviews r ON r.id = c.review_id
+      JOIN reviews r ON r.id = c.review_id AND ${tenant(params)}
       WHERE c.project_id = ${params.projectId}
         AND c.environment = ${params.environment}
         AND ${publishable(params)}
@@ -402,7 +426,7 @@ function defaultTail(params: SearchChunksParams): SQL {
     )
     SELECT ${bestColumns}
     FROM best b
-    JOIN reviews r ON r.id = b.review_id
+    JOIN reviews r ON r.id = b.review_id AND ${tenant(params)}
     ORDER BY b.rrf DESC, b.occurred_at DESC NULLS LAST, b.review_id
     LIMIT ${params.limit}`;
 }
@@ -433,7 +457,7 @@ function debugTail(params: SearchChunksParams): SQL {
     )
     SELECT ${bestColumns}
     FROM (SELECT * FROM above UNION ALL SELECT * FROM below) b
-    JOIN reviews r ON r.id = b.review_id
+    JOIN reviews r ON r.id = b.review_id AND ${tenant(params)}
     ORDER BY b.below_floor, b.rrf DESC, b.occurred_at DESC NULLS LAST, b.review_id`;
 }
 
@@ -465,8 +489,7 @@ function recencyStatement(params: SearchChunksParams): SQL {
       ORDER BY c.start_offset, c.id
       LIMIT 1
     ) AS c ON true
-    WHERE r.project_id = ${params.projectId}
-      AND r.environment = ${params.environment}
+    WHERE ${tenant(params)}
       AND ${publishable(params)}
     ORDER BY r.occurred_at DESC NULLS LAST, r.id
     LIMIT ${params.limit}
