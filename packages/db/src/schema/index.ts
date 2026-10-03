@@ -14,3 +14,4 @@ export * from "./shared.js";
 export * from "./tenancy.js";
 export * from "./tsvector.js";
 export * from "./usage.js";
+export * from "./waitlist.js";

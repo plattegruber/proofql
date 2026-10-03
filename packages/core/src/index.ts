@@ -7,6 +7,7 @@
 export * from "./apiKeys.js";
 export * from "./cache-generation.js";
 export * from "./chunking.js";
+export * from "./contact.js";
 export * from "./csv/index.js";
 export * from "./limits.js";
 export * from "./log.js";
