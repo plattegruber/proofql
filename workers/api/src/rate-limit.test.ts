@@ -11,6 +11,11 @@ import { type ApiKeyKind, PLANS, type Plan } from "@proofql/core";
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 
+import {
+  AUTH_FAIL_BINDING,
+  AUTH_FAIL_CONFIG,
+  AUTH_FAIL_NAMESPACE_ID,
+} from "./auth-throttle.js";
 import type { ApiBindings, AppEnv, AuthContext } from "./bindings.js";
 import { onError } from "./errors.js";
 import {
@@ -209,10 +214,18 @@ describe("per-plan configs", () => {
           e.simple,
         );
       }
+      // The per-IP auth-failure budget (src/auth-throttle.ts) rides in the
+      // same block and must mirror its constant too.
+      expect(byName.get(AUTH_FAIL_BINDING)?.simple, `${name} auth`).toEqual(
+        AUTH_FAIL_CONFIG,
+      );
+      expect(byName.get(AUTH_FAIL_BINDING)?.namespace_id).toBe(
+        AUTH_FAIL_NAMESPACE_ID,
+      );
       // Namespace ids are account-unique integers: no two bindings share one.
       const ids = (entries as RatelimitEntry[]).map((e) => e.namespace_id);
       expect(new Set(ids).size, `${name} namespace ids`).toBe(ids.length);
-      expect(ids).toEqual(["1001", "1002", "1003", "1004"]);
+      expect(ids).toEqual(["1001", "1002", "1003", "1004", "1005"]);
     }
   });
 });
