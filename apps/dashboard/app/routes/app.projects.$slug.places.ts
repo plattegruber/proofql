@@ -9,6 +9,11 @@
 //                                          tab's run page
 //
 // Errors come back as { error } in the voice, never Google's raw text.
+import {
+  describePlacesError,
+  type PlaceMatch,
+  PlacesError,
+} from "@proofql/google";
 import { data, redirect } from "react-router";
 
 import { requireAccount } from "~/lib/account.server";
@@ -17,11 +22,9 @@ import { getCloudflare } from "~/lib/context";
 import { withRequestDb } from "~/lib/db.server";
 import { importRunPath } from "~/lib/import-paths";
 import { ONBOARDING_FLAG, onboardingPath } from "~/lib/onboarding";
-import { type PlaceMatch, placesSearchQuerySchema } from "~/lib/places";
+import { placesSearchQuerySchema } from "~/lib/places";
 import {
-  describePlacesError,
   importPlaceReviews,
-  PlacesError,
   PlacesImportError,
   placesClientFor,
 } from "~/lib/places.server";

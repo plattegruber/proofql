@@ -1,16 +1,14 @@
 /**
  * Server side of the Places bootstrap (#47).
  *
- * - **The client** (`createPlacesClient`) speaks Places API (New) over
- *   `fetch` with an ordinary API key: `places:searchText` and
- *   `GET /v1/places/{id}`, each with the narrowest `X-Goog-FieldMask` that
- *   carries what we read, because the mask is what Google bills on
- *   (docs/places.md). Both calls are cached for PLACES_CACHE_TTL_S in the
- *   `CACHE` KV namespace — searches under `places:q:<sha256 of the
- *   normalized query>`, places under `places:p:<id>` — so a user retyping
- *   the same name, or two users of one business, cost one call.
+ * - **Configuration** (`placesConfigured`, `placesClientFor`): the card is
+ *   enabled only where `GOOGLE_PLACES_API_KEY` is set; the client comes
+ *   from `@proofql/google` (`createPlacesClient`, shared with the
+ *   pipeline's 25-day refresh, #116) over the worker's `fetch` and the
+ *   `CACHE` KV namespace, so a user retyping the same name, or two users
+ *   of one business, cost one call (docs/places.md).
  * - **The import** (`importPlaceReviews`) fetches the place with its
- *   reviews, maps them (app/lib/places.ts), writes them through
+ *   reviews, maps them (`mapPlaceReviews`), writes them through
  *   `upsertReviews` with the `truncate` cap policy exactly as the CSV
  *   import and `POST /v1/reviews` do, records an `ingest_runs` row of kind
  *   `places` with `artifact_key = places:<place_id>`, and enqueues one
@@ -21,31 +19,22 @@
  *
  * Plain functions over injected `fetch`, cache and queue, so the integration
  * tests drive the whole flow against the real schema with the fake Places
- * API (test/fake-places.ts) and no network.
+ * API (`@proofql/google/fake`) and no network.
  */
 import type { Logger } from "@proofql/core";
 import { type Db, schema, upsertReviews } from "@proofql/db";
+import {
+  createPlacesClient,
+  kvPlacesCache,
+  type MappedPlace,
+  mapPlaceReviews,
+  type PlaceMatch,
+  type PlacesClient,
+  placesArtifactKey,
+} from "@proofql/google";
 import { eq } from "drizzle-orm";
 
 import type { Environment, IndexQueue, IngestRun } from "./csv.server";
-import {
-  type MappedPlace,
-  mapPlaceReviews,
-  normalizeSearchQuery,
-  PLACES_API_BASE_DEFAULT,
-  PLACES_CACHE_TTL_S,
-  PLACES_MAX_RESULTS,
-  PLACES_PLACE_FIELD_MASK,
-  PLACES_SEARCH_CACHE_PREFIX,
-  PLACES_SEARCH_FIELD_MASK,
-  type PlaceDetails,
-  type PlaceMatch,
-  placeCacheKey,
-  placeDetailsSchema,
-  placesArtifactKey,
-  placesSearchResponseSchema,
-  toPlaceMatch,
-} from "./places";
 
 // --- Configuration -----------------------------------------------------------
 
@@ -71,163 +60,6 @@ export function placesClientFor(
     cache: env.CACHE ? kvPlacesCache(env.CACHE) : undefined,
     fetch: options.fetch,
   });
-}
-
-// --- Cache -------------------------------------------------------------------
-
-/** The slice of KV the client uses; tests pass a Map-backed one. */
-export interface PlacesCache {
-  get(key: string): Promise<string | null>;
-  put(key: string, value: string, ttlSeconds: number): Promise<void>;
-}
-
-export function kvPlacesCache(kv: KVNamespace): PlacesCache {
-  return {
-    get: (key) => kv.get(key, "text"),
-    put: (key, value, ttlSeconds) =>
-      kv.put(key, value, { expirationTtl: ttlSeconds }),
-  };
-}
-
-/** `places:q:<sha256 hex>` of the normalized query. */
-export async function searchCacheKey(query: string): Promise<string> {
-  const bytes = new TextEncoder().encode(normalizeSearchQuery(query));
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  const hex = [...new Uint8Array(digest)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-  return `${PLACES_SEARCH_CACHE_PREFIX}${hex}`;
-}
-
-// --- The client --------------------------------------------------------------
-
-export class PlacesError extends Error {
-  override readonly name = "PlacesError";
-  constructor(
-    message: string,
-    /** HTTP status Google answered with; 502 when the response was unreadable. */
-    readonly status: number,
-    /** Google's `error.status` (`PERMISSION_DENIED`, `NOT_FOUND`, ...). */
-    readonly code: string | null = null,
-  ) {
-    super(message);
-  }
-}
-
-export interface PlacesClient {
-  /** Up to PLACES_MAX_RESULTS places matching a free-text query. */
-  search(query: string): Promise<{ matches: PlaceMatch[]; cached: boolean }>;
-  /** The place with its (at most five) reviews. */
-  place(placeId: string): Promise<{ place: PlaceDetails; cached: boolean }>;
-}
-
-export interface PlacesClientOptions {
-  apiKey: string;
-  baseUrl?: string;
-  fetch?: typeof fetch;
-  cache?: PlacesCache;
-  ttlSeconds?: number;
-}
-
-export function createPlacesClient(options: PlacesClientOptions): PlacesClient {
-  const base = (options.baseUrl ?? PLACES_API_BASE_DEFAULT).replace(/\/$/, "");
-  const doFetch = options.fetch ?? fetch;
-  const ttl = options.ttlSeconds ?? PLACES_CACHE_TTL_S;
-  const cache = options.cache;
-
-  async function call(
-    path: string,
-    init: { method: "GET" | "POST"; fieldMask: string; body?: unknown },
-  ): Promise<unknown> {
-    const response = await doFetch(`${base}${path}`, {
-      method: init.method,
-      headers: {
-        "X-Goog-Api-Key": options.apiKey,
-        "X-Goog-FieldMask": init.fieldMask,
-        ...(init.body !== undefined
-          ? { "Content-Type": "application/json" }
-          : {}),
-      },
-      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
-    });
-    if (!response.ok) throw await errorFrom(response);
-    try {
-      return await response.json();
-    } catch {
-      throw new PlacesError("Google answered with an unreadable body.", 502);
-    }
-  }
-
-  return {
-    async search(query) {
-      const key = await searchCacheKey(query);
-      const hit = await cache?.get(key);
-      if (hit) {
-        return { matches: JSON.parse(hit) as PlaceMatch[], cached: true };
-      }
-      const raw = await call("/v1/places:searchText", {
-        method: "POST",
-        fieldMask: PLACES_SEARCH_FIELD_MASK,
-        body: { textQuery: query, pageSize: PLACES_MAX_RESULTS },
-      });
-      const parsed = placesSearchResponseSchema.safeParse(raw);
-      if (!parsed.success) {
-        throw new PlacesError("Google answered in an unexpected shape.", 502);
-      }
-      const matches = (parsed.data.places ?? [])
-        .slice(0, PLACES_MAX_RESULTS)
-        .map(toPlaceMatch);
-      await cache?.put(key, JSON.stringify(matches), ttl);
-      return { matches, cached: false };
-    },
-
-    async place(placeId) {
-      const key = placeCacheKey(placeId);
-      const hit = await cache?.get(key);
-      if (hit) {
-        const parsed = placeDetailsSchema.safeParse(JSON.parse(hit));
-        if (parsed.success) return { place: parsed.data, cached: true };
-      }
-      const raw = await call(`/v1/places/${encodeURIComponent(placeId)}`, {
-        method: "GET",
-        fieldMask: PLACES_PLACE_FIELD_MASK,
-      });
-      const parsed = placeDetailsSchema.safeParse(raw);
-      if (!parsed.success) {
-        throw new PlacesError("Google answered in an unexpected shape.", 502);
-      }
-      await cache?.put(key, JSON.stringify(parsed.data), ttl);
-      return { place: parsed.data, cached: false };
-    },
-  };
-}
-
-async function errorFrom(response: Response): Promise<PlacesError> {
-  let message = `Google answered ${response.status}.`;
-  let code: string | null = null;
-  try {
-    const body = (await response.json()) as {
-      error?: { message?: string; status?: string };
-    };
-    if (body.error?.message) message = body.error.message;
-    code = body.error?.status ?? null;
-  } catch {
-    // keep the status line
-  }
-  return new PlacesError(message, response.status, code);
-}
-
-/** What the card shows for a client error; never Google's raw 5xx text. */
-export function describePlacesError(error: PlacesError): string {
-  if (error.status === 404) return "Google no longer lists this place.";
-  if (error.status === 403 || error.status === 401) {
-    return "Google refused the Places API key for this environment; the owner needs to check its restrictions.";
-  }
-  if (error.status === 429) {
-    return "Google is rate-limiting Places lookups right now; try again in a minute.";
-  }
-  if (error.status >= 500) return "Google Places is unavailable right now.";
-  return `Google refused the request: ${error.message}`;
 }
 
 // --- The import --------------------------------------------------------------

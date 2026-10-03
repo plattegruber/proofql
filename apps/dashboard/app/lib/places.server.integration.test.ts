@@ -1,12 +1,17 @@
 // The Places bootstrap end to end against the real schema (#47): the fake
 // Places API stands in for Google, a Map for KV, the recording queue for
-// the ingest queue. Search returns the fixtures and is cached; the import
-// writes five `google` reviews, a `places` run row, five index messages;
-// a second import updates in place and enqueues nothing; a place with no
-// usable reviews leaves no run behind.
+// the ingest queue. The import writes five `google` reviews, a `places` run
+// row, five index messages; a second import updates in place and enqueues
+// nothing; a place with no usable reviews leaves no run behind. The client
+// itself (search, the cache, refusals) is tested in packages/google.
 import { planFor } from "@proofql/core";
 import { schema } from "@proofql/db";
 import { project, setupTestDb } from "@proofql/db/test";
+import {
+  createPlacesClient,
+  type PlacesCache,
+  placeCacheKey,
+} from "@proofql/google";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
@@ -17,16 +22,11 @@ import {
   QUIET_CORNER_ID,
 } from "../../test/fake-places";
 import { fakeQueue } from "../../test/fake-r2";
-import { PLACES_SEARCH_CACHE_PREFIX, placeCacheKey } from "./places";
 import {
-  createPlacesClient,
   importPlaceReviews,
-  type PlacesCache,
-  PlacesError,
   PlacesImportError,
   placesClientFor,
   placesConfigured,
-  searchCacheKey,
 } from "./places.server";
 
 const t = setupTestDb();
@@ -53,65 +53,6 @@ function harness(apiKey = "fake") {
   const places = createPlacesClient({ apiKey, fetch: api.fetch, cache });
   return { api, cache, queue, places };
 }
-
-describe("search", () => {
-  it("returns the fixtures with the narrow field mask, then serves the same query from KV", async () => {
-    const { api, cache, places } = harness();
-    const first = await places.search("Boulder");
-    expect(first.cached).toBe(false);
-    expect(first.matches.map((m) => m.name)).toEqual([
-      "Cedar Ridge Dental",
-      "Harbor Light Bakery",
-      "Quiet Corner Books",
-    ]);
-    expect(first.matches[0]).toEqual({
-      id: CEDAR_RIDGE_ID,
-      name: "Cedar Ridge Dental",
-      address: "1200 Cedar Ridge Rd, Boulder, CO 80302, USA",
-      rating: 4.8,
-      ratingCount: 212,
-    });
-    expect(api.calls).toEqual([
-      {
-        method: "POST",
-        path: "/v1/places:searchText",
-        fieldMask:
-          "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount",
-      },
-    ]);
-
-    // Same words, different spacing and case: one cache entry, no call.
-    const second = await places.search("  boulder ");
-    expect(second.cached).toBe(true);
-    expect(second.matches).toEqual(first.matches);
-    expect(api.calls).toHaveLength(1);
-
-    const key = await searchCacheKey("BOULDER");
-    expect(key.startsWith(PLACES_SEARCH_CACHE_PREFIX)).toBe(true);
-    expect(key).toMatch(/^places:q:[0-9a-f]{64}$/);
-    expect(cache.entries.get(key)?.ttl).toBe(24 * 60 * 60);
-    expect([...cache.entries.keys()]).toEqual([key]);
-  });
-
-  it("answers an empty list for no match and surfaces Google's refusals", async () => {
-    const { places } = harness();
-    expect((await places.search("nothing here")).matches).toEqual([]);
-
-    const refused = harness("bad");
-    await expect(refused.places.search("dental")).rejects.toMatchObject({
-      name: "PlacesError",
-      status: 400,
-      code: "INVALID_ARGUMENT",
-    });
-
-    const down = harness();
-    down.api.failWith = new Response("<html>502</html>", { status: 502 });
-    const error = await down.places.search("dental").catch((e) => e);
-    expect(error).toBeInstanceOf(PlacesError);
-    expect(error.status).toBe(502);
-    expect(error.message).toBe("Google answered 502.");
-  });
-});
 
 describe("importPlaceReviews", () => {
   it("writes five google reviews, a places run row with counts, and five index messages", async () => {
