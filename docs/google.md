@@ -40,6 +40,22 @@ A `connection.sync` message and a cron tick can overlap on one connection.
 Both are idempotent — the upsert is keyed on the review's resource name and
 cursors only move forward — so the worst case is one redundant page.
 
+## Superseding the Places bootstrap (#116)
+
+Onboarding can seed a project with up to five reviews from the Places API
+(#115) before Google approves the connector. Those rows are `source =
+google` with an `external_id` under `places/` (and `metadata.place_id`).
+When a connection completes its **first** successful sync — `last_synced_at`
+was null, or `metadata.initial_sync_pending` was set — the poller deletes
+the project's bootstrap rows in the same transaction that clears the
+pending flag (`supersedePlacesBootstrap`), lowers `projects.review_count`
+by the same number, and bumps the project's cache generation
+(`google.bootstrap_superseded`), because the connector now holds the same
+reviews under their Business Profile ids. Later syncs find nothing to
+delete and bump nothing. Other Google reviews — a push-API review with an
+`accounts/…` id, say — are never touched. The 25-day Places refresh of
+#116 item 1 is a separate follow-up.
+
 ## Quota math
 
 All of ProofQL shares one Google Cloud project, and every Business Profile

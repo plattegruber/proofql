@@ -126,7 +126,13 @@ export async function syncConnectionNow(
   message: Extract<IngestMessage, { type: "connection.sync" }>,
 ): Promise<GooglePollResult> {
   return pollGoogleConnections(
-    { db: ctx.db, queue: ctx.queue, log: ctx.log, env: ctx.env },
+    {
+      db: ctx.db,
+      queue: ctx.queue,
+      log: ctx.log,
+      env: ctx.env,
+      cache: ctx.cache,
+    },
     { connectionIds: [message.connectionId], trigger: "queue" },
   );
 }
@@ -392,7 +398,7 @@ export function scheduledJob(cron: string | undefined): ScheduledResult["job"] {
  * database client, as the queue handler does, and closes it when done.
  */
 export async function handleScheduled(
-  env: Omit<PipelineBindings, "CACHE" | "AI">,
+  env: Omit<PipelineBindings, "AI">,
   cron: string | undefined,
 ): Promise<ScheduledResult> {
   const { db, sql } = createDb(env.HYPERDRIVE.connectionString);
@@ -400,7 +406,7 @@ export async function handleScheduled(
   try {
     if (scheduledJob(cron) === "google_poll") {
       const result = await pollGoogleConnections(
-        { db, queue: env.INGEST_QUEUE, log, env },
+        { db, queue: env.INGEST_QUEUE, log, env, cache: env.CACHE },
         { trigger: "cron" },
       );
       return { job: "google_poll", result };

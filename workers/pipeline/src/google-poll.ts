@@ -22,7 +22,13 @@
  *    `updateTime` seen and persist it at once, so a tick cut short never
  *    re-walks a finished location.
  * 4. Close the run with the counts, stamp `last_synced_at`, clear
- *    `metadata.initial_sync_pending`.
+ *    `metadata.initial_sync_pending`. On a connection's **first** successful
+ *    sync (`last_synced_at` was null, or the pending flag was set) the same
+ *    transaction deletes the project's Places bootstrap rows — `source =
+ *    google` with an `external_id` under `places/` (#115) — because the
+ *    connector now holds those reviews under their Business Profile ids;
+ *    `projects.review_count` is lowered by the same number and the
+ *    project's cache generation is bumped so stale results drop out (#116).
  *
  * Pacing: one {@link Pacer} per tick (240 requests/minute, 80% of the
  * 300 QPM project quota every connection shares), awaited before every
@@ -45,7 +51,12 @@
  * and run ids are logged, and the logger redacts `plaintext` anyway.
  */
 
-import type { IngestMessage, Logger } from "@proofql/core";
+import {
+  bumpProjectGeneration,
+  type GenerationKv,
+  type IngestMessage,
+  type Logger,
+} from "@proofql/core";
 import { type Db, schema, upsertReviews } from "@proofql/db";
 import {
   accessTokenExpiresWithin,
@@ -76,11 +87,14 @@ import {
   stableOrder,
   v4LocationName,
 } from "@proofql/google";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, like, sql } from "drizzle-orm";
 
 import { chunked, type IngestQueue, QUEUE_SEND_BATCH_MAX } from "./sweep.js";
 
-const { connections, ingestRuns } = schema;
+const { connections, ingestRuns, projects, reviews } = schema;
+
+/** Places bootstrap rows (#115) carry their Places id under this prefix. */
+export const PLACES_BOOTSTRAP_PREFIX = "places/";
 
 /** Refresh the access token when it expires within this long. */
 export const ACCESS_TOKEN_REFRESH_WITHIN_MS = 5 * 60_000;
@@ -108,6 +122,8 @@ export interface GooglePollContext {
   queue: IngestQueue;
   log: Logger;
   env: GooglePollEnv;
+  /** The query cache's generation counter; bumped when bootstrap rows are superseded. */
+  cache: GenerationKv;
   /** Injectable for tests (the fake server's `fetch`). Default: global fetch. */
   fetch?: typeof fetch;
   /** Injectable clock. */
@@ -541,6 +557,8 @@ async function syncConnection(
 
   const finishedAt = now();
   const failed = stopTick !== undefined || locationErrors.length > 0;
+  const firstSync =
+    connection.lastSyncedAt === null || metadata.initial_sync_pending === true;
   const error =
     stopError ?? (locationErrors.length > 0 ? locationErrors.join("; ") : null);
   await ctx.db
@@ -557,16 +575,32 @@ async function syncConnection(
     })
     .where(eq(ingestRuns.id, run.id));
 
+  let superseded = 0;
   if (!failed) {
-    await ctx.db
-      .update(connections)
-      .set({
-        lastSyncedAt: finishedAt,
-        metadata: withoutPending(connection.metadata),
-        cursor: serializeLocationCursor(cursor),
-        updatedAt: finishedAt,
-      })
-      .where(eq(connections.id, connection.id));
+    superseded = await ctx.db.transaction(async (tx) => {
+      await tx
+        .update(connections)
+        .set({
+          lastSyncedAt: finishedAt,
+          metadata: withoutPending(connection.metadata),
+          cursor: serializeLocationCursor(cursor),
+          updatedAt: finishedAt,
+        })
+        .where(eq(connections.id, connection.id));
+      if (!firstSync) return 0;
+      return supersedePlacesBootstrap(tx, connection.projectId);
+    });
+    if (superseded > 0) {
+      // After the commit, never inside it (packages/core cache-generation).
+      const generation = await bumpProjectGeneration(
+        ctx.cache,
+        connection.projectId,
+      );
+      runLog.log("google.bootstrap_superseded", {
+        deleted: superseded,
+        generation,
+      });
+    }
   }
 
   runLog.log(failed ? "google.sync.failed" : "google.sync.completed", {
@@ -577,6 +611,7 @@ async function syncConnection(
     updated: counts.updated,
     skipped: counts.skipped,
     rejected: counts.rejected,
+    superseded,
     took_ms: finishedAt.getTime() - startedAt.getTime(),
   });
 
@@ -744,6 +779,36 @@ async function listPage(
     }
     throw error;
   }
+}
+
+/**
+ * Delete the project's Places bootstrap rows (#115) once the connector
+ * holds the real thing, and lower `review_count` to match (floored at 0,
+ * as the api's DELETE does). Chunks cascade. Returns the number deleted.
+ */
+export async function supersedePlacesBootstrap(
+  db: Pick<Db, "delete" | "update">,
+  projectId: string,
+): Promise<number> {
+  const deleted = await db
+    .delete(reviews)
+    .where(
+      and(
+        eq(reviews.projectId, projectId),
+        eq(reviews.source, "google"),
+        like(reviews.externalId, `${PLACES_BOOTSTRAP_PREFIX}%`),
+      ),
+    )
+    .returning({ id: reviews.id });
+  if (deleted.length > 0) {
+    await db
+      .update(projects)
+      .set({
+        reviewCount: sql`GREATEST(${projects.reviewCount} - ${deleted.length}, 0)`,
+      })
+      .where(eq(projects.id, projectId));
+  }
+  return deleted.length;
 }
 
 async function markNeedsReauth(

@@ -5,9 +5,9 @@
  * `connections` and the recording queue back.
  */
 
-import type { IngestMessage } from "@proofql/core";
+import { generationKey, type IngestMessage, MemoryKv } from "@proofql/core";
 import { schema } from "@proofql/db";
-import { project, setupTestDb } from "@proofql/db/test";
+import { project, review, setupTestDb } from "@proofql/db/test";
 import {
   createPacer,
   decryptCredentials,
@@ -128,10 +128,12 @@ function tick(
 ) {
   const { log, out } = testLogger();
   const queue = new FakeQueue();
+  const cache = new MemoryKv();
   const ctx: GooglePollContext = {
     db: t.db,
     queue,
     log,
+    cache,
     env: {
       ENVIRONMENT: "test",
       CREDENTIALS_KEY,
@@ -155,7 +157,7 @@ function tick(
         ? { connectionIds: options.connectionIds }
         : {}),
     });
-  return { run, out, queue };
+  return { run, out, queue, cache };
 }
 
 async function reload(connectionId: string) {
@@ -576,6 +578,54 @@ describe("pollGoogleConnections", () => {
     ).find((c) => c.lastSyncedAt === null);
     expect(failedConnection?.cursor).toBeNull();
     expect(await tick().run()).toMatchObject({ synced: 2 });
+  });
+
+  it("the first sync supersedes the Places bootstrap rows and bumps the generation; later syncs do not touch them", async () => {
+    const p = await project(t.db, { reviewCount: 2 });
+    const connection = await connect({ projectId: p.id, pending: true });
+    for (const n of [1, 2]) {
+      await review(t.db, {
+        projectId: p.id,
+        source: "google",
+        externalId: `places/ChIJnorth0000000000000001/reviews/${n}`,
+        metadata: { place_id: "ChIJnorth0000000000000001" },
+      });
+    }
+    // A push-API Google review with a non-Places id must survive.
+    const keeper = await review(t.db, {
+      projectId: p.id,
+      source: "google",
+      externalId: "accounts/999/locations/1/reviews/manual",
+    });
+    const { run, out, cache } = tick();
+
+    const result = await run();
+
+    expect(result.synced).toBe(1);
+    const stored = await reviewsFor(p.id);
+    expect(stored).toHaveLength(113 + 1);
+    expect(stored.some((r) => r.externalId.startsWith("places/"))).toBe(false);
+    expect(stored.some((r) => r.id === keeper.id)).toBe(true);
+    const [row] = await t.db
+      .select({ reviewCount: projects.reviewCount })
+      .from(projects)
+      .where(eq(projects.id, p.id));
+    // 2 bootstrap rows gone, 113 connector rows added (the keeper was never counted).
+    expect(row?.reviewCount).toBe(113);
+    expect(cache.puts).toEqual([{ key: generationKey(p.id), value: "1" }]);
+    expect(out.only("google.bootstrap_superseded")).toMatchObject({
+      connection_id: connection.id,
+      deleted: 2,
+      generation: 1,
+    });
+
+    // Second sync: nothing to supersede, no bump.
+    clock += 3600_000;
+    const again = tick();
+    await again.run();
+    expect(again.cache.puts).toEqual([]);
+    expect(again.out.find("google.bootstrap_superseded")).toEqual([]);
+    expect(await reviewsFor(p.id)).toHaveLength(114);
   });
 
   it("the queue path syncs only the named connection and ignores the pending flag", async () => {

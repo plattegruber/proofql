@@ -152,6 +152,7 @@ Google connector (#46, [`google-poll.ts`](../workers/pipeline/src/google-poll.ts
 | `google.request_retry` | warn | `status`, `wait_ms` | A 5xx (one retry after `Retry-After`) or a 401 (one forced refresh). |
 | `google.location.failed` | warn | `location`, `status`, `google_status` | A non-retryable Google error on one location (403 `PERMISSION_DENIED` on a location that lost verification, 404 on one that was removed); the others still sync. |
 | `google.review.invalid` | warn | `issues[]` (`path`, `message`) | A review failed the adapter's schema (an unknown `starRating`, a malformed name or time); counted as skipped. Several in a row mean Google changed the payload. |
+| `google.bootstrap_superseded` | info | `deleted`, `generation` | A connection's first successful sync deleted the project's Places bootstrap rows (`external_id` under `places/`, #115/#116) and bumped the cache generation (docs/google.md). |
 | `google.cap_reached` | warn | `rejected`, `limit`, `review_count` | The plan's review cap refused part of a batch (`onLimit: "truncate"`); the refused count lands in the run's `failed`. |
 
 ### dashboard
