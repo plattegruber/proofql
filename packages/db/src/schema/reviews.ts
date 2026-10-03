@@ -108,11 +108,23 @@ export const reviews = pgTable(
       table.source,
       table.externalId,
     ),
-    // The query API's policy scan and the dashboard's review browser both
-    // start from "this project, this environment".
-    index("reviews_project_id_environment_idx").on(
+    // Every per-tenant read of `reviews` starts from "this project, this
+    // environment": the search statements' joins (#111), the no-query
+    // recency statement, the CRUD and dashboard list routes, and the
+    // onboarding/import counts. The trailing `occurred_at DESC NULLS LAST,
+    // id` matches the recency statement's ORDER BY exactly, so "newest
+    // `limit` publishable reviews" is an index scan that stops after
+    // `limit` rows instead of a seq scan of every tenant plus a top-N sort
+    // (#117: 8.2 → 0.8 ms for a 1,000-review tenant in a 45k-row table).
+    // The former `reviews_project_id_environment_idx` was this index's
+    // prefix and is dropped in 0006; equality lookups on the prefix read the
+    // same leaf pages here. Not partial on `hidden_at IS NULL`: measured
+    // identical for recency, and the list routes filter on hidden rows too.
+    index("reviews_project_id_environment_occurred_at_idx").on(
       table.projectId,
       table.environment,
+      table.occurredAt.desc().nullsLast(),
+      table.id,
     ),
     // The re-enqueue sweep (#72) scans "unindexed, oldest first" across all
     // tenants every five minutes; a partial index keeps that a few rows
