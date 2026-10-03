@@ -56,6 +56,9 @@ describe("POST /v1/reviews body limit", () => {
       method: "POST",
       headers: {
         authorization: `Bearer ${plaintext}`,
+        // Declared so the media-type guard (src/request-guards.ts) lets the
+        // body through to the size check this test is about.
+        "content-type": "application/json",
         "transfer-encoding": "chunked",
       },
       body: stream,
