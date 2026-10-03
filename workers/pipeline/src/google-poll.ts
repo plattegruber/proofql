@@ -78,6 +78,7 @@ import {
   importCredentialsKey,
   type MappedLocation,
   type Pacer,
+  PLACES_BOOTSTRAP_PREFIX,
   parseConnectionMetadata,
   parseLocationCursor,
   pollableLocations,
@@ -94,7 +95,7 @@ import { chunked, type IngestQueue, QUEUE_SEND_BATCH_MAX } from "./sweep.js";
 const { connections, ingestRuns, projects, reviews } = schema;
 
 /** Places bootstrap rows (#115) carry their Places id under this prefix. */
-export const PLACES_BOOTSTRAP_PREFIX = "places/";
+export { PLACES_BOOTSTRAP_PREFIX };
 
 /** Refresh the access token when it expires within this long. */
 export const ACCESS_TOKEN_REFRESH_WITHIN_MS = 5 * 60_000;

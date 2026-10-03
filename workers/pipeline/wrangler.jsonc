@@ -49,9 +49,15 @@
     // the gitignored `.dev.vars` (copy `.dev.vars.example`; `pnpm run setup`
     // generates the key). Deployed: GOOGLE_CLIENT_ID is a var below, the two
     // secrets are `wrangler secret put`.
+    //
+    // Places refresh (#116): GOOGLE_PLACES_API_KEY (secret, the same key the
+    // dashboard holds; `wrangler secret put` per env, docs/secrets.md) and
+    // the optional PLACES_API_BASE override (local only: the fake Places API
+    // on :8803) also come from `.dev.vars`. Unset ⇒ the daily cron logs
+    // `places.refresh.skipped` and does nothing.
   },
 
-  // Two crons, routed on `controller.cron` in src/handlers.ts:
+  // Three crons, routed on `controller.cron` in src/handlers.ts:
   // - `*/5 * * * *`  re-enqueue sweep (#72, src/sweep.ts): reviews stuck with
   //   indexed_at IS NULL for 5+ minutes go back on the queue (500/tick, five
   //   attempts per review).
@@ -60,8 +66,13 @@
   //   nothing until CREDENTIALS_KEY / GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
   //   are set (docs/secrets.md). Locally: `wrangler dev --test-scheduled`,
   //   then GET /__scheduled?cron=0+*%2F6+*+*+* (docs/google.md).
+  // - `30 3 * * *`   Places bootstrap refresh (#116, src/places-refresh.ts):
+  //   re-fetch every Places-bootstrapped place whose latest `places` run is
+  //   25+ days old, for projects without an active Google connection
+  //   (200/tick, oldest first). Does nothing until GOOGLE_PLACES_API_KEY is
+  //   set. Locally: GET /__scheduled?cron=30+3+*+*+* (docs/places.md).
   "triggers": {
-    "crons": ["*/5 * * * *", "0 */6 * * *"]
+    "crons": ["*/5 * * * *", "0 */6 * * *", "30 3 * * *"]
   },
 
   "queues": {
@@ -121,7 +132,9 @@
         // two secrets are set, which waits on Google API access (#44).
         "GOOGLE_CLIENT_ID": "TBD-provision-in-m3"
       },
-      "triggers": { "crons": ["*/5 * * * *", "0 */6 * * *"] },
+      "triggers": {
+        "crons": ["*/5 * * * *", "0 */6 * * *", "30 3 * * *"]
+      },
       "queues": {
         "producers": [
           { "binding": "INGEST_QUEUE", "queue": "proofql-ingest-preview" }
@@ -162,7 +175,9 @@
         // two secrets are set, which waits on Google API access (#44).
         "GOOGLE_CLIENT_ID": "TBD-provision-in-m3"
       },
-      "triggers": { "crons": ["*/5 * * * *", "0 */6 * * *"] },
+      "triggers": {
+        "crons": ["*/5 * * * *", "0 */6 * * *", "30 3 * * *"]
+      },
       "queues": {
         "producers": [
           { "binding": "INGEST_QUEUE", "queue": "proofql-ingest-prod" }

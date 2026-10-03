@@ -5,7 +5,9 @@
  * Cron contract (`triggers.crons`): `handleScheduled` routes on the cron
  * expression the runtime reports — the five-minute cron runs the re-enqueue
  * sweep (src/sweep.ts) for reviews stuck unindexed, the six-hourly one
- * polls every Google connection (src/google-poll.ts, #46).
+ * polls every Google connection (src/google-poll.ts, #46), the daily one
+ * at 03:30 UTC refreshes Places-bootstrapped reviews older than 25 days
+ * (src/places-refresh.ts, #116).
  *
  * Queue consumer contract (`proofql-ingest`, wrangler.jsonc):
  *
@@ -81,6 +83,11 @@ import {
   type IndexOutcome,
   indexReview,
 } from "./index-review.js";
+import {
+  PLACES_REFRESH_CRON,
+  type PlacesRefreshResult,
+  refreshPlacesBootstraps,
+} from "./places-refresh.js";
 import { type IngestQueue, type SweepResult, sweepUnindexed } from "./sweep.js";
 
 /** The subset of a Queues `Message` the handler reads and decides on. */
@@ -373,29 +380,34 @@ export async function handleQueue(
 export const SWEEP_OLDER_THAN_MINUTES = 5;
 export const SWEEP_LIMIT = 500;
 
-/** The two cron expressions in wrangler.jsonc (all three env blocks). */
+/** The three cron expressions in wrangler.jsonc (all three env blocks). */
 export const SWEEP_CRON = "*/5 * * * *";
 export const GOOGLE_POLL_CRON = "0 */6 * * *";
+export { PLACES_REFRESH_CRON };
 
 export type ScheduledResult =
   | { job: "sweep"; result: SweepResult }
-  | { job: "google_poll"; result: GooglePollResult };
+  | { job: "google_poll"; result: GooglePollResult }
+  | { job: "places_refresh"; result: PlacesRefreshResult };
 
 /**
- * Which job a cron expression runs. Anything that is not the Google poll is
- * the sweep: it is the older, more important job, and a typo in a cron
- * expression should still re-enqueue stuck reviews rather than silently do
- * nothing.
+ * Which job a cron expression runs. Anything that is neither the Google
+ * poll nor the Places refresh is the sweep: it is the older, more important
+ * job, and a typo in a cron expression should still re-enqueue stuck
+ * reviews rather than silently do nothing.
  */
 export function scheduledJob(cron: string | undefined): ScheduledResult["job"] {
-  return cron === GOOGLE_POLL_CRON ? "google_poll" : "sweep";
+  if (cron === GOOGLE_POLL_CRON) return "google_poll";
+  if (cron === PLACES_REFRESH_CRON) return "places_refresh";
+  return "sweep";
 }
 
 /**
  * One cron tick (`triggers.crons` in wrangler.jsonc), routed on the cron
  * expression (`controller.cron`): re-enqueue reviews stuck with
- * `indexed_at IS NULL`, or poll every Google connection. Opens its own
- * database client, as the queue handler does, and closes it when done.
+ * `indexed_at IS NULL`, poll every Google connection, or refresh the
+ * Places bootstraps that are due. Opens its own database client, as the
+ * queue handler does, and closes it when done.
  */
 export async function handleScheduled(
   env: Omit<PipelineBindings, "AI">,
@@ -404,12 +416,23 @@ export async function handleScheduled(
   const { db, sql } = createDb(env.HYPERDRIVE.connectionString);
   const log = createPipelineLogger(env).child({ trigger: "cron" });
   try {
-    if (scheduledJob(cron) === "google_poll") {
+    const job = scheduledJob(cron);
+    if (job === "google_poll") {
       const result = await pollGoogleConnections(
         { db, queue: env.INGEST_QUEUE, log, env, cache: env.CACHE },
         { trigger: "cron" },
       );
       return { job: "google_poll", result };
+    }
+    if (job === "places_refresh") {
+      const result = await refreshPlacesBootstraps({
+        db,
+        queue: env.INGEST_QUEUE,
+        log,
+        env,
+        kv: env.CACHE,
+      });
+      return { job: "places_refresh", result };
     }
     const result = await sweepUnindexed(
       { db, queue: env.INGEST_QUEUE, log },
