@@ -54,15 +54,14 @@ import { and, desc, eq } from "drizzle-orm";
 
 const { connections, ingestRuns } = schema;
 
-export const CALLBACK_PATH = "/app/integrations/google/callback";
+import {
+  CALLBACK_PATH,
+  type ConnectionView,
+  connectPath,
+  integrationsPath,
+} from "./google";
 
-export function integrationsPath(slug: string): string {
-  return `/app/projects/${slug}/integrations`;
-}
-
-export function connectPath(slug: string): string {
-  return `${integrationsPath(slug)}/google/connect`;
-}
+export { CALLBACK_PATH, type ConnectionView, connectPath, integrationsPath };
 
 /** The env slice the flow reads; the generated `Env` fits structurally. */
 export interface GoogleEnv {
@@ -427,26 +426,6 @@ export async function latestGoogleRun(
     ),
     orderBy: [desc(ingestRuns.startedAt)],
   });
-}
-
-/** What the tab renders; dates as ISO strings so loader data is stable across the wire. */
-export interface ConnectionView {
-  status: Connection["status"];
-  lastSyncedAt: string | null;
-  initialSyncPending: boolean;
-  discoveredAt: string | null;
-  accounts: Record<string, string>;
-  locations: MappedLocation[];
-  lastRun: {
-    status: GoogleRun["status"];
-    startedAt: string;
-    finishedAt: string | null;
-    created: number;
-    updated: number;
-    skipped: number;
-    failed: number;
-    error: string | null;
-  } | null;
 }
 
 export function connectionView(

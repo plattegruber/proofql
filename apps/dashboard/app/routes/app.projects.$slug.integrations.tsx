@@ -21,12 +21,14 @@ import { withRequestDb } from "~/lib/db.server";
 import { setFlash } from "~/lib/flash.server";
 import {
   type ConnectionView,
+  connectPath,
+  integrationsPath,
+} from "~/lib/google";
+import {
   connectionView,
   connectorEnabled,
-  connectPath,
   disconnectGoogle,
   findGoogleConnection,
-  integrationsPath,
   latestGoogleRun,
   saveLocationSelection,
 } from "~/lib/google.server";

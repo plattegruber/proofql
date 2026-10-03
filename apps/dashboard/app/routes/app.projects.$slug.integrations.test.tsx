@@ -8,7 +8,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createRoutesStub, useLoaderData } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ConnectionView } from "~/lib/google.server";
+import type { ConnectionView } from "~/lib/google";
 import ProjectIntegrations from "./app.projects.$slug.integrations";
 
 type LoaderData = {
