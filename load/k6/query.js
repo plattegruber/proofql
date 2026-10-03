@@ -129,9 +129,13 @@ function warmQuery(i) {
   return TOPICS[i % TOPICS.length];
 }
 
-/** A query nobody has sent before → a guaranteed miss, still above the floor. */
-function uniqueQuery(i) {
-  return `${TOPICS[i % TOPICS.length]} visit ${i}`;
+/**
+ * A query nobody has sent before → a guaranteed miss, still above the floor.
+ * `nonce` is per run (from `setup()`): KV keeps entries for 24 h, so a
+ * per-iteration counter alone would hit what the previous run stored.
+ */
+function uniqueQuery(i, nonce) {
+  return `${TOPICS[i % TOPICS.length]} run ${nonce} visit ${i}`;
 }
 
 export function setup() {
@@ -154,10 +158,13 @@ export function setup() {
       }
     }
   }
-  return { startedAt: new Date().toISOString() };
+  return {
+    startedAt: new Date().toISOString(),
+    nonce: Date.now().toString(36),
+  };
 }
 
-export default function () {
+export default function (data) {
   const i = exec.scenario.iterationInTest;
   const project = projects[i % projects.length];
   const keyList = project[KEY_KIND];
@@ -170,7 +177,7 @@ export default function () {
       : spec.miss <= 0
         ? false
         : i % Math.round(1 / spec.miss) === 0;
-  const q = miss ? uniqueQuery(i) : warmQuery(i);
+  const q = miss ? uniqueQuery(i, data.nonce) : warmQuery(i);
 
   const res = request(key, q);
 
