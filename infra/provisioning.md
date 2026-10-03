@@ -468,6 +468,46 @@ Approve `migrate-prod` under **Actions → the run → Review deployments**,
 watch it, then approve `deploy-prod`. Smoke-check
 `https://proofql-api-prod.$WORKERS_SUBDOMAIN.workers.dev/health`.
 
+## 14. Google Places API key (dashboard, #47)
+
+The "Find your business on Google" card on onboarding step 2 and the Import
+tab pulls a place's five public reviews through the Places API (New). It
+needs an ordinary API key — no Business Profile access, no approval — and
+is disabled ("not configured in this environment") until the key is set.
+Cost and quota math: [`docs/places.md`](../docs/places.md#cost-and-quota).
+
+1. Google Cloud console → a project of your own (the one the OAuth client
+   for #45 will live in; create `proofql` if none) → **Billing** linked
+   (Places needs a billing account even inside the free allowances) →
+   **Budgets & alerts** → a budget of a few dollars with email alerts.
+2. **APIs & Services → Library** → enable **Places API (New)** (not the
+   legacy "Places API").
+3. **APIs & Services → Credentials → Create credentials → API key.** Edit
+   it: name `proofql-places-<env>`, **Application restrictions: None**
+   (the dashboard calls from Workers, so there is no referrer or IP to
+   pin), **API restrictions: Restrict key → Places API (New)** only. One
+   key per environment keeps a leak's blast radius to one environment.
+4. Set it on the dashboard worker, once per environment:
+
+   ```sh
+   cd apps/dashboard
+   pnpm exec wrangler secret put GOOGLE_PLACES_API_KEY --env preview
+   pnpm exec wrangler secret put GOOGLE_PLACES_API_KEY --env prod
+   cd ../..
+   ```
+
+**Verify**
+
+Open the preview dashboard → a project → Import → "Find your business on
+Google" shows a search box rather than "Not configured". Search a real
+business; "Import reviews" lands on the run page with up to five `google`
+reviews. `wrangler tail proofql-dashboard-preview` shows `places.searched`
+then `places.imported`; a `places.failed` with `status: 403` means the key
+is restricted to the wrong API or billing is off.
+
+**Rollback:** `wrangler secret delete GOOGLE_PLACES_API_KEY --env <env>`
+disables the card again; delete the key in the Cloud console.
+
 ---
 
 ## Done when
@@ -478,6 +518,7 @@ watch it, then approve `deploy-prod`. Smoke-check
 - [ ] `/health` on preview api and pipeline returns `{"ok":true}` from the workers.dev URLs
 - [ ] `DEPLOY_ENABLED=true` and one green manual run of `deploy.yml` for preview
 - [ ] [`docs/secrets.md`](../docs/secrets.md) rows marked *now* all exist; close #14
+- [ ] (M3, #47) `GOOGLE_PLACES_API_KEY` set on the dashboard in preview and prod; the Places card searches
 
 ## Custom domains (later, outside this checklist)
 

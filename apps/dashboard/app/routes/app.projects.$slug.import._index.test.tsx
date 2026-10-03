@@ -16,7 +16,13 @@ function optionsOf(element: HTMLElement): { value: string; label: string }[] {
   }));
 }
 
-function renderUpload(actionData?: { error: string }) {
+function renderUpload(
+  actionData?: { error: string },
+  places = {
+    enabled: true,
+    actionPath: "/app/projects/cedar-ridge-dental/places",
+  },
+) {
   const Stub = createRoutesStub([
     {
       path: "/app/projects/:slug/import",
@@ -26,6 +32,7 @@ function renderUpload(actionData?: { error: string }) {
             project: { slug: "cedar-ridge-dental", name: "Cedar Ridge Dental" },
             onboarding: false,
             maxBytes: 10 * 1024 * 1024,
+            places,
           }}
           actionData={actionData}
           params={{ slug: "cedar-ridge-dental" }}
@@ -80,6 +87,39 @@ describe("import step 1", () => {
     ).toEqual(["auto", "google", "yelp", "facebook", "trustpilot", "custom"]);
     expect(screen.getByText(/up to 10.0 MB/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /continue/i })).toBeTruthy();
+  });
+
+  it("offers the Places bootstrap below the form, with the live/test choice", async () => {
+    renderUpload();
+    const card = (
+      await screen.findByRole("heading", {
+        name: "Find your business on Google",
+      })
+    ).closest("section");
+    expect(card?.getAttribute("aria-disabled")).toBeNull();
+    const form = screen.getByRole("form", {
+      name: "Search Google for your business",
+    });
+    expect(form.getAttribute("action")).toBe(
+      "/app/projects/cedar-ridge-dental/places",
+    );
+    expect(card?.textContent).toContain(
+      "connect your Google Business Profile later for all of them",
+    );
+  });
+
+  it("marks the Places bootstrap not configured without a key", async () => {
+    renderUpload(undefined, {
+      enabled: false,
+      actionPath: "/app/projects/cedar-ridge-dental/places",
+    });
+    const card = (
+      await screen.findByRole("heading", {
+        name: "Find your business on Google",
+      })
+    ).closest("section");
+    expect(card?.getAttribute("aria-disabled")).toBe("true");
+    expect(card?.textContent).toContain("Not configured in this environment.");
   });
 
   it("shows the action's error in the voice", async () => {

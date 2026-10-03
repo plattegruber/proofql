@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-// Step 2: three equal cards; Google is disabled with the waiting-on-Google
-// line; the API card carries the curl with the real secret key and polls
-// the status resource when asked.
+// Step 2: four equal cards; "Find your business on Google" is enabled only
+// with a Places key (#47); "Connect Google" is disabled with the
+// waiting-on-Google line; the API card carries the curl with the real
+// secret key and polls the status resource when asked.
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createRoutesStub, useLoaderData } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
@@ -14,6 +15,7 @@ type LoaderData = {
   hasSecret: boolean;
   curl: string;
   importHref: string;
+  places: { enabled: boolean; actionPath: string };
   keysHref: string;
   indexingHref: string;
   statusHref: string;
@@ -25,6 +27,7 @@ const base: LoaderData = {
   hasSecret: true,
   curl: "curl -s -X POST 'http://localhost:8797/v1/reviews' \\\n  -H 'Authorization: Bearer pq_sk_live_SECRET123' …",
   importHref: "/app/projects/cedar/import?onboarding=1",
+  places: { enabled: true, actionPath: "/app/projects/cedar/places" },
   keysHref: "/app/projects/cedar/keys",
   indexingHref: "/app/onboarding/cedar/indexing",
   statusHref: "/app/onboarding/cedar/status",
@@ -59,11 +62,19 @@ function renderStep(
 describe("onboarding step 2", () => {
   afterEach(cleanup);
 
-  it("shows the three options with Google disabled", async () => {
+  it("shows the four options with Connect Google disabled", async () => {
     const { container } = renderStep(base);
     expect(
       await screen.findByRole("heading", { name: "Add your reviews" }),
     ).toBeTruthy();
+    expect(
+      screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
+    ).toEqual([
+      "Upload a CSV or JSON export",
+      "Find your business on Google",
+      "Connect Google",
+      "Use the API",
+    ]);
     expect(
       screen.getByRole("link", { name: "Upload a file" }).getAttribute("href"),
     ).toBe("/app/projects/cedar/import?onboarding=1");
@@ -81,6 +92,45 @@ describe("onboarding step 2", () => {
     ).toContain("/issues/44");
     expect(container.textContent).toContain("pq_sk_live_SECRET123");
     expect(container.textContent).not.toContain("!");
+  });
+
+  it("offers the Places search with a Places key, posting to the project's places route", async () => {
+    renderStep(base);
+    const card = (
+      await screen.findByRole("heading", {
+        name: "Find your business on Google",
+      })
+    ).closest("section");
+    expect(card?.getAttribute("aria-disabled")).toBeNull();
+    expect(card?.textContent).toContain(
+      "Google shares a business's five most relevant public reviews",
+    );
+    expect(card?.textContent).toContain(
+      "keep their author and the Google badge",
+    );
+    const form = screen.getByRole("form", {
+      name: "Search Google for your business",
+    });
+    expect(form.getAttribute("action")).toBe("/app/projects/cedar/places");
+    expect(form.querySelector('input[name="intent"]')).toHaveProperty(
+      "value",
+      "search",
+    );
+    expect(screen.getByRole("button", { name: "Search" })).toBeTruthy();
+  });
+
+  it("says Places is not configured when there is no key", async () => {
+    renderStep({ ...base, places: { ...base.places, enabled: false } });
+    const card = (
+      await screen.findByRole("heading", {
+        name: "Find your business on Google",
+      })
+    ).closest("section");
+    expect(card?.getAttribute("aria-disabled")).toBe("true");
+    expect(card?.textContent).toContain("Not configured in this environment.");
+    expect(
+      screen.queryByRole("form", { name: "Search Google for your business" }),
+    ).toBeNull();
   });
 
   it("checks for reviews and announces what arrived", async () => {

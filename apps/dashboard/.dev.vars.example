@@ -36,3 +36,13 @@ SESSION_SECRET=
 # through the guided onboarding (#53) from a fresh account without Clerk.
 # Ignored outside the stub.
 AUTH_STUB_ORG_ID=
+# Google Places API (New) key for the five-review onboarding bootstrap (#47;
+# docs/places.md, docs/secrets.md). Empty ⇒ the "Find your business on
+# Google" card says it is not configured in this environment. Locally, run
+# `node apps/dashboard/test/fake-places-server.ts` and set the key to any
+# non-empty value (`fake`) with PLACES_API_BASE below; never a real key here.
+GOOGLE_PLACES_API_KEY=
+# Origin of the Places API. Empty ⇒ https://places.googleapis.com. Point it
+# at the fake server (http://localhost:8802) for a manual run with no Google
+# account and no billing.
+PLACES_API_BASE=

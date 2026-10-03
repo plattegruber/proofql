@@ -62,9 +62,9 @@ export async function loader(args: Route.LoaderArgs) {
   const { project, run } = await withRequestDb(args.context, async (db) => {
     const project = await findProjectBySlug(db, account.id, args.params.slug);
     if (!project) throw data(null, { status: 404 });
-    const run = await findProjectRun(db, project.id, args.params.runId).catch(
-      rethrow,
-    );
+    const run = await findProjectRun(db, project.id, args.params.runId, [
+      "csv",
+    ]).catch(rethrow);
     return { project, run };
   });
   if (isStarted(run)) throw redirect(importRunPath(project.slug, run.id));
@@ -104,7 +104,9 @@ export async function action(args: Route.ActionArgs) {
     const { project, run } = await withRequestDb(args.context, async (db) => {
       const project = await findProjectBySlug(db, account.id, args.params.slug);
       if (!project) throw data(null, { status: 404 });
-      const run = await findProjectRun(db, project.id, args.params.runId);
+      const run = await findProjectRun(db, project.id, args.params.runId, [
+        "csv",
+      ]);
       await startImport(db, env.UPLOADS, run, {
         mapping,
         defaults: { source },
