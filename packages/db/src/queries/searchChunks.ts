@@ -31,10 +31,14 @@
  * two tenants of 2,500 reviews / 5,000 embedded chunks each, so the tenant
  * filter is doing real work; hybrid query with both branches, limit 5,
  * timed end to end from Node, 39 warm runs): **exact scan over 5,000
- * chunks: 12.1 ms median, 12.4 ms p95**, 13.0 ms cold; vector-only 9.7 ms;
- * no-query recency mode 5.1 ms. `EXPLAIN ANALYZE` puts server-side
- * execution at 11.8 ms, both branches starting from a bitmap scan on
- * `review_chunks_project_id_environment_idx`. The #16 target is under 20 ms.
+ * chunks: 12.4 ms median, 13.1 ms p95**, 14.1 ms cold; vector-only
+ * 10.1 ms; no-query recency mode 5.0 ms. `EXPLAIN ANALYZE` puts
+ * server-side execution at 11.9 ms, both branches starting from a bitmap
+ * scan on `review_chunks_project_id_environment_idx`. On the 21-tenant
+ * load database (`pnpm load:seed`) a 2,000-chunk tenant is 7.4 ms median
+ * (was 18.3 ms before the `reviews` join carried the tenant predicate,
+ * #111). The #16 target is under 20 ms; the hybrid statement crosses it
+ * between 7,500 and 10,000 chunks (`docs/performance.md` §2).
  *
  * **Revisit when a single tenant exceeds ~50k vectors.** The fix at that
  * point is a partial HNSW index for that tenant (`WHERE project_id = …`)
