@@ -22,7 +22,7 @@
  * transaction commits (`bumpProjectGeneration` in `@proofql/core`; #28).
  */
 
-import { bumpProjectGeneration } from "@proofql/core";
+import { bumpProjectGeneration, REQUEST_BODY_LIMITS } from "@proofql/core";
 import { schema } from "@proofql/db";
 import {
   and,
@@ -55,7 +55,7 @@ import {
 } from "./reviews-crud-request.js";
 
 /** A maximal metadata map is ~18 KB; anything near this is not a PATCH. */
-export const PATCH_BODY_LIMIT_BYTES = 64 * 1024;
+export const PATCH_BODY_LIMIT_BYTES = REQUEST_BODY_LIMITS.reviewPatch;
 
 type ReviewRow = typeof schema.reviews.$inferSelect;
 

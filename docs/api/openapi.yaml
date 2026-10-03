@@ -27,8 +27,10 @@ info:
       Send your own (up to 128 characters of `A-Z a-z 0-9 . _ : -`) to
       correlate with your logs; anything else is replaced with a fresh id.
     - Every response also carries `X-Content-Type-Options: nosniff`,
-      `Referrer-Policy: no-referrer`, and `Cache-Control: no-store` (except a
-      successful `GET /v1/query`).
+      `Referrer-Policy: no-referrer`, and `Cache-Control: no-store` — except
+      a successful `GET /v1/query`, which is `Cache-Control: private,
+      max-age=0, must-revalidate`: it varies by key, so a shared cache must
+      not hold it; the result cache is server-side (`x-cache`).
     - Unknown fields anywhere — body or query string — are a `422
       validation_failed` naming the field, never silently ignored.
 
@@ -863,6 +865,18 @@ components:
       schema:
         type: string
         enum: [HIT, MISS, BYPASS]
+    CacheControl:
+      description: |
+        `private, max-age=0, must-revalidate` on a successful `GET /v1/query`:
+        the response varies by key, so a shared cache must never hold it, and
+        a browser revalidates rather than reuses. `no-store` on `POST`, like
+        every other response.
+      required: true
+      schema:
+        type: string
+        enum:
+          - "private, max-age=0, must-revalidate"
+          - no-store
     Vary:
       description: Always `Origin` on `/v1/query`, so a shared cache never serves one origin's CORS headers to another.
       required: true
@@ -886,6 +900,8 @@ components:
       headers:
         x-request-id:
           $ref: "#/components/headers/XRequestId"
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
         RateLimit-Policy:
           $ref: "#/components/headers/RateLimitPolicy"
         RateLimit-Limit:
