@@ -100,7 +100,6 @@ describe("PlacesFinder", () => {
     expect(items[0]?.textContent).toContain("Cedar Ridge Dental");
     expect(items[0]?.textContent).toContain("1200 Cedar Ridge Rd");
     expect(items[0]?.textContent).toContain("4.8 ★ · 212 ratings on Google");
-    expect(items[0]?.textContent).toContain("up to 5 reviews shared");
     expect(items[1]?.textContent).toContain("Address not shared");
     expect(items[1]?.textContent).toContain("0 ratings on Google");
     expect(posted[0]).toMatchObject({ intent: "search", q: "cedar ridge" });

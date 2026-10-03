@@ -71,6 +71,8 @@ export async function loader(args: Route.LoaderArgs) {
     project: { slug: project.slug, name: project.name },
     run: {
       id: run.id,
+      // `places` runs (#47) phrase the result differently and have no report.
+      kind: run.kind,
       environment: run.environment,
       startedAt: run.startedAt.toISOString(),
       finishedAt: run.finishedAt?.toISOString() ?? null,
@@ -150,13 +152,29 @@ export default function ImportRun({ loaderData }: Route.ComponentProps) {
                 : "What happened"}
             </h2>
             <p className="mt-2 mb-0 text-small text-gray-600">
-              {progress.created.toLocaleString("en-US")} reviews created,{" "}
-              {progress.updated.toLocaleString("en-US")} updated,{" "}
-              {progress.skipped.toLocaleString("en-US")} skipped as duplicates
-              and {progress.failed.toLocaleString("en-US")} rows not imported
-              {progress.failed > 0
-                ? " — the report says why, row by row."
-                : "."}
+              {run.kind === "places" ? (
+                <>
+                  {progress.created.toLocaleString("en-US")} reviews created,{" "}
+                  {progress.updated.toLocaleString("en-US")} updated,{" "}
+                  {progress.skipped.toLocaleString("en-US")} skipped (a star
+                  rating with no text) and{" "}
+                  {progress.failed.toLocaleString("en-US")} not imported
+                  {progress.failed > 0 && progress.error
+                    ? ` — ${progress.error}`
+                    : "."}
+                </>
+              ) : (
+                <>
+                  {progress.created.toLocaleString("en-US")} reviews created,{" "}
+                  {progress.updated.toLocaleString("en-US")} updated,{" "}
+                  {progress.skipped.toLocaleString("en-US")} skipped as
+                  duplicates and {progress.failed.toLocaleString("en-US")} rows
+                  not imported
+                  {progress.failed > 0
+                    ? " — the report says why, row by row."
+                    : "."}
+                </>
+              )}
             </p>
             <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-hairline pt-5">
               <Link
@@ -165,7 +183,7 @@ export default function ImportRun({ loaderData }: Route.ComponentProps) {
               >
                 Open reviews
               </Link>
-              {progress.failed > 0 && (
+              {progress.failed > 0 && run.kind === "csv" && (
                 <a
                   href={importErrorsPath(project.slug, run.id)}
                   download={`import-${run.id.slice(0, 8)}-errors.csv`}
@@ -184,7 +202,9 @@ export default function ImportRun({ loaderData }: Route.ComponentProps) {
                   "no-underline",
                 )}
               >
-                Import another file
+                {run.kind === "places"
+                  ? "Back to Import"
+                  : "Import another file"}
               </Link>
             </div>
           </section>

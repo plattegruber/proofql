@@ -117,13 +117,13 @@ export function PlacesFinder({
           {results.matches.map((place) => (
             <li
               key={place.id}
-              className="flex flex-wrap items-center justify-between gap-3 p-3"
+              className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 p-3"
             >
-              <div className="min-w-0 flex-1">
-                <p className="m-0 truncate text-small font-medium text-ink-900">
+              <div className="min-w-[11rem] flex-1">
+                <p className="m-0 text-small font-medium text-ink-900">
                   {place.name}
                 </p>
-                <p className="m-0 truncate text-small text-gray-600">
+                <p className="m-0 text-small text-gray-600">
                   {place.address ?? "Address not shared"}
                 </p>
                 <p className="m-0 font-mono text-2xs text-gray-500">
@@ -183,7 +183,7 @@ function PlaceStats({ place }: { place: PlaceMatch }) {
     <>
       {place.rating !== null && `${place.rating.toFixed(1)} ★ · `}
       {count.toLocaleString("en-US")} {count === 1 ? "rating" : "ratings"} on
-      Google · up to {PLACES_REVIEWS_PER_PLACE} reviews shared
+      Google
     </>
   );
 }

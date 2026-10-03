@@ -246,15 +246,17 @@ async function handle(
     if (typeof body.textQuery !== "string" || body.textQuery.trim() === "") {
       return googleError(400, "INVALID_ARGUMENT", "text_query must be set.");
     }
-    const q = body.textQuery.trim().toLowerCase();
+    // Every word of the query must appear in the name or the address, so
+    // "dental boulder" finds Cedar Ridge Dental as Google would.
+    const words = body.textQuery.trim().toLowerCase().split(/\s+/);
     const size =
       typeof body.pageSize === "number" ? Math.min(20, body.pageSize) : 20;
     const matches = places
-      .filter(
-        (p) =>
-          p.displayName.text.toLowerCase().includes(q) ||
-          p.formattedAddress.toLowerCase().includes(q),
-      )
+      .filter((p) => {
+        const haystack =
+          `${p.displayName.text} ${p.formattedAddress}`.toLowerCase();
+        return words.every((w) => haystack.includes(w));
+      })
       .slice(0, size)
       .map(summaryOf);
     return Response.json(matches.length === 0 ? {} : { places: matches });
