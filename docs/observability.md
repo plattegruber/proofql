@@ -65,7 +65,7 @@ assert that the query line never contains the query.
 |---|---|---|
 | `workers/api` request | `request_id`, `method`, `path` | `requestContext` middleware ([`request-id.ts`](../workers/api/src/request-id.ts)), first in the chain. The id honours an inbound `x-request-id` (≤128 chars), else Cloudflare's `cf-ray`, else `crypto.randomUUID()`. Echoed on every response as `x-request-id` and inside every error envelope as `request_id`, so a support ticket quotes one string. `path` excludes the query string, so a `?key=` never lands in a line. |
 | `workers/pipeline` queue message | `queue`, `message_id`, `attempt`, then `review_id`, `project_id`, `environment` once the body parses | `handleQueueBatch` ([`handlers.ts`](../workers/pipeline/src/handlers.ts)) creates one child per message and hands it to `indexReview` in the context, so `review.indexed` and the `ingest.message.*` decision carry the same ids without passing them around. `handleDeadLetters` ([`dlq.ts`](../workers/pipeline/src/dlq.ts)) binds the same fields for `proofql-ingest-dlq` deliveries; `queue` tells the two apart. |
-| `workers/pipeline` cron | `trigger: "cron"` | `handleScheduled`. |
+| `workers/pipeline` cron | `trigger: "cron"`, then for the Google poll `connector`, `connection_id`, `project_id`, `ingest_run_id`, `location` | `handleScheduled`; `pollGoogleConnections` binds the rest per connection and location ([`google-poll.ts`](../workers/pipeline/src/google-poll.ts)). A `connection.sync` queue message runs the same code under the queue bindings with `trigger: "queue"`. |
 | `apps/dashboard` request | `request_id`, `method`, `path` | The worker entry ([`workers/app.ts`](../apps/dashboard/workers/app.ts)) resolves the id with the api's rule, binds the child, and hands it to every middleware/loader/action as `getCloudflare(context).log`; echoed as `x-request-id`. Loaders never touch `console`. |
 
 Route and indexer code never adds these fields itself: it logs through the
@@ -131,6 +131,28 @@ wire) and bind it in `handleQueueBatch`.
 | `review.skipped` | info | `reason` (`not_found` \| `hidden` \| `empty_text`) | A property of the review that redelivery cannot change. Acked. |
 | `sweep.completed` | info | `older_than_minutes`, `limit`, `enqueued`, `exhausted`, `batches`, `review_ids[]` | Every cron tick ([`sweep.ts`](../workers/pipeline/src/sweep.ts)). |
 | `sweep.exhausted` | warn | `max_attempts`, `count`, `review_ids[]` | Reviews stuck past the attempt cap, listed once per tick and not re-sent. A non-empty one is a review the pipeline cannot index: look at its last `ingest.message.failed`, or its `ingest.dlq.recorded` (a dead letter sets the counter to the cap directly). |
+| `ingest.dlq.skipped` | warn | `type`, `connection_id`, `project_id` | A dead-lettered `connection.sync` (#46). Nothing to record: the six-hourly cron picks the connection up again. Acked. |
+
+Google connector (#46, [`google-poll.ts`](../workers/pipeline/src/google-poll.ts); [docs/google.md](google.md)). Every line carries `trigger` (`cron` \| `queue`) and `connector: "google"`; per-connection lines add `connection_id`, `project_id`, and once the run is open `ingest_run_id`; per-location lines add `location`. A `connection.sync` message additionally carries the queue bindings (`message_id`, `attempt`). Tokens never appear: ids and counts only.
+
+| Event | Level | Fields | When |
+|---|---|---|---|
+| `google.poll.skipped` | warn | `reason: not_configured`, `missing[]` | The tick found no `CREDENTIALS_KEY` / `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (or a `TBD-` placeholder) and did nothing. Expected in every deployed environment until #44 is approved. |
+| `google.tick.started` | info | `connections`, `connection_ids[]`, `initial_sync` | A tick began; `initial_sync` counts connections with `metadata.initial_sync_pending`, which go first. |
+| `google.tick.completed` | info | `connections`, `synced`, `needs_reauth`, `failed`, `deferred`, `rate_limited`, `received`, `created`, `updated`, `skipped`, `rejected`, `requests`, `paced_wait_ms`, `took_ms` | Every tick. `deferred > 0` means the tick stopped early (429 or budget); `requests` is the Google data-API call count the pacer admitted. |
+| `google.tick.budget_exhausted` | warn | `budget_ms`, `deferred` | The ten-minute budget ran out between connections. Persistent ⇒ raise the budget or the quota (docs/google.md "Quota math"). |
+| `google.sync.started` | info | `locations`, `location_ids[]`, `initial_sync` | A connection's run opened. |
+| `google.sync.location` | info | `pages`, `received`, `created`, `updated`, `star_only`, `invalid`, `rejected`, `cursor_before`, `cursor_after` | One location finished (its cursor is persisted right after). |
+| `google.sync.completed` | info | `locations`, `received`, `created`, `updated`, `skipped`, `rejected`, `took_ms` | The run closed `succeeded`; `last_synced_at` stamped. |
+| `google.sync.failed` | warn / error | the completed fields plus `error_message` (warn: the run closed `failed` with that reason), or `error` + `stage` (error: the token refresh threw something other than `invalid_grant`) | The run did not succeed. The warn form is the 429 / budget / per-location case and resumes next tick; the error form is the one to look at. |
+| `google.sync.no_locations` | info | `mapped` | The connection has no enabled verified location; nothing to poll, the pending flag is cleared. |
+| `google.token_refreshed` | info | `expiry` | The access token was refreshed and re-encrypted. |
+| `google.needs_reauth` | warn | `reason` (`invalid_grant` \| `credentials_decrypt_failed` \| `credentials_bad_format` \| …) | The connection was set to `needs_reauth` and its credentials cleared; the user must reconnect (docs/google.md). |
+| `google.rate_limited` | warn | `location`, `retry_after_ms` | Google answered 429; the tick stopped. A steady rate of these is the signal to request a quota increase. |
+| `google.request_retry` | warn | `status`, `wait_ms` | A 5xx (one retry after `Retry-After`) or a 401 (one forced refresh). |
+| `google.location.failed` | warn | `location`, `status`, `google_status` | A non-retryable Google error on one location (403 `PERMISSION_DENIED` on a location that lost verification, 404 on one that was removed); the others still sync. |
+| `google.review.invalid` | warn | `issues[]` (`path`, `message`) | A review failed the adapter's schema (an unknown `starRating`, a malformed name or time); counted as skipped. Several in a row mean Google changed the payload. |
+| `google.cap_reached` | warn | `rejected`, `limit`, `review_count` | The plan's review cap refused part of a batch (`onLimit: "truncate"`); the refused count lands in the run's `failed`. |
 
 ### dashboard
 
@@ -265,6 +287,10 @@ prints the lines straight to the terminal (`environment: "local"`).
 - `workers/pipeline/src/handlers.test.ts` and
   `index-review.integration.test.ts` assert `review.indexed` carries the
   message's `message_id` / `attempt` as well as the review's ids.
+- `workers/pipeline/src/google-poll.integration.test.ts` asserts the
+  `google.*` lines above against the fake Google server — bindings, the
+  tick summary, `needs_reauth`, `rate_limited`, `cap_reached` — and that no
+  line contains a token.
 - `workers/pipeline/src/dlq.test.ts` and `dlq.integration.test.ts` assert
   the `ingest.dlq.*` lines carry the same bindings, that `recorded` matches
   the `ingest_runs` row written, and that `failed` is emitted (and the
