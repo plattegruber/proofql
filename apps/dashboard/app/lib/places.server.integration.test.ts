@@ -1,0 +1,335 @@
+// The Places bootstrap end to end against the real schema (#47): the fake
+// Places API stands in for Google, a Map for KV, the recording queue for
+// the ingest queue. Search returns the fixtures and is cached; the import
+// writes five `google` reviews, a `places` run row, five index messages;
+// a second import updates in place and enqueues nothing; a place with no
+// usable reviews leaves no run behind.
+import { planFor } from "@proofql/core";
+import { schema } from "@proofql/db";
+import { project, setupTestDb } from "@proofql/db/test";
+import { eq } from "drizzle-orm";
+import { describe, expect, it } from "vitest";
+
+import {
+  CEDAR_RIDGE_ID,
+  fakePlacesApi,
+  HARBOR_LIGHT_ID,
+  QUIET_CORNER_ID,
+} from "../../test/fake-places";
+import { fakeQueue } from "../../test/fake-r2";
+import { PLACES_SEARCH_CACHE_PREFIX, placeCacheKey } from "./places";
+import {
+  createPlacesClient,
+  importPlaceReviews,
+  type PlacesCache,
+  PlacesError,
+  PlacesImportError,
+  placesClientFor,
+  placesConfigured,
+  searchCacheKey,
+} from "./places.server";
+
+const t = setupTestDb();
+
+function fakeCache(): PlacesCache & {
+  entries: Map<string, { value: string; ttl: number }>;
+} {
+  const entries = new Map<string, { value: string; ttl: number }>();
+  return {
+    entries,
+    async get(key) {
+      return entries.get(key)?.value ?? null;
+    },
+    async put(key, value, ttl) {
+      entries.set(key, { value, ttl });
+    },
+  };
+}
+
+function harness(apiKey = "fake") {
+  const api = fakePlacesApi();
+  const cache = fakeCache();
+  const queue = fakeQueue();
+  const places = createPlacesClient({ apiKey, fetch: api.fetch, cache });
+  return { api, cache, queue, places };
+}
+
+describe("search", () => {
+  it("returns the fixtures with the narrow field mask, then serves the same query from KV", async () => {
+    const { api, cache, places } = harness();
+    const first = await places.search("Boulder");
+    expect(first.cached).toBe(false);
+    expect(first.matches.map((m) => m.name)).toEqual([
+      "Cedar Ridge Dental",
+      "Harbor Light Bakery",
+      "Quiet Corner Books",
+    ]);
+    expect(first.matches[0]).toEqual({
+      id: CEDAR_RIDGE_ID,
+      name: "Cedar Ridge Dental",
+      address: "1200 Cedar Ridge Rd, Boulder, CO 80302, USA",
+      rating: 4.8,
+      ratingCount: 212,
+    });
+    expect(api.calls).toEqual([
+      {
+        method: "POST",
+        path: "/v1/places:searchText",
+        fieldMask:
+          "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount",
+      },
+    ]);
+
+    // Same words, different spacing and case: one cache entry, no call.
+    const second = await places.search("  boulder ");
+    expect(second.cached).toBe(true);
+    expect(second.matches).toEqual(first.matches);
+    expect(api.calls).toHaveLength(1);
+
+    const key = await searchCacheKey("BOULDER");
+    expect(key.startsWith(PLACES_SEARCH_CACHE_PREFIX)).toBe(true);
+    expect(key).toMatch(/^places:q:[0-9a-f]{64}$/);
+    expect(cache.entries.get(key)?.ttl).toBe(24 * 60 * 60);
+    expect([...cache.entries.keys()]).toEqual([key]);
+  });
+
+  it("answers an empty list for no match and surfaces Google's refusals", async () => {
+    const { places } = harness();
+    expect((await places.search("nothing here")).matches).toEqual([]);
+
+    const refused = harness("bad");
+    await expect(refused.places.search("dental")).rejects.toMatchObject({
+      name: "PlacesError",
+      status: 400,
+      code: "INVALID_ARGUMENT",
+    });
+
+    const down = harness();
+    down.api.failWith = new Response("<html>502</html>", { status: 502 });
+    const error = await down.places.search("dental").catch((e) => e);
+    expect(error).toBeInstanceOf(PlacesError);
+    expect(error.status).toBe(502);
+    expect(error.message).toBe("Google answered 502.");
+  });
+});
+
+describe("importPlaceReviews", () => {
+  it("writes five google reviews, a places run row with counts, and five index messages", async () => {
+    const p = await project(t.db);
+    const { api, cache, queue, places } = harness();
+
+    const result = await importPlaceReviews(
+      { db: t.db, places, queue },
+      { projectId: p.id, environment: "live", placeId: CEDAR_RIDGE_ID },
+    );
+    expect(result).toMatchObject({
+      place: { id: CEDAR_RIDGE_ID, name: "Cedar Ridge Dental" },
+      created: 5,
+      updated: 0,
+      skipped: 0,
+      failed: 0,
+      enqueued: 5,
+      cached: false,
+    });
+    expect(api.calls).toEqual([
+      {
+        method: "GET",
+        path: `/v1/places/${CEDAR_RIDGE_ID}`,
+        fieldMask:
+          "id,displayName,formattedAddress,rating,userRatingCount,reviews",
+      },
+    ]);
+
+    const runs = await t.db.query.ingestRuns.findMany({
+      where: eq(schema.ingestRuns.projectId, p.id),
+    });
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      id: result.run.id,
+      kind: "places",
+      status: "succeeded",
+      environment: "live",
+      received: 5,
+      created: 5,
+      updated: 0,
+      skipped: 0,
+      failed: 0,
+      error: null,
+      artifactKey: `places:${CEDAR_RIDGE_ID}`,
+    });
+    expect(runs[0]?.finishedAt).not.toBeNull();
+
+    const reviews = await t.db.query.reviews.findMany({
+      where: eq(schema.reviews.projectId, p.id),
+      orderBy: (r, { asc }) => [asc(r.externalId)],
+    });
+    expect(reviews).toHaveLength(5);
+    for (const r of reviews) {
+      expect(r.source).toBe("google");
+      expect(r.environment).toBe("live");
+      expect(r.externalId.startsWith(`places/${CEDAR_RIDGE_ID}/reviews/`)).toBe(
+        true,
+      );
+      expect(r.metadata).toEqual({
+        place_id: CEDAR_RIDGE_ID,
+        place_name: "Cedar Ridge Dental",
+      });
+      expect(r.indexedAt).toBeNull();
+    }
+    const spanish = reviews.find((r) => r.externalId.endsWith("r-limpieza-3"));
+    expect(spanish?.text).toContain("La limpieza fue rápida");
+    expect(spanish?.language).toBe("es");
+
+    expect(queue.messages).toHaveLength(5);
+    expect(new Set(queue.messages.map((m) => m.reviewId))).toEqual(
+      new Set(reviews.map((r) => r.id)),
+    );
+    for (const m of queue.messages) {
+      expect(m).toMatchObject({
+        type: "review.index",
+        projectId: p.id,
+        environment: "live",
+      });
+    }
+
+    // The place is cached for a day under its id.
+    const entry = cache.entries.get(placeCacheKey(CEDAR_RIDGE_ID));
+    expect(entry?.ttl).toBe(24 * 60 * 60);
+    expect(JSON.parse(entry?.value ?? "{}").reviews).toHaveLength(5);
+
+    // The project's counter follows, as for any ingest.
+    const [row] = await t.db
+      .select({ n: schema.projects.reviewCount })
+      .from(schema.projects)
+      .where(eq(schema.projects.id, p.id));
+    expect(row?.n).toBe(5);
+  });
+
+  it("is idempotent: a second import updates the same rows, enqueues nothing, and reads the place from KV", async () => {
+    const p = await project(t.db);
+    const { api, queue, places } = harness();
+    const deps = { db: t.db, places, queue };
+    const input = {
+      projectId: p.id,
+      environment: "live" as const,
+      placeId: CEDAR_RIDGE_ID,
+    };
+    await importPlaceReviews(deps, input);
+    const again = await importPlaceReviews(deps, input);
+
+    expect(again).toMatchObject({
+      created: 0,
+      updated: 5,
+      skipped: 0,
+      enqueued: 0,
+      cached: true,
+    });
+    expect(api.calls).toHaveLength(1);
+    expect(queue.messages).toHaveLength(5);
+
+    const runs = await t.db.query.ingestRuns.findMany({
+      where: eq(schema.ingestRuns.projectId, p.id),
+    });
+    expect(runs.map((r) => [r.kind, r.status, r.created, r.updated])).toEqual([
+      ["places", "succeeded", 5, 0],
+      ["places", "succeeded", 0, 5],
+    ]);
+    const reviews = await t.db.query.reviews.findMany({
+      where: eq(schema.reviews.projectId, p.id),
+    });
+    expect(reviews).toHaveLength(5);
+  });
+
+  it("counts a rating-only review as skipped and keeps live and test apart", async () => {
+    const p = await project(t.db);
+    const { queue, places } = harness();
+    const result = await importPlaceReviews(
+      { db: t.db, places, queue },
+      { projectId: p.id, environment: "test", placeId: HARBOR_LIGHT_ID },
+    );
+    expect(result).toMatchObject({
+      created: 1,
+      skipped: 1,
+      failed: 0,
+      enqueued: 1,
+    });
+    expect(result.run).toMatchObject({
+      received: 2,
+      created: 1,
+      skipped: 1,
+      environment: "test",
+    });
+    const reviews = await t.db.query.reviews.findMany({
+      where: eq(schema.reviews.projectId, p.id),
+    });
+    expect(reviews.map((r) => r.environment)).toEqual(["test"]);
+  });
+
+  it("leaves no run for a place Google shares no reviews for", async () => {
+    const p = await project(t.db);
+    const { queue, places } = harness();
+    const error = await importPlaceReviews(
+      { db: t.db, places, queue },
+      { projectId: p.id, environment: "live", placeId: QUIET_CORNER_ID },
+    ).catch((e) => e);
+    expect(error).toBeInstanceOf(PlacesImportError);
+    expect(error.message).toBe(
+      "Google shares no public reviews for Quiet Corner Books yet.",
+    );
+    expect(
+      await t.db.query.ingestRuns.findMany({
+        where: eq(schema.ingestRuns.projectId, p.id),
+      }),
+    ).toEqual([]);
+    expect(queue.messages).toEqual([]);
+
+    await expect(
+      importPlaceReviews(
+        { db: t.db, places, queue },
+        { projectId: p.id, environment: "live", placeId: "ChIJnope" },
+      ),
+    ).rejects.toMatchObject({ name: "PlacesError", status: 404 });
+  });
+
+  it("truncates at the plan cap and says so on the run", async () => {
+    const p = await project(t.db);
+    // The cap check reads the project's counter: put it two short of the
+    // free limit so two of the five fit.
+    const limit = planFor("free").reviewsPerProject;
+    await t.db
+      .update(schema.projects)
+      .set({ reviewCount: limit - 2 })
+      .where(eq(schema.projects.id, p.id));
+
+    const { queue, places } = harness();
+    const result = await importPlaceReviews(
+      { db: t.db, places, queue },
+      { projectId: p.id, environment: "live", placeId: CEDAR_RIDGE_ID },
+    );
+    expect(result).toMatchObject({ created: 2, failed: 3, enqueued: 2 });
+    expect(result.run.status).toBe("succeeded");
+    expect(result.run.error).toContain("3 reviews were not imported");
+  });
+});
+
+describe("configuration", () => {
+  it("is enabled only with a non-blank key, and the client takes the local base and KV", async () => {
+    expect(placesConfigured({})).toBe(false);
+    expect(placesConfigured({ GOOGLE_PLACES_API_KEY: "  " })).toBe(false);
+    expect(placesConfigured({ GOOGLE_PLACES_API_KEY: "k" })).toBe(true);
+    expect(placesClientFor({ GOOGLE_PLACES_API_KEY: "" })).toBeNull();
+
+    const api = fakePlacesApi();
+    const client = placesClientFor(
+      {
+        GOOGLE_PLACES_API_KEY: "fake",
+        PLACES_API_BASE: "http://places.local/",
+      },
+      { fetch: api.fetch },
+    );
+    if (client === null) throw new Error("expected a client");
+    const { matches } = await client.search("bakery");
+    expect(matches.map((m) => m.id)).toEqual([HARBOR_LIGHT_ID]);
+    expect(api.calls[0]?.path).toBe("/v1/places:searchText");
+  });
+});
