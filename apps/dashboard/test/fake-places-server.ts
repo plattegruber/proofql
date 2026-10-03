@@ -2,13 +2,13 @@
  * Serve the fake Places API (fake-places.ts) on a port for a manual run of
  * the dashboard (#47):
  *
- *   node apps/dashboard/test/fake-places-server.ts        # port 8802
+ *   node apps/dashboard/test/fake-places-server.ts        # port 8803
  *   PORT=9000 node apps/dashboard/test/fake-places-server.ts
  *
  * then in apps/dashboard/.dev.vars:
  *
  *   GOOGLE_PLACES_API_KEY=fake
- *   PLACES_API_BASE=http://localhost:8802
+ *   PLACES_API_BASE=http://localhost:8803
  *
  * Plain Node (24+ strips the types itself); not a Worker, not part of any
  * test run. Searching "dental", "bakery", "books" or "boulder" finds the
@@ -22,7 +22,7 @@ const { fakePlacesApi } = (await import(
   new URL("./fake-places.ts", import.meta.url).href
 )) as typeof import("./fake-places");
 
-const port = Number(process.env.PORT ?? 8802);
+const port = Number(process.env.PORT ?? 8803);
 const api = fakePlacesApi();
 
 const server = createServer(async (req, res) => {

@@ -6,7 +6,7 @@
  *
  * One `fetch`-shaped function, so the client takes it in-process in tests
  * (no sockets), and `fake-places-server.ts` serves the same handler on a
- * port for a manual run (`PLACES_API_BASE=http://localhost:8802`).
+ * port for a manual run (`PLACES_API_BASE=http://localhost:8803`).
  *
  * Behaviour copied from the real API where it matters: an `X-Goog-Api-Key`
  * header is required (403 PERMISSION_DENIED without one, 400 INVALID_ARGUMENT

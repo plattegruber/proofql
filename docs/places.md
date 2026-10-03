@@ -128,14 +128,14 @@ bootstrap's rows and expire bootstrap-only rows after 30 days.
 There is no Places key locally and no need for one:
 
 ```sh
-node apps/dashboard/test/fake-places-server.ts          # fake Google on :8802
+node apps/dashboard/test/fake-places-server.ts          # fake Google on :8803
 ```
 
 and in `apps/dashboard/.dev.vars`:
 
 ```
 GOOGLE_PLACES_API_KEY=fake
-PLACES_API_BASE=http://localhost:8802
+PLACES_API_BASE=http://localhost:8803
 ```
 
 The fake (`apps/dashboard/test/fake-places.ts`) serves three fixture places
