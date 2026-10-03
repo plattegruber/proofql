@@ -1,0 +1,38 @@
+# Dependabot (#49; docs/security.md "Supply chain"): one weekly pass over the
+# pnpm workspace and one over the GitHub Actions in .github/, each as a
+# single grouped PR for minor and patch updates so the review is one diff a
+# week, not twenty. Major updates stay as individual PRs (they need a human
+# to read the changelog). Security advisories open regardless of schedule.
+# The audit job in ci.yml is the detector; this is the fix.
+version: 2
+updates:
+  - package-ecosystem: npm
+    # pnpm workspaces: the root lockfile covers every package.
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "deps"
+    labels: ["dependencies"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+    labels: ["dependencies"]
