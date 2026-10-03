@@ -26,6 +26,16 @@
   },
   "overrides": [
     {
+      "includes": ["load/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noUndeclaredEnvVars": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": [
         "apps/**",
         "workers/**",

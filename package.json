@@ -19,7 +19,10 @@
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "typecheck": "turbo run typecheck",
-    "openapi:lint": "redocly lint"
+    "openapi:lint": "redocly lint",
+    "load:seed": "pnpm --filter \"@proofql/db^...\" build && pnpm --filter @proofql/db exec tsx ../../load/scripts/seed-load.ts",
+    "load:run": "bash load/run.sh",
+    "load:typecheck": "pnpm --filter @proofql/db exec tsc -p ../../load/tsconfig.json"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.3",

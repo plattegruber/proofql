@@ -17,3 +17,7 @@ build/
 
 # Astro (docs/site): generated types
 .astro/
+
+# Load test (load/): minted API keys and k6 output
+load/.keys.json
+load/results/
