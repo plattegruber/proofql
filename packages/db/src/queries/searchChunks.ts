@@ -32,12 +32,13 @@
  * filter is doing real work; hybrid query with both branches, limit 5,
  * timed end to end from Node, 39 warm runs): **exact scan over 5,000
  * chunks: 12.4 ms median, 13.1 ms p95**, 14.1 ms cold; vector-only
- * 10.1 ms; no-query recency mode 5.0 ms. `EXPLAIN ANALYZE` puts
- * server-side execution at 11.9 ms, both branches starting from a bitmap
- * scan on `review_chunks_project_id_environment_idx`. On the 21-tenant
- * load database (`pnpm load:seed`) a 2,000-chunk tenant is 7.4 ms median
- * (was 18.3 ms before the `reviews` join carried the tenant predicate,
- * #111). The #16 target is under 20 ms; the hybrid statement crosses it
+ * 10.1 ms. `EXPLAIN ANALYZE` puts server-side execution at 11.9 ms, both
+ * branches starting from a bitmap scan on
+ * `review_chunks_project_id_environment_idx`. On the 21-tenant load
+ * database (`pnpm load:seed`) a 2,000-chunk tenant is 7.4 ms median (was
+ * 18.3 ms before the `reviews` join carried the tenant predicate, #111),
+ * and no-query recency mode is 1.0 ms (was 8.2 ms before the recency index,
+ * #117). The #16 target is under 20 ms; the hybrid statement crosses it
  * between 7,500 and 10,000 chunks (`docs/performance.md` §2).
  *
  * **Revisit when a single tenant exceeds ~50k vectors.** The fix at that
@@ -313,10 +314,11 @@ function publishable(params: SearchChunksParams): SQL {
  * `id` alone and Postgres seq-scanned and hashed **every publishable review
  * in the table** to serve one tenant: 30,058 rows for a tenant with 1,000
  * of them on the 21-tenant load database, 14.7 → 3.9 ms median (#111,
- * `docs/performance.md` §2). With the predicate the join starts from
- * `reviews_project_id_environment_idx` and the cost scales with the tenant,
- * not the table — the same property the exact scan over `review_chunks`
- * already had.
+ * `docs/performance.md` §2). With the predicate the join starts from a
+ * tenant-prefixed btree (`reviews_project_id_environment_occurred_at_idx`,
+ * or the upsert key's unique index — same prefix) and the cost scales with
+ * the tenant, not the table — the same property the exact scan over
+ * `review_chunks` already had.
  */
 function tenant(params: SearchChunksParams): SQL {
   return sql`r.project_id = ${params.projectId} AND r.environment = ${params.environment}`;
@@ -463,10 +465,20 @@ function debugTail(params: SearchChunksParams): SQL {
 
 /**
  * No-query mode: newest publishable reviews with their `full` chunk as the
- * excerpt. Drives from `reviews` (its own `(project_id, environment)`
- * index) and picks the chunk with a LATERAL subquery, so a review that has
- * not been chunked yet is simply not queryable, as the API's `indexing`
- * status promises.
+ * excerpt. Drives from `reviews` and picks the chunk with a LATERAL
+ * subquery, so a review that has not been chunked yet is simply not
+ * queryable, as the API's `indexing` status promises.
+ *
+ * `WHERE tenant ORDER BY occurred_at DESC NULLS LAST, id LIMIT n` is
+ * exactly the shape of `reviews_project_id_environment_occurred_at_idx`
+ * (#117): the planner walks that index from the tenant's newest row and
+ * stops once `limit` rows have passed the policy filter, reading a few
+ * dozen buffers. Before the index it was a Parallel Seq Scan over every
+ * tenant's reviews plus a top-N sort — 8.2 ms for a 1,000-review tenant in
+ * a 45k-row table, slower than the hybrid search for the same tenant, and
+ * growing with the table. Keep the ORDER BY and the index in step: a
+ * different sort key here silently brings the table scan back (the
+ * plan-shape test in `searchChunks.integration.test.ts` would catch it).
  */
 function recencyStatement(params: SearchChunksParams): SQL {
   return sql`

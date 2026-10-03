@@ -25,6 +25,9 @@
  * (`docs/performance.md` §2) — so re-run this mode on the load database
  * after any change to the statement.
  *
+ * `--explain` prints `EXPLAIN (ANALYZE, BUFFERS)` for the hybrid and the
+ * recency statements after the timings.
+ *
  * Not a test: numbers depend on the machine. The figure quoted in
  * `src/queries/searchChunks.ts` came from this script.
  */
@@ -195,10 +198,17 @@ async function runScenarios(
   }
 
   if (process.argv.includes("--explain")) {
-    const plan = await db.execute<{ "QUERY PLAN": string }>(
-      dsql`EXPLAIN (ANALYZE, BUFFERS) ${searchChunksSql(scenarios["hybrid (vector + fts)"])}`,
-    );
-    console.log(`\n${plan.map((r) => r["QUERY PLAN"]).join("\n")}`);
+    // The two statements with their own access paths into `reviews`: the
+    // hybrid join (#111) and the recency index scan (#117).
+    for (const name of [
+      "hybrid (vector + fts)",
+      "no query (recency)",
+    ] as const) {
+      const plan = await db.execute<{ "QUERY PLAN": string }>(
+        dsql`EXPLAIN (ANALYZE, BUFFERS) ${searchChunksSql(scenarios[name])}`,
+      );
+      console.log(`\n${name}:\n${plan.map((r) => r["QUERY PLAN"]).join("\n")}`);
+    }
   }
 }
 

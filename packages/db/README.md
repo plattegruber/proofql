@@ -185,10 +185,15 @@ an Apple-silicon laptop; 11.9 ms server-side per `EXPLAIN ANALYZE`. That
 two-tenant database cannot show costs that scale with the *table*: on the
 21-tenant load database (`pnpm load:seed`, 45k reviews) a 2,000-chunk
 tenant went from **18.3 ms to 7.4 ms median** (server-side 35.6 → 5.8 ms)
-when the `reviews` join gained the tenant predicate (#111) — the full
-before/after is in [`docs/performance.md`](../../docs/performance.md) §2.
-Re-run both when the statement changes or a tenant approaches the
-~50k-vector line below:
+when the `reviews` join gained the tenant predicate (#111), and the no-query
+recency statement went from **8.2 ms to 1.0 ms** (50k tenant: 9.7 → 0.8 ms)
+when `reviews (project_id, environment, occurred_at DESC NULLS LAST, id)`
+turned its Parallel Seq Scan into an index scan that stops after `limit`
+rows (#117, migration 0006; that index replaced the plain `(project_id,
+environment)` one, which was its prefix). The full before/after for both
+is in [`docs/performance.md`](../../docs/performance.md) §2. Re-run both
+when the statement changes or a tenant approaches the ~50k-vector line
+below (`--explain` prints the hybrid and the recency plans):
 
 ```sh
 DATABASE_URL=postgres://proofql:proofql@localhost:54323/proofql \

@@ -36,6 +36,13 @@
       "when": 1790915353737,
       "tag": "0005_accounts_onboarding_completed_at",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791059755411,
+      "tag": "0006_reviews_recency_index",
+      "breakpoints": true
     }
   ]
 }

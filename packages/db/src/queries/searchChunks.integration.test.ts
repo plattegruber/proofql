@@ -308,14 +308,18 @@ describe("tenant isolation", () => {
   });
 });
 
-describe("tenant isolation: the reviews join is planned per tenant (#111)", () => {
+describe("tenant isolation: every reviews access is planned per tenant (#111, #117)", () => {
   const t = setupTestDb();
+
+  /** The one btree every per-tenant read of `reviews` starts from. */
+  const TENANT_INDEX = "reviews_project_id_environment_occurred_at_idx";
 
   /** One `EXPLAIN (FORMAT JSON)` plan node, recursively. */
   type PlanNode = {
     "Node Type": string;
     "Relation Name"?: string;
     "Index Name"?: string;
+    "Sort Key"?: string[];
     Plans?: PlanNode[];
   };
 
@@ -377,28 +381,55 @@ describe("tenant isolation: the reviews join is planned per tenant (#111)", () =
     }
   }
 
-  it("reads reviews through reviews_project_id_environment_idx, never a Seq Scan, with other tenants in the table", async () => {
-    // Four tenants of equal size: the planner has no reason to prefer a
-    // table scan for one of them, *provided* the statement tells it which
-    // tenant the join side belongs to. Without the tenant predicate on the
-    // `reviews` join (#111) this plan was a Seq Scan over every tenant's
-    // reviews, hashed, then probed with the tenant's chunks.
+  /**
+   * `count` reviews for `projectId` with no chunks, in one statement: the
+   * other tenants of a multi-tenant table. Only `reviews` has to be big
+   * for these plans; nothing reads their chunks.
+   */
+  async function padTenant(
+    db: Db,
+    projectId: string,
+    count: number,
+  ): Promise<void> {
+    await db.execute(sql`
+      INSERT INTO reviews (project_id, environment, source, external_id, rating, text, occurred_at)
+      SELECT ${projectId}::uuid, 'live', 'google', 'pad_' || g, 5, ${IMPLANT},
+             timestamptz '2026-01-01' + g * interval '1 minute'
+      FROM generate_series(1, ${count}) AS g`);
+  }
+
+  it("reads reviews through the tenant index, never a Seq Scan, with other tenants in the table", async () => {
+    // One tenant of 500 reviews among twenty of 1,000: the tenant is ~2.5 %
+    // of a 20,500-row table, the shape of `load-01` on the load database
+    // (1,000 of 45k). The size matters for what this test can claim. With
+    // four equal tenants in a 47-page table the planner rightly reads the
+    // whole table for any of them — a bitmap scan touches every page too
+    // once a tenant has more rows than the table has pages — and the
+    // seq-scan/index-scan call comes down to a handful of index pages.
+    // Here the table is big enough and the tenant small enough that an
+    // index is decisively cheaper, so a Seq Scan on `reviews` in any plan
+    // means the statement lost its tenant predicate (#111) or its index
+    // (#117), not that the planner made a close call.
     const mine = await project(t.db);
-    const others = await Promise.all([
-      project(t.db),
-      project(t.db),
-      project(t.db),
-    ]);
     await bulkTenant(t.db, mine.id, 500);
-    for (const other of others) await bulkTenant(t.db, other.id, 500);
+    for (let i = 0; i < 20; i++) {
+      await padTenant(t.db, (await project(t.db)).id, 1000);
+    }
     await t.db.execute(sql`ANALYZE reviews`);
     await t.db.execute(sql`ANALYZE review_chunks`);
 
     // The three hybrid shapes share the `candidates` CTE and the result
-    // join. The recency statement is not asserted: it already carried the
-    // predicate, and whether the planner answers "newest five" with the
-    // tenant index or a (parallel) seq scan plus top-N sort is its own
-    // costing call — see the issue linked from docs/performance.md §2.
+    // join: their `reviews` access is an equality lookup on the tenant,
+    // which any btree led by `(project_id, environment)` serves — the
+    // tenant index or the upsert key's unique index, whichever the planner
+    // costs lower (they tie at this size). The recency statement drives
+    // from `reviews` itself and is asserted separately below: before #117
+    // the planner answered "newest five" with a Parallel Seq Scan over
+    // every tenant plus a top-N sort.
+    const tenantPrefixed = [
+      TENANT_INDEX,
+      "reviews_project_env_source_external_id_unique",
+    ];
     const params = query(mine.id, "painless implant", { limit: 5 });
     const variants: Array<[string, SearchChunksParams]> = [
       ["hybrid", params],
@@ -425,10 +456,35 @@ describe("tenant isolation: the reviews join is planned per tenant (#111)", () =
         `${name}: no Seq Scan on reviews`,
       ).not.toContain("Seq Scan");
       expect(
-        indexes,
-        `${name}: the tenant index drives the reviews access`,
-      ).toContain("reviews_project_id_environment_idx");
+        [...indexes].some((i) => tenantPrefixed.includes(i)),
+        `${name}: a tenant-prefixed index drives the reviews access (saw ${[...indexes].join(", ")})`,
+      ).toBe(true);
     }
+
+    // Recency (#117): the index's trailing `occurred_at DESC NULLS LAST, id`
+    // matches the ORDER BY, so it is a plain Index Scan under the LIMIT —
+    // no bitmap, no sort on occurred_at, no parallel workers.
+    const recency = await explain(t.db, {
+      ...params,
+      queryEmbedding: undefined,
+      queryText: undefined,
+    });
+    const nodeTypes: string[] = [];
+    const sortKeys: string[] = [];
+    walk(recency, (n) => {
+      nodeTypes.push(n["Node Type"]);
+      if (n["Relation Name"] === "reviews") {
+        expect(n["Node Type"]).toBe("Index Scan");
+        expect(n["Index Name"]).toBe(TENANT_INDEX);
+      }
+      sortKeys.push(...(n["Sort Key"] ?? []));
+    });
+    expect(sortKeys.join(" "), "recency: no sort on occurred_at").not.toMatch(
+      /occurred_at/,
+    );
+    expect(nodeTypes, "recency: no parallel plan").not.toContain(
+      "Gather Merge",
+    );
 
     // And the fix changed the plan, not the answer: the tenant's rows only.
     const results = await searchChunks(t.db, params);

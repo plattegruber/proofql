@@ -217,9 +217,10 @@ after, back to back on the same (busier than 10-02) host, 39 warm runs:
 2.5× for the 2k tenant on this host (3.8× in the quieter experiment). The
 text branch and the final result join were already pkey nested loops in
 both plans; the Seq Scan was the vector branch's `candidates` CTE alone.
-`searchChunks.integration.test.ts` now asserts, with four tenants in the
+`searchChunks.integration.test.ts` now asserts, with other tenants in the
 table, that every `reviews` access in the hybrid plans is an index scan on
-`reviews_project_id_environment_idx` and never a Seq Scan.
+a tenant-prefixed btree and never a Seq Scan (the test's data shape is
+discussed under #117 below).
 
 Two things measured and **not** changed:
 
@@ -234,7 +235,60 @@ Two things measured and **not** changed:
   and the planner answers "newest five" with a *Parallel Seq Scan* over the
   whole table plus a top-N sort rather than the tenant index. A
   `(project_id, environment, occurred_at DESC)` index would make it an
-  index scan that stops after `limit` rows. Filed as **#117**.
+  index scan that stops after `limit` rows. Filed as **#117**, landed below.
+
+**Landed (#117, 2026-10-03).** Migration 0006 adds
+`reviews_project_id_environment_occurred_at_idx` on `reviews (project_id,
+environment, occurred_at DESC NULLS LAST, id)` — the recency statement's
+tenant predicate followed by its exact ORDER BY — and drops
+`reviews_project_id_environment_idx`, which was that index's prefix. Before
+and after, back to back on the same host, `bench-search.ts --project`, 39
+warm runs:
+
+| Tenant, load database | Before | After #117 | `reviews` access path (`EXPLAIN (ANALYZE, BUFFERS)`) |
+|---|---|---|---|
+| 2,000 chunks, no query (recency) | **8.2 ms** median (p95 9.2) | **1.0 ms** median (p95 1.3) | Parallel Seq Scan, 2 workers, 44,598 rows removed by filter, top-N sort, 4,311 buffers → Index Scan on the new index, 5 rows, 30 buffers; server-side 0.03 ms warm |
+| 50,000 chunks, no query (recency) | **9.7 ms** median (p95 10.5) | **0.8 ms** median (p95 0.9) | same shape; Index Scan stops after 17 rows (12 fail the policy filter) |
+| 2,000 chunks, hybrid | 6.7 ms (p95 11.6) | 6.3 ms (p95 8.8) | `candidates` still a Bitmap Index Scan, now on the new index (1,000 rows, 664 after the policy filter); unchanged, as it should be |
+| 50,000 chunks, hybrid | 120.2 ms (p95 135.5) | 121.5 ms (p95 128.1) | unchanged; the vector scan dominates |
+
+8× for the small tenant, 12× for the large one, and the cost no longer
+grows with the table: the old plan read every page of `reviews` (4,200
+buffers) for any tenant; the new one reads the index pages for the tenant's
+newest rows and stops. Recency is now the cheapest statement in the module,
+where before #117 it was slower than the hybrid search for the same tenant.
+
+Measured and decided along the way:
+
+- **Partial on `hidden_at IS NULL`?** No. Created both variants on the load
+  database: recency was 0.8 ms under either, and the partial index can no
+  longer serve the CRUD and dashboard list routes' "hidden only" filter
+  (they fell back to a bitmap scan on the upsert key's unique index). The
+  policy predicate on the rows the index scan visits is microseconds, as the
+  #111 partial-index experiment above already showed.
+- **Drop `reviews_project_id_environment_idx`?** Yes, in the same migration
+  (create first, drop second). Every query that used it — the search
+  statements' joins, `GET /v1/reviews` and the dashboard review browser
+  (equality on the tenant, ordered by a `date_trunc` expression the old
+  index could not serve either), the onboarding and import counts, the
+  pipeline's per-review lookups — is an equality lookup on `(project_id,
+  environment)`, which is the new index's prefix, and `EXPLAIN` on the load
+  database with the old index dropped shows each of them on the new index
+  (list shape 1.1 ms, count 0.35 ms). The `(project_id, environment,
+  source, external_id)` unique index carries the same prefix too, so
+  `reviews` keeps two tenant-prefixed btrees rather than three.
+- **The plan-shape test's data.** With four equal tenants of 500 reviews in a
+  47-page table, dropping the narrower index flipped the hybrid plans'
+  `reviews` access from a bitmap scan to a Seq Scan: a bitmap heap scan is
+  costed as touching every page once a tenant has more rows than the table
+  has pages, so the seq-scan/index-scan call there came down to six index
+  pages — not a property of the statement. The test now pads the table with
+  twenty 1,000-review tenants (reviews only, one `generate_series` insert
+  each; 20,500 rows, the tenant ~2.5 % like `load-01`), where an index is
+  decisively cheaper and a Seq Scan means the statement lost its predicate
+  or its index. It runs faster than before (0.4 s vs 0.7 s) and additionally
+  asserts the recency plan: Index Scan on the new index, no sort on
+  `occurred_at`, no `Gather Merge`.
 
 Still to do after #111: re-run `pnpm load:run cold` on a quiet machine and
 refresh the §1 `cold` row; the expectation is `search_ms` p50 around
@@ -300,7 +354,8 @@ connection) waits for a staging measurement. Not fixed here.
    that affected every tenant, it was a two-line SQL change, and it was
    worth more to the free tier than any index: 14.7 → 3.9 ms (18.3 → 7.4 ms
    on a busier host) for a 2k-chunk tenant. The recency statement's own
-   table scan is the follow-up (#117).
+   table scan was the follow-up (#117, done): a `(project_id, environment,
+   occurred_at DESC NULLS LAST, id)` index, 8.2 → 1.0 ms.
 2. **Per-tenant partial HNSW index: not yet, and not at 50k.** The exact
    scan is ~2.5–3 ms per 1,000 chunks. With #111 in, the 20 ms `search_ms`
    target holds to roughly 8,500 chunks (~4,000 reviews); the free cap
