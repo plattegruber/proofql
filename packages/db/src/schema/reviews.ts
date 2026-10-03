@@ -29,6 +29,12 @@
  * show" state and a DELETE really deletes.
  */
 
+import {
+  SENTIMENT_SOURCES,
+  SENTIMENTS,
+  type Sentiment,
+  type SentimentSource,
+} from "@proofql/core";
 import { sql } from "drizzle-orm";
 import {
   check,
@@ -46,12 +52,10 @@ import {
 import { environmentEnum, id, timestamps } from "./shared.js";
 import { projects } from "./tenancy.js";
 
-export const SENTIMENTS = ["positive", "neutral", "negative"] as const;
-export type Sentiment = (typeof SENTIMENTS)[number];
+export { SENTIMENTS, type Sentiment };
 export const sentimentEnum = pgEnum("sentiment", SENTIMENTS);
 
-export const SENTIMENT_SOURCES = ["rating", "model"] as const;
-export type SentimentSource = (typeof SENTIMENT_SOURCES)[number];
+export { SENTIMENT_SOURCES, type SentimentSource };
 export const sentimentSourceEnum = pgEnum(
   "sentiment_source",
   SENTIMENT_SOURCES,
