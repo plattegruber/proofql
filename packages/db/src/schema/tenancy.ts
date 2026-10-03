@@ -14,6 +14,7 @@
  * cache is purged on change, never consulted for policy.
  */
 
+import { PLAN_NAMES, type Plan } from "@proofql/core";
 import {
   boolean,
   doublePrecision,
@@ -30,8 +31,9 @@ import {
 
 import { id, timestamps } from "./shared.js";
 
-export const ACCOUNT_PLANS = ["free", "paid"] as const;
-export type AccountPlan = (typeof ACCOUNT_PLANS)[number];
+/** Values from core (#61); `ACCOUNT_PLANS` / `AccountPlan` are the db-side names. */
+export const ACCOUNT_PLANS = PLAN_NAMES;
+export type AccountPlan = Plan;
 export const accountPlanEnum = pgEnum("account_plan", ACCOUNT_PLANS);
 
 export const accounts = pgTable("accounts", {

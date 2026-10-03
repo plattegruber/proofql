@@ -11,10 +11,12 @@
  * a filter.
  */
 
+import { API_KEY_ENVIRONMENTS, type ApiKeyEnvironment } from "@proofql/core";
 import { pgEnum, timestamp, uuid } from "drizzle-orm/pg-core";
 
-export const ENVIRONMENTS = ["live", "test"] as const;
-export type Environment = (typeof ENVIRONMENTS)[number];
+/** Values from core (#61); `ENVIRONMENTS` is the db-side name for the column every tenant row carries. */
+export const ENVIRONMENTS = API_KEY_ENVIRONMENTS;
+export type Environment = ApiKeyEnvironment;
 
 export const environmentEnum = pgEnum("environment", ENVIRONMENTS);
 
