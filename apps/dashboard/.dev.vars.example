@@ -43,6 +43,6 @@ AUTH_STUB_ORG_ID=
 # non-empty value (`fake`) with PLACES_API_BASE below; never a real key here.
 GOOGLE_PLACES_API_KEY=
 # Origin of the Places API. Empty ⇒ https://places.googleapis.com. Point it
-# at the fake server (http://localhost:8802) for a manual run with no Google
+# at the fake server (http://localhost:8803) for a manual run with no Google
 # account and no billing.
 PLACES_API_BASE=

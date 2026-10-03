@@ -2,8 +2,10 @@
  * Pipeline handlers, kept out of the wrangler entrypoint (src/worker.ts) so
  * unit tests can call them under Node with hand-built batches.
  *
- * Cron contract (`triggers.crons`, every five minutes): `handleScheduled`
- * runs the re-enqueue sweep (src/sweep.ts) for reviews stuck unindexed.
+ * Cron contract (`triggers.crons`): `handleScheduled` routes on the cron
+ * expression the runtime reports — the five-minute cron runs the re-enqueue
+ * sweep (src/sweep.ts) for reviews stuck unindexed, the six-hourly one
+ * polls every Google connection (src/google-poll.ts, #46).
  *
  * Queue consumer contract (`proofql-ingest`, wrangler.jsonc):
  *
@@ -11,7 +13,10 @@
  *   does not parse is **acknowledged** and logged, never retried: garbage
  *   does not become valid on redelivery, and retrying it would only park
  *   it in the DLQ three attempts later.
- * - A valid message runs `indexReview`. Success → `ack()`. Any thrown error
+ * - A valid `review.index` runs `indexReview`; a valid `connection.sync`
+ *   (#46) polls that one Google connection at once (`pollGoogleConnections`
+ *   with `connectionIds`), so a freshly mapped location is imported in
+ *   seconds rather than at the next six-hourly tick. Success → `ack()`. Any thrown error
  *   → `retry({ delaySeconds })` with exponential backoff
  *   (`retryDelaySeconds`); after `max_retries` (3) Queues moves the message
  *   to `proofql-ingest-dlq`, where `handleDeadLetters` (src/dlq.ts, #82)
@@ -67,11 +72,16 @@ import {
   isDeadLetterQueue,
 } from "./dlq.js";
 import {
+  type GooglePollEnv,
+  type GooglePollResult,
+  pollGoogleConnections,
+} from "./google-poll.js";
+import {
   type IndexContext,
   type IndexOutcome,
   indexReview,
 } from "./index-review.js";
-import { type SweepResult, sweepUnindexed } from "./sweep.js";
+import { type IngestQueue, type SweepResult, sweepUnindexed } from "./sweep.js";
 
 /** The subset of a Queues `Message` the handler reads and decides on. */
 export interface QueueMessage {
@@ -88,11 +98,43 @@ export interface QueueBatch {
   readonly messages: readonly QueueMessage[];
 }
 
-export type QueueContext = IndexContext;
+/**
+ * The indexer's context plus what a `connection.sync` needs: the queue
+ * (the poller enqueues the reviews it imports) and the connector's env.
+ */
+export type QueueContext = IndexContext & {
+  queue: IngestQueue;
+  env: GooglePollEnv;
+};
 
 export interface QueueHandlerOptions {
   /** The per-message indexer; tests substitute a fake. */
-  index?: (ctx: QueueContext, message: IngestMessage) => Promise<IndexOutcome>;
+  index?: (
+    ctx: QueueContext,
+    message: Extract<IngestMessage, { type: "review.index" }>,
+  ) => Promise<IndexOutcome>;
+  /** The per-message connection sync; tests substitute a fake. */
+  sync?: (
+    ctx: QueueContext,
+    message: Extract<IngestMessage, { type: "connection.sync" }>,
+  ) => Promise<GooglePollResult>;
+}
+
+/** `connection.sync` → poll exactly that connection now. */
+export async function syncConnectionNow(
+  ctx: QueueContext,
+  message: Extract<IngestMessage, { type: "connection.sync" }>,
+): Promise<GooglePollResult> {
+  return pollGoogleConnections(
+    {
+      db: ctx.db,
+      queue: ctx.queue,
+      log: ctx.log,
+      env: ctx.env,
+      cache: ctx.cache,
+    },
+    { connectionIds: [message.connectionId], trigger: "queue" },
+  );
 }
 
 /** Consume one batch: parse, index, ack or retry — per message, in order. */
@@ -102,6 +144,7 @@ export async function handleQueueBatch(
   options: QueueHandlerOptions = {},
 ): Promise<void> {
   const index = options.index ?? indexReview;
+  const sync = options.sync ?? syncConnectionNow;
 
   for (const message of batch.messages) {
     const delivery = ctx.log.child({
@@ -120,6 +163,29 @@ export async function handleQueueBatch(
         })),
       });
       message.ack();
+      continue;
+    }
+
+    if (parsed.data.type === "connection.sync") {
+      const log = delivery.child({
+        connection_id: parsed.data.connectionId,
+        project_id: parsed.data.projectId,
+      });
+      try {
+        const result = await sync({ ...ctx, log }, parsed.data);
+        log.log("ingest.message.processed", {
+          status: "synced",
+          connections: result.connections,
+          created: result.created,
+          updated: result.updated,
+          skipped: result.skipped,
+          rate_limited: result.rateLimited,
+        });
+        message.ack();
+      } catch (error) {
+        log.log("ingest.message.failed", { error });
+        message.retry({ delaySeconds: retryDelaySeconds(message.attempts) });
+      }
       continue;
     }
 
@@ -237,6 +303,8 @@ export function createQueueContext(env: PipelineBindings): {
       embedder: createEmbedder(env),
       cache: env.CACHE,
       log: createPipelineLogger(env),
+      queue: env.INGEST_QUEUE,
+      env,
     },
     close: () => sql.end(),
   };
@@ -305,24 +373,49 @@ export async function handleQueue(
 export const SWEEP_OLDER_THAN_MINUTES = 5;
 export const SWEEP_LIMIT = 500;
 
+/** The two cron expressions in wrangler.jsonc (all three env blocks). */
+export const SWEEP_CRON = "*/5 * * * *";
+export const GOOGLE_POLL_CRON = "0 */6 * * *";
+
+export type ScheduledResult =
+  | { job: "sweep"; result: SweepResult }
+  | { job: "google_poll"; result: GooglePollResult };
+
 /**
- * One cron tick (`triggers.crons` in wrangler.jsonc): re-enqueue reviews
- * stuck with `indexed_at IS NULL`. Opens its own database client, as the
- * queue handler does, and closes it when the sweep is done.
+ * Which job a cron expression runs. Anything that is not the Google poll is
+ * the sweep: it is the older, more important job, and a typo in a cron
+ * expression should still re-enqueue stuck reviews rather than silently do
+ * nothing.
+ */
+export function scheduledJob(cron: string | undefined): ScheduledResult["job"] {
+  return cron === GOOGLE_POLL_CRON ? "google_poll" : "sweep";
+}
+
+/**
+ * One cron tick (`triggers.crons` in wrangler.jsonc), routed on the cron
+ * expression (`controller.cron`): re-enqueue reviews stuck with
+ * `indexed_at IS NULL`, or poll every Google connection. Opens its own
+ * database client, as the queue handler does, and closes it when done.
  */
 export async function handleScheduled(
-  env: Pick<PipelineBindings, "HYPERDRIVE" | "INGEST_QUEUE" | "ENVIRONMENT">,
-): Promise<SweepResult> {
+  env: Omit<PipelineBindings, "AI">,
+  cron: string | undefined,
+): Promise<ScheduledResult> {
   const { db, sql } = createDb(env.HYPERDRIVE.connectionString);
+  const log = createPipelineLogger(env).child({ trigger: "cron" });
   try {
-    return await sweepUnindexed(
-      {
-        db,
-        queue: env.INGEST_QUEUE,
-        log: createPipelineLogger(env).child({ trigger: "cron" }),
-      },
+    if (scheduledJob(cron) === "google_poll") {
+      const result = await pollGoogleConnections(
+        { db, queue: env.INGEST_QUEUE, log, env, cache: env.CACHE },
+        { trigger: "cron" },
+      );
+      return { job: "google_poll", result };
+    }
+    const result = await sweepUnindexed(
+      { db, queue: env.INGEST_QUEUE, log },
       { olderThanMinutes: SWEEP_OLDER_THAN_MINUTES, limit: SWEEP_LIMIT },
     );
+    return { job: "sweep", result };
   } finally {
     await sql.end();
   }

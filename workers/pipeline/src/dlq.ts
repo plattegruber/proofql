@@ -98,6 +98,18 @@ export async function handleDeadLetters(
       continue;
     }
 
+    if (parsed.data.type !== "review.index") {
+      // A `connection.sync` that exhausted its retries: the cron picks the
+      // connection up again within six hours, so there is nothing to record.
+      delivery.log("ingest.dlq.skipped", {
+        level: "warn",
+        type: parsed.data.type,
+        connection_id: parsed.data.connectionId,
+        project_id: parsed.data.projectId,
+      });
+      message.ack();
+      continue;
+    }
     const { reviewId, projectId, environment } = parsed.data;
     const log = delivery.child({
       review_id: reviewId,

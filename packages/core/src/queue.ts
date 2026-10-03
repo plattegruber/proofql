@@ -14,6 +14,11 @@
  * `projectId` and `environment` ride along so the consumer can scope its
  * writes and purge the right cache without a second lookup.
  *
+ * `connection.sync` (#46) rides the same queue: the dashboard sends one when
+ * a Google connection's location mapping is saved, and the pipeline polls
+ * that connection at once instead of waiting for the six-hourly cron. It
+ * carries the `connections.id` only; the consumer re-reads the row.
+ *
  * Both ends of the queue import this file: the schema is the contract.
  */
 
@@ -21,10 +26,13 @@ import { z } from "zod";
 
 import { API_KEY_ENVIRONMENTS } from "./apiKeys.js";
 
-export const INGEST_MESSAGE_TYPES = ["review.index"] as const;
+export const INGEST_MESSAGE_TYPES = [
+  "review.index",
+  "connection.sync",
+] as const;
 
-/** Wire shape of a `proofql-ingest` message. */
-export type IngestMessage = {
+/** Index (or re-index) one review. */
+export type ReviewIndexMessage = {
   type: "review.index";
   /** `reviews.id` of the row to (re)index. */
   reviewId: string;
@@ -34,17 +42,36 @@ export type IngestMessage = {
   environment: "live" | "test";
 };
 
+/** Poll one connector connection now (#46; the Google connector today). */
+export type ConnectionSyncMessage = {
+  type: "connection.sync";
+  /** `connections.id`. */
+  connectionId: string;
+  /** `connections.project_id`, for log correlation. */
+  projectId: string;
+};
+
+/** Wire shape of a `proofql-ingest` message. */
+export type IngestMessage = ReviewIndexMessage | ConnectionSyncMessage;
+
 /**
  * Validates a message body at the consumer. Ids are opaque non-empty
  * strings here (Postgres enforces the uuid shape); the enum values are the
  * single source of truth from the key/environment model.
  */
-export const ingestMessageSchema = z.object({
-  type: z.enum(INGEST_MESSAGE_TYPES),
-  reviewId: z.string().min(1),
-  projectId: z.string().min(1),
-  environment: z.enum(API_KEY_ENVIRONMENTS),
-});
+export const ingestMessageSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("review.index"),
+    reviewId: z.string().min(1),
+    projectId: z.string().min(1),
+    environment: z.enum(API_KEY_ENVIRONMENTS),
+  }),
+  z.object({
+    type: z.literal("connection.sync"),
+    connectionId: z.string().min(1),
+    projectId: z.string().min(1),
+  }),
+]);
 
 // The hand-written type and the schema must agree; a mismatch is a compile
 // error here rather than a runtime surprise at one end of the queue.

@@ -12,6 +12,7 @@ describe("@proofql/pipeline", () => {
       "@proofql/core",
       "@proofql/ai",
       "@proofql/db",
+      "@proofql/google",
     ]);
   });
 });

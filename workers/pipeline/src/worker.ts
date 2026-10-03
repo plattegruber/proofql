@@ -7,9 +7,10 @@
  *   land here (one Worker consumes both; wrangler.jsonc); `handleQueue`
  *   routes on `batch.queue`. The body type is `unknown` on purpose — each
  *   consumer validates every message before trusting it.
- * - `scheduled`: the every-five-minutes cron (`triggers.crons` in
- *   wrangler.jsonc) re-enqueues reviews stuck with `indexed_at IS NULL`
- *   (#72). Locally: `wrangler dev --test-scheduled`, then GET
+ * - `scheduled`: two crons (`triggers.crons` in wrangler.jsonc), routed on
+ *   `controller.cron`: every five minutes re-enqueue reviews stuck with
+ *   `indexed_at IS NULL` (#72); every six hours poll the Google
+ *   connections (#46). Locally: `wrangler dev --test-scheduled`, then GET
  *   `/__scheduled?cron=<the cron expression, URL-encoded>` on port 8798.
  * - `fetch`: `GET /health` so `pnpm dev` has something to smoke-test.
  */
@@ -22,7 +23,7 @@ export default {
   queue: async (batch, env) => {
     await handleQueue(batch, env);
   },
-  scheduled: async (_controller, env) => {
-    await handleScheduled(env);
+  scheduled: async (controller, env) => {
+    await handleScheduled(env, controller.cron);
   },
 } satisfies ExportedHandler<PipelineBindings, unknown>;

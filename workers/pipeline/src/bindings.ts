@@ -26,4 +26,17 @@ export interface PipelineBindings {
    * there is no local simulator — so code must treat it as optional.
    */
   AI?: Ai;
+  /**
+   * Google connector (#46; docs/google.md, docs/secrets.md). All optional:
+   * the poller logs `google.poll.skipped` and does nothing until the three
+   * credentials are set, so a deploy without them never breaks the cron.
+   */
+  /** base64 of 32 random bytes; AES-GCM key for `connections.credentials`. */
+  CREDENTIALS_KEY?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  /** Endpoint overrides; unset ⇒ real Google. Locally all three point at the fake. */
+  GOOGLE_OAUTH_BASE?: string;
+  GOOGLE_TOKEN_URL?: string;
+  GOOGLE_API_BASE?: string;
 }

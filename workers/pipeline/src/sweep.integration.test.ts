@@ -6,7 +6,11 @@
  */
 
 import { FakeEmbeddingProvider, FakeSentimentClassifier } from "@proofql/ai";
-import { type IngestMessage, MemoryKv } from "@proofql/core";
+import {
+  type IngestMessage,
+  MemoryKv,
+  type ReviewIndexMessage,
+} from "@proofql/core";
 import { schema } from "@proofql/db";
 import { project, review, setupTestDb } from "@proofql/db/test";
 import { eq } from "drizzle-orm";
@@ -31,15 +35,15 @@ afterEach(async () => {
 
 class FakeQueue implements IngestQueue {
   /** Every `sendBatch` call's bodies, in order. */
-  readonly batches: IngestMessage[][] = [];
+  readonly batches: ReviewIndexMessage[][] = [];
   failWith: Error | undefined;
 
   async sendBatch(messages: Iterable<{ body: IngestMessage }>): Promise<void> {
     if (this.failWith) throw this.failWith;
-    this.batches.push([...messages].map((m) => m.body));
+    this.batches.push([...messages].map((m) => m.body as ReviewIndexMessage));
   }
 
-  get sent(): IngestMessage[] {
+  get sent(): ReviewIndexMessage[] {
     return this.batches.flat();
   }
 }

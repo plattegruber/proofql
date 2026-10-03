@@ -9,4 +9,5 @@ export const WORKSPACE_DEPENDENCIES = [
   CORE_PACKAGE_NAME,
   "@proofql/ai",
   "@proofql/db",
+  "@proofql/google",
 ] as const;

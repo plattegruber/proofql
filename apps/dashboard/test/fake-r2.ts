@@ -52,9 +52,13 @@ export function fakeBucket(chunkSize = 1024): FakeBucket {
   };
 }
 
-/** Records every `sendBatch`; `messages` is the flat list in send order. */
+/**
+ * Records every `sendBatch`; `messages` is the flat list in send order. The
+ * import only ever produces `review.index` messages, so that is what the
+ * recorder exposes (the queue's wire type is the wider `IngestMessage`).
+ */
 export function fakeQueue() {
-  const batches: import("@proofql/core").IngestMessage[][] = [];
+  const batches: import("@proofql/core").ReviewIndexMessage[][] = [];
   return {
     batches,
     get messages() {
@@ -63,7 +67,11 @@ export function fakeQueue() {
     async sendBatch(
       messages: Iterable<{ body: import("@proofql/core").IngestMessage }>,
     ) {
-      batches.push([...messages].map((m) => m.body));
+      batches.push(
+        [...messages].map(
+          (m) => m.body as import("@proofql/core").ReviewIndexMessage,
+        ),
+      );
     },
   };
 }

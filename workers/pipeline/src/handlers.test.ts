@@ -6,18 +6,22 @@ import {
   FakeSentimentClassifier,
 } from "@proofql/ai";
 import {
+  type ConnectionSyncMessage,
   type IngestMessage,
   MemoryKv,
   type RecordingSink,
+  type ReviewIndexMessage,
 } from "@proofql/core";
 import type { Db } from "@proofql/db";
 import { describe, expect, it, vi } from "vitest";
 
 import { testLogger } from "../test/log.js";
 import type { PipelineBindings } from "./bindings.js";
+import type { GooglePollResult } from "./google-poll.js";
 import {
   createClassifier,
   createEmbedder,
+  GOOGLE_POLL_CRON,
   handleFetch,
   handleQueue,
   handleQueueBatch,
@@ -25,6 +29,8 @@ import {
   type QueueContext,
   type QueueMessage,
   retryDelaySeconds,
+  SWEEP_CRON,
+  scheduledJob,
 } from "./handlers.js";
 import type { IndexOutcome } from "./index-review.js";
 
@@ -52,6 +58,8 @@ function fakeContext(): QueueContext & { out: RecordingSink } {
     cache: new MemoryKv(),
     log,
     out,
+    queue: { sendBatch: async () => {} },
+    env: { ENVIRONMENT: "test" },
   };
 }
 
@@ -218,7 +226,7 @@ describe("handleQueueBatch", () => {
   it("decides per message, in order: one failure does not affect its siblings", async () => {
     const ctx = fakeContext();
     const order: string[] = [];
-    const index = vi.fn(async (_ctx: QueueContext, m: IngestMessage) => {
+    const index = vi.fn(async (_ctx: QueueContext, m: ReviewIndexMessage) => {
       order.push(m.reviewId);
       if (m.reviewId.endsWith("2")) throw new Error("boom");
       return { ...indexed, reviewId: m.reviewId };
@@ -404,5 +412,86 @@ describe("handleFetch", () => {
     const res = handleFetch(new Request("http://pipeline.local/nope"));
 
     expect(res.status).toBe(404);
+  });
+});
+
+describe("connection.sync messages", () => {
+  const syncBody: IngestMessage = {
+    type: "connection.sync",
+    connectionId: "33333333-3333-4333-8333-333333333333",
+    projectId: PROJECT_ID,
+  };
+  const polled: GooglePollResult = {
+    connections: 1,
+    synced: 1,
+    needsReauth: 0,
+    failed: 0,
+    deferred: 0,
+    rateLimited: false,
+    received: 3,
+    created: 2,
+    updated: 1,
+    skipped: 0,
+    rejected: 0,
+    requests: 1,
+  };
+
+  it("routes to the sync, never the indexer, and acks on success", async () => {
+    const ctx = fakeContext();
+    const index = vi.fn();
+    const sync = vi.fn(
+      async (_ctx: QueueContext, _message: ConnectionSyncMessage) => polled,
+    );
+    const message = fakeMessage(syncBody, "s1");
+
+    await handleQueueBatch(
+      { queue: "proofql-ingest", messages: [message] },
+      ctx,
+      { index, sync },
+    );
+
+    expect(index).not.toHaveBeenCalled();
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(sync.mock.calls[0]?.[1]).toEqual(syncBody);
+    expect(message.ack).toHaveBeenCalledTimes(1);
+    expect(message.retry).not.toHaveBeenCalled();
+    expect(ctx.out.only("ingest.message.processed")).toMatchObject({
+      message_id: "s1",
+      connection_id: syncBody.connectionId,
+      project_id: PROJECT_ID,
+      status: "synced",
+      created: 2,
+      updated: 1,
+    });
+  });
+
+  it("retries with backoff when the sync throws", async () => {
+    const ctx = fakeContext();
+    const sync = vi.fn(async () => {
+      throw new Error("db down");
+    });
+    const message = { ...fakeMessage(syncBody, "s2"), attempts: 2 };
+
+    await handleQueueBatch(
+      { queue: "proofql-ingest", messages: [message] },
+      ctx,
+      { sync },
+    );
+
+    expect(message.ack).not.toHaveBeenCalled();
+    expect(message.retry).toHaveBeenCalledWith({ delaySeconds: 60 });
+    expect(ctx.out.only("ingest.message.failed")).toMatchObject({
+      level: "error",
+      connection_id: syncBody.connectionId,
+    });
+  });
+});
+
+describe("scheduledJob", () => {
+  it("routes the six-hourly cron to the Google poll and everything else to the sweep", () => {
+    expect(scheduledJob(GOOGLE_POLL_CRON)).toBe("google_poll");
+    expect(scheduledJob(SWEEP_CRON)).toBe("sweep");
+    expect(scheduledJob(undefined)).toBe("sweep");
+    expect(scheduledJob("1 2 3 4 5")).toBe("sweep");
   });
 });

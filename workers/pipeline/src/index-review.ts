@@ -27,8 +27,8 @@ import {
   type Chunk,
   chunkReview,
   type GenerationKv,
-  type IngestMessage,
   type Logger,
+  type ReviewIndexMessage,
   type Sentiment,
   sentimentFromRating,
 } from "@proofql/core";
@@ -102,7 +102,7 @@ const UUID_RE =
  */
 export async function indexReview(
   ctx: IndexContext,
-  message: IngestMessage,
+  message: ReviewIndexMessage,
 ): Promise<IndexOutcome> {
   const embedChunks = ctx.embedChunks ?? realEmbedChunks;
   const { reviewId, projectId, environment } = message;
@@ -199,7 +199,7 @@ export async function indexReview(
  */
 async function loadReview(
   db: Db,
-  { reviewId, projectId, environment }: IngestMessage,
+  { reviewId, projectId, environment }: ReviewIndexMessage,
 ): Promise<ReviewRow | undefined> {
   if (!UUID_RE.test(reviewId) || !UUID_RE.test(projectId)) return undefined;
   const [row] = await db
