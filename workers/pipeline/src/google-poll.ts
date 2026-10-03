@@ -36,7 +36,8 @@
  * cursors, with no duplicate rows because the upsert is keyed on the
  * review's resource name. 5xx retries once after `Retry-After` (or a
  * second), then fails that connection only. 401 forces one token refresh
- * and retry. Any other Google error on a location skips that location.
+ * and retry. Any other Google error on a location skips that location;
+ * anything unexpected fails that connection's run and the tick moves on.
  * A wall-clock budget (default ten minutes) defers whatever is left to the
  * next tick.
  *
@@ -523,7 +524,18 @@ async function syncConnection(
         });
         continue;
       }
-      throw error;
+      // Anything else — a network failure, a token endpoint outage mid-walk,
+      // a database error — fails this connection's run with the message and
+      // lets the tick move on; the row must never be left `running`.
+      locationErrors.push(
+        `location ${location.id}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      runLog.log("google.sync.failed", {
+        error,
+        stage: "location",
+        location: location.id,
+      });
+      break;
     }
   }
 

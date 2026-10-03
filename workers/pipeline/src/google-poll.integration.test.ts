@@ -535,6 +535,49 @@ describe("pollGoogleConnections", () => {
     expect(failedRuns[0]?.error).toContain("UNAVAILABLE (503)");
   });
 
+  it("an unexpected error fails only that connection's run, never leaving it running", async () => {
+    const a = await connect();
+    const b = await connect();
+    // The very first reviews request of the tick dies on the wire.
+    let fired = false;
+    const flaky: typeof fetch = async (input, init) => {
+      if (!fired && String(input).includes("/v4/")) {
+        fired = true;
+        throw new TypeError("fetch failed: ECONNRESET");
+      }
+      return fake.fetch(input, init);
+    };
+    const { run, out } = tick({ fetch: flaky });
+
+    const result = await run();
+
+    expect(result).toMatchObject({
+      connections: 2,
+      synced: 1,
+      failed: 1,
+      deferred: 0,
+    });
+    const runs = [
+      ...(await runsFor(a.projectId)),
+      ...(await runsFor(b.projectId)),
+    ];
+    expect(runs.map((r) => r.status).sort()).toEqual(["failed", "succeeded"]);
+    const failedRun = runs.find((r) => r.status === "failed");
+    expect(failedRun?.error).toContain("ECONNRESET");
+    expect(failedRun?.finishedAt).not.toBeNull();
+    expect(
+      out
+        .find("google.sync.failed")
+        .some((l) => l.level === "error" && l.stage === "location"),
+    ).toBe(true);
+    // The failed connection has no cursor and no last sync; next tick heals it.
+    const failedConnection = (
+      await Promise.all([reload(a.id), reload(b.id)])
+    ).find((c) => c.lastSyncedAt === null);
+    expect(failedConnection?.cursor).toBeNull();
+    expect(await tick().run()).toMatchObject({ synced: 2 });
+  });
+
   it("the queue path syncs only the named connection and ignores the pending flag", async () => {
     const wanted = await connect();
     const other = await connect({ pending: true });
