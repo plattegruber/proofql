@@ -520,6 +520,96 @@ disables the card again; delete the key in the Cloud console.
 - [ ] [`docs/secrets.md`](../docs/secrets.md) rows marked *now* all exist; close #14
 - [ ] (M3, #47) `GOOGLE_PLACES_API_KEY` set on the dashboard in preview and prod; the Places card searches
 
+## Google OAuth client and Business Profile API access (M3, #44/#45/#46)
+
+Two human-gated tracks, both outside the M0 checklist, both needed before
+the Google connector works in a deployed environment. **Until the second
+one lands the connector is dark everywhere**: the dashboard's Integrations
+tab shows "Google connection is pending approval" (the var
+`GOOGLE_CONNECTOR_ENABLED` is not `true`), the connect route answers 503,
+and the pipeline's six-hourly poll logs `google.poll.skipped` and does
+nothing. Development and tests run against the fake Google server
+([`docs/google.md`](../docs/google.md)).
+
+### Track 1 — Business Profile API access (quota 0 → 300 QPM; 1–6 weeks)
+
+1. Create (or choose) the **production Google Cloud project**; note its
+   project **number** (not id). One project serves preview and prod — the
+   quota is per project.
+2. File <https://support.google.com/business/contact/api_default> →
+   "Application for Basic API Access" **from a SkipStatic address that is
+   owner/manager on the SkipStatic Business Profile**, citing that profile
+   and website as eligibility (scope §7.1). Use case: "a review search API:
+   with each business's OAuth consent, we read their Google reviews so they
+   can display them on their own website." No replies, no edits.
+3. Approval shows as the project's quota flipping from **0 to 300 QPM** in
+   Cloud Console (and an email). Then enable **My Business Account
+   Management API**, **My Business Business Information API** and
+   **Google My Business API (v4)** in the API Library. Until then every
+   call fails with 429/403 — expected, not a bug.
+
+### Track 2 — the OAuth client (needed for the connect flow; minutes)
+
+1. Cloud Console → APIs & Services → **OAuth consent screen**: External;
+   app name "ProofQL"; support and developer emails; add the scope
+   `https://www.googleapis.com/auth/business.manage` (the only Business
+   Profile scope — it is **sensitive**, so verification is needed before
+   the public can consent; see below). Leave the publishing status in
+   **Testing** for now and add the owner's Google account as a test user.
+2. **Credentials → Create credentials → OAuth client ID**, type *Web
+   application*, name `proofql-dashboard`. **Authorised redirect URIs**, one
+   per environment, exactly:
+
+   ```
+   https://proofql-dashboard-preview.<subdomain>.workers.dev/app/integrations/google/callback
+   https://proofql-dashboard-prod.<subdomain>.workers.dev/app/integrations/google/callback
+   ```
+
+   (add the custom domain's URI when it exists; the path never changes —
+   the project is carried in the signed `state`, so one URI covers every
+   project). Local dev uses the fake and needs no entry here.
+3. Copy the client id and secret:
+
+   ```sh
+   # client id is public: paste it into env.preview and env.prod `vars`
+   # of apps/dashboard/wrangler.jsonc AND workers/pipeline/wrangler.jsonc
+   # (GOOGLE_CLIENT_ID, replacing TBD-provision-in-m3)
+   cd apps/dashboard
+   wrangler secret put GOOGLE_CLIENT_SECRET --env preview      # and --env prod
+   wrangler secret put GOOGLE_OAUTH_STATE_SECRET --env preview # openssl rand -base64 32
+   wrangler secret put CREDENTIALS_KEY --env preview           # openssl rand -base64 32
+   cd ../../workers/pipeline
+   wrangler secret put GOOGLE_CLIENT_SECRET --env preview      # same value as the dashboard's
+   wrangler secret put CREDENTIALS_KEY --env preview           # SAME value as the dashboard's
+   ```
+
+   `CREDENTIALS_KEY` must be identical in the dashboard and the pipeline of
+   one environment (they share `connections.credentials`); the two
+   environments get different keys.
+4. **Testing-mode caveat:** while the consent screen is in Testing, Google
+   expires refresh tokens after **7 days**. Every connected project will
+   show "Needs reconnect" weekly until the app is published and the
+   sensitive-scope verification (privacy policy, homepage, demo video; scope
+   §7.2) is through. Start that verification once the connect flow is
+   demoable; it runs in parallel with Track 1.
+
+### Switch it on
+
+Only after Track 1's quota is 300 QPM and Track 2's secrets are set, per
+environment:
+
+```jsonc
+// apps/dashboard/wrangler.jsonc → env.preview.vars (then env.prod.vars)
+"GOOGLE_CONNECTOR_ENABLED": "true"
+```
+
+Deploy. The Integrations tab now shows "Connect Google"; the pipeline's
+poll starts finding work at the next tick. Flip it back to `"false"` to
+take the connector dark again without a code change (existing connections
+keep their rows; polling simply stops because connect cannot create new
+credentials and the poller skips an unconfigured environment only when the
+secrets are absent — to pause polling too, remove `GOOGLE_CLIENT_SECRET`).
+
 ## Custom domains (later, outside this checklist)
 
 Scope §7.6: `api.proofql.com`, `cdn.proofql.com` and `docs.proofql.com`

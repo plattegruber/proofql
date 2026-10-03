@@ -19,7 +19,7 @@ CLOUDFLARE_ENV=preview pnpm --filter @proofql/dashboard build && pnpm --filter @
 |---|---|
 | `workers/app.ts` | The Worker. Mints the request id, builds the request-bound logger, and puts `{ env, ctx, log, requestId }` on the router context (`app/lib/context.ts`). |
 | `app/root.tsx` | Fonts and tokens, the Clerk middleware/provider pair (mounted only when Clerk is configured), the error boundary. |
-| `app/routes.ts` | `/` → `/app`; `/sign-in/*`, `/sign-up/*`; `/app/workspace`; the protected `/app` layout with the overview, the guided onboarding (`/app/onboarding`, `/app/onboarding/:slug/{reviews,indexing,snippet,preview,status}`), `/app/projects/new`, and `/app/projects/:slug/{reviews,import,playground,keys,settings}`; `POST /webhooks/clerk`; `GET /health`. |
+| `app/routes.ts` | `/` → `/app`; `/sign-in/*`, `/sign-up/*`; `/app/workspace`; the protected `/app` layout with the overview, the guided onboarding (`/app/onboarding`, `/app/onboarding/:slug/{reviews,indexing,snippet,preview,status}`), `/app/projects/new`, `/app/projects/:slug/{reviews,import,playground,keys,integrations,settings}` (+ `integrations/google/connect`), `/app/integrations/google/callback`; `POST /webhooks/clerk`; `GET /health`. |
 | `app/routes/app.onboarding*` | The guided onboarding (#53, below): step 1 names the project and mints both live keys; steps 2–4 add reviews, watch indexing, and hand over the prefilled snippet with a live preview. |
 | `app/lib/onboarding.ts`, `app/lib/onboarding.server.ts` | Pure rules (steps, the suggested first query, the prefilled tag, the ingest curl) and the server side (the one-hour onboarding cookie, project + keys in one transaction, indexing counts, completion). |
 | `app/routes/app.projects.$slug.import.*` | The CSV/JSON import (#38): `import` (step 1, upload → R2 + `ingest_runs` row), `import/:runId/map` (step 2, detected mapping as selects, live validation in the browser), `import/:runId` (steps 3–4, progress polling and the result), `import/:runId/errors.csv` (the per-row error report). |
@@ -38,6 +38,10 @@ CLOUDFLARE_ENV=preview pnpm --filter @proofql/dashboard build && pnpm --filter @
 | `app/lib/forms.server.ts`, `app/lib/flash.server.ts` | `parseForm` (zod → `fieldErrors`) and the signed one-shot flash cookie — [`docs/frontend-conventions.md`](../../docs/frontend-conventions.md). |
 | `app/routes/app.projects.new.tsx` | Create a project; at the plan's limit the form gives way to the upgrade message. |
 | `app/routes/app.projects.$slug.keys.tsx` | Keys tab (#37): table, mint with one-time reveal, inline-confirm revoke, allowed-origins editor. |
+| `app/routes/app.projects.$slug.integrations.tsx` | Integrations tab (#45): the Google Business Profile connection in its three states (pending approval, not connected, connected), the location picker (saving enqueues `connection.sync`), Reconnect, inline-confirm Disconnect. |
+| `app/routes/app.projects.$slug.integrations.google.connect.ts`, `app/routes/app.integrations.google.callback.ts` | The OAuth flow (#45): `connect` mints PKCE + a single-use KV nonce and 302s to Google; `callback` (one URI per environment) verifies the signed state, exchanges the code, stores AES-GCM credentials, discovers locations. |
+| `app/lib/google.server.ts` | `beginConnect` / `completeConnect` / location save / disconnect over `@proofql/google` — [`docs/google.md`](../../docs/google.md) "Connecting". |
+| `test/fake-google-server.ts` | The fake Google server on an ephemeral port for the integration tests (a Node adapter over the Hono app). |
 | `app/routes/app.projects.$slug.settings.tsx` | Settings tab (#41): `min_rating`, `similarity_floor`, name, slug; saving bumps the project's cache generation (`CACHE` KV). Danger: delete with typed-slug confirm. |
 | `app/components/` | Shell (top bar, left nav, page header), `ui/` primitives (button, badge, card, skeleton, link tabs, input, select, toaster, copy button), `form/` (field, submit button, inline confirm). |
 
