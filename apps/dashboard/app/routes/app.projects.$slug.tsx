@@ -1,5 +1,6 @@
 // Project shell (#36): header + section tabs. Each tab's content is its own
-// issue — Reviews #39, Playground #40, Keys #37, Settings #41 — and lands as
+// issue — Reviews #39, Playground #40, Keys #37, Integrations #45, Settings
+// #41 — and lands as
 // a child route here.
 import { data, Outlet } from "react-router";
 
@@ -53,6 +54,7 @@ export default function ProjectShell({ loaderData }: Route.ComponentProps) {
           { to: `${base}/import`, label: "Import" },
           { to: `${base}/playground`, label: "Playground" },
           { to: `${base}/keys`, label: "Keys" },
+          { to: `${base}/integrations`, label: "Integrations" },
           { to: `${base}/settings`, label: "Settings" },
         ]}
       />

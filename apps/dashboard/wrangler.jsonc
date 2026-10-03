@@ -54,6 +54,11 @@
     // (#53): the local cdn worker (workers/cdn, port 8800) here, the hosted
     // cdn in deployed environments.
     "SNIPPET_SRC": "http://localhost:8800/v1.js"
+    // Google connector (#45; docs/google.md): CREDENTIALS_KEY,
+    // GOOGLE_OAUTH_STATE_SECRET, GOOGLE_CLIENT_ID/SECRET, the fake-server
+    // endpoint overrides and GOOGLE_CONNECTOR_ENABLED come from `.dev.vars`
+    // locally. Deployed: GOOGLE_CLIENT_ID and GOOGLE_CONNECTOR_ENABLED are
+    // vars below, the secrets are `wrangler secret put`.
     // Clerk (docs/secrets.md): locally CLERK_PUBLISHABLE_KEY, CLERK_SECRET_KEY
     // and CLERK_WEBHOOK_SIGNING_SECRET come from the gitignored `.dev.vars`
     // (copy `.dev.vars.example`). Leave CLERK_SECRET_KEY empty and the app
@@ -102,6 +107,13 @@
         // <TBD>: the proofql-api-preview public origin.
         "API_URL": "TBD-provision-in-m0",
         "SNIPPET_SRC": "https://cdn.proofql.com/v1.js",
+        // <TBD>: the Google OAuth client id (public; docs/secrets.md,
+        // infra/provisioning.md "Google OAuth client"). Not flagged by
+        // check-provisioning.mjs on purpose: the connector stays dark —
+        // "pending approval" in the UI — until GOOGLE_CONNECTOR_ENABLED is
+        // flipped to "true" after Google approves API access (#44).
+        "GOOGLE_CLIENT_ID": "TBD-provision-in-m3",
+        "GOOGLE_CONNECTOR_ENABLED": "false",
         // <TBD>: the Clerk *development* instance's publishable key (public,
         // `pk_test_…`; docs/secrets.md). The matching CLERK_SECRET_KEY and
         // CLERK_WEBHOOK_SIGNING_SECRET are wrangler secrets, never vars.
@@ -135,6 +147,13 @@
         // <TBD>: the proofql-api-prod public origin.
         "API_URL": "TBD-provision-in-m0",
         "SNIPPET_SRC": "https://cdn.proofql.com/v1.js",
+        // <TBD>: the Google OAuth client id (public; docs/secrets.md,
+        // infra/provisioning.md "Google OAuth client"). Not flagged by
+        // check-provisioning.mjs on purpose: the connector stays dark —
+        // "pending approval" in the UI — until GOOGLE_CONNECTOR_ENABLED is
+        // flipped to "true" after Google approves API access (#44).
+        "GOOGLE_CLIENT_ID": "TBD-provision-in-m3",
+        "GOOGLE_CONNECTOR_ENABLED": "false",
         // <TBD>: the Clerk *production* instance's publishable key
         // (`pk_live_…`).
         "CLERK_PUBLISHABLE_KEY": "TBD-provision-in-m0"

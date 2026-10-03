@@ -16,7 +16,10 @@
 
 import { z } from "zod";
 
-export const mappedLocationSchema = z.looseObject({
+// A strict object (unknown keys stripped), not a loose one: this shape is
+// ours, it travels through React Router loader data, and an index
+// signature would leak into every view type that carries a location.
+export const mappedLocationSchema = z.object({
   /** The bare id from `locations/{id}`. */
   id: z.string().min(1),
   /** The bare id from `accounts/{id}` the location was listed under. */
