@@ -17,6 +17,7 @@ import { createLogger } from "@proofql/core";
 import { createRequestHandler, RouterContextProvider } from "react-router";
 
 import { cloudflareContext } from "~/lib/context";
+import { applySecurityHeaders } from "~/lib/security-headers";
 
 const requestHandler = createRequestHandler(
   () => import("virtual:react-router/server-build"),
@@ -24,13 +25,18 @@ const requestHandler = createRequestHandler(
 );
 
 export const REQUEST_ID_HEADER = "x-request-id";
-const MAX_INCOMING_LENGTH = 128;
+
+/**
+ * Same rule as the api (workers/api/src/request-id.ts, #49): at most 128
+ * chars of a token charset, since the id is echoed in a header and written
+ * into every log line — anything else is a log-injection vector and earns
+ * a fresh uuid instead.
+ */
+const INCOMING_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 
 export function resolveRequestId(headers: Headers): string {
   const incoming = headers.get(REQUEST_ID_HEADER) ?? headers.get("cf-ray");
-  return incoming !== null &&
-    incoming.length > 0 &&
-    incoming.length <= MAX_INCOMING_LENGTH
+  return incoming !== null && INCOMING_ID_PATTERN.test(incoming)
     ? incoming
     : crypto.randomUUID();
 }
@@ -53,6 +59,8 @@ export default {
     // Streamed SSR responses can carry immutable headers — rewrap.
     const traced = new Response(response.body, response);
     traced.headers.set(REQUEST_ID_HEADER, requestId);
+    // CSP, framing, sniffing, referrer, HSTS (#49; app/lib/security-headers.ts).
+    applySecurityHeaders(traced.headers, env);
     return traced;
   },
 } satisfies ExportedHandler<Env>;
