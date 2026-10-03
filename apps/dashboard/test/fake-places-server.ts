@@ -1,26 +1,24 @@
 /**
- * Serve the fake Places API (fake-places.ts) on a port for a manual run of
- * the dashboard (#47):
+ * Serve the fake Places API (`@proofql/google/fake`, packages/google/src/
+ * fake/places.ts) on a port for a manual run of the dashboard (#47) or of
+ * the pipeline's refresh cron (#116):
  *
+ *   pnpm build                                            # once: dist/ of @proofql/google
  *   node apps/dashboard/test/fake-places-server.ts        # port 8803
  *   PORT=9000 node apps/dashboard/test/fake-places-server.ts
  *
- * then in apps/dashboard/.dev.vars:
+ * then in apps/dashboard/.dev.vars and workers/pipeline/.dev.vars:
  *
  *   GOOGLE_PLACES_API_KEY=fake
  *   PLACES_API_BASE=http://localhost:8803
  *
  * Plain Node (24+ strips the types itself); not a Worker, not part of any
- * test run. Searching "dental", "bakery", "books" or "boulder" finds the
- * fixtures.
+ * test run — the tests take the handler in-process. Searching "dental",
+ * "bakery", "books" or "boulder" finds the fixtures.
  */
 import { createServer } from "node:http";
 
-// Node's ESM loader needs the `.ts` extension; tsc does not allow it in a
-// literal import, so resolve it at runtime and keep the type.
-const { fakePlacesApi } = (await import(
-  new URL("./fake-places.ts", import.meta.url).href
-)) as typeof import("./fake-places");
+import { fakePlacesApi } from "@proofql/google/fake";
 
 const port = Number(process.env.PORT ?? 8803);
 const api = fakePlacesApi();

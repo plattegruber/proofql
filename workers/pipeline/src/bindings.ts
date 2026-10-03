@@ -39,4 +39,12 @@ export interface PipelineBindings {
   GOOGLE_OAUTH_BASE?: string;
   GOOGLE_TOKEN_URL?: string;
   GOOGLE_API_BASE?: string;
+  /**
+   * Places bootstrap refresh (#116; docs/places.md "Refresh"). The same key
+   * the dashboard uses for the "Find your business on Google" card; unset
+   * ⇒ the daily cron logs `places.refresh.skipped` and does nothing.
+   */
+  GOOGLE_PLACES_API_KEY?: string;
+  /** Endpoint override; unset ⇒ `https://places.googleapis.com`. Locally the fake on :8803. */
+  PLACES_API_BASE?: string;
 }

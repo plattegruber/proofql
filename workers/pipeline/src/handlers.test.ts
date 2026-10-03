@@ -25,6 +25,7 @@ import {
   handleFetch,
   handleQueue,
   handleQueueBatch,
+  PLACES_REFRESH_CRON,
   type QueueConsumers,
   type QueueContext,
   type QueueMessage,
@@ -488,8 +489,10 @@ describe("connection.sync messages", () => {
 });
 
 describe("scheduledJob", () => {
-  it("routes the six-hourly cron to the Google poll and everything else to the sweep", () => {
+  it("routes the six-hourly cron to the Google poll, the daily one to the Places refresh, and everything else to the sweep", () => {
     expect(scheduledJob(GOOGLE_POLL_CRON)).toBe("google_poll");
+    expect(scheduledJob(PLACES_REFRESH_CRON)).toBe("places_refresh");
+    expect(PLACES_REFRESH_CRON).toBe("30 3 * * *");
     expect(scheduledJob(SWEEP_CRON)).toBe("sweep");
     expect(scheduledJob(undefined)).toBe("sweep");
     expect(scheduledJob("1 2 3 4 5")).toBe("sweep");

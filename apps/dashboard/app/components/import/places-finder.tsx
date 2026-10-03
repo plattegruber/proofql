@@ -4,13 +4,13 @@
 // (routes/app.projects.$slug.places.ts), which redirects to the progress
 // view once the import has run. Two fetchers so the list stays put while
 // an import is in flight.
+import { PLACES_REVIEWS_PER_PLACE, type PlaceMatch } from "@proofql/google";
 import { Link, useFetcher } from "react-router";
 
 import { SubmitButton } from "~/components/form/submit-button";
 import { Badge } from "~/components/ui/badge";
 import { FormNotice, Input } from "~/components/ui/field";
 import { ONBOARDING_FLAG } from "~/lib/onboarding";
-import { PLACES_REVIEWS_PER_PLACE, type PlaceMatch } from "~/lib/places";
 import type { PlacesActionData } from "~/routes/app.projects.$slug.places";
 
 export const PLACES_CARD_TITLE = "Find your business on Google";

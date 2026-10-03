@@ -468,12 +468,15 @@ Approve `migrate-prod` under **Actions → the run → Review deployments**,
 watch it, then approve `deploy-prod`. Smoke-check
 `https://proofql-api-prod.$WORKERS_SUBDOMAIN.workers.dev/health`.
 
-## 14. Google Places API key (dashboard, #47)
+## 14. Google Places API key (dashboard and pipeline, #47, #116)
 
 The "Find your business on Google" card on onboarding step 2 and the Import
-tab pulls a place's five public reviews through the Places API (New). It
-needs an ordinary API key — no Business Profile access, no approval — and
-is disabled ("not configured in this environment") until the key is set.
+tab pulls a place's five public reviews through the Places API (New), and
+the pipeline's daily cron re-fetches them every 25 days for projects that
+have not connected a Business Profile ([`docs/places.md`](../docs/places.md#refresh)).
+Both need the same ordinary API key — no Business Profile access, no
+approval — and both are disabled until it is set: the card says "not
+configured in this environment", the cron logs `places.refresh.skipped`.
 Cost and quota math: [`docs/places.md`](../docs/places.md#cost-and-quota).
 
 1. Google Cloud console → a project of your own (the one the OAuth client
@@ -487,10 +490,14 @@ Cost and quota math: [`docs/places.md`](../docs/places.md#cost-and-quota).
    (the dashboard calls from Workers, so there is no referrer or IP to
    pin), **API restrictions: Restrict key → Places API (New)** only. One
    key per environment keeps a leak's blast radius to one environment.
-4. Set it on the dashboard worker, once per environment:
+4. Set it on the dashboard worker **and** the pipeline worker (the same
+   key; the refresh runs in the pipeline), once per environment:
 
    ```sh
    cd apps/dashboard
+   pnpm exec wrangler secret put GOOGLE_PLACES_API_KEY --env preview
+   pnpm exec wrangler secret put GOOGLE_PLACES_API_KEY --env prod
+   cd ../../workers/pipeline
    pnpm exec wrangler secret put GOOGLE_PLACES_API_KEY --env preview
    pnpm exec wrangler secret put GOOGLE_PLACES_API_KEY --env prod
    cd ../..
@@ -503,10 +510,14 @@ Google" shows a search box rather than "Not configured". Search a real
 business; "Import reviews" lands on the run page with up to five `google`
 reviews. `wrangler tail proofql-dashboard-preview` shows `places.searched`
 then `places.imported`; a `places.failed` with `status: 403` means the key
-is restricted to the wrong API or billing is off.
+is restricted to the wrong API or billing is off. On the pipeline,
+`wrangler tail proofql-pipeline-preview` shows `places.refresh.started` /
+`places.refresh.completed` at 03:30 UTC (with `candidates: 0` until a
+bootstrap is 25 days old) instead of `places.refresh.skipped`.
 
 **Rollback:** `wrangler secret delete GOOGLE_PLACES_API_KEY --env <env>`
-disables the card again; delete the key in the Cloud console.
+from both workers disables the card and the refresh again; delete the key
+in the Cloud console.
 
 ---
 
@@ -518,7 +529,7 @@ disables the card again; delete the key in the Cloud console.
 - [ ] `/health` on preview api and pipeline returns `{"ok":true}` from the workers.dev URLs
 - [ ] `DEPLOY_ENABLED=true` and one green manual run of `deploy.yml` for preview
 - [ ] [`docs/secrets.md`](../docs/secrets.md) rows marked *now* all exist; close #14
-- [ ] (M3, #47) `GOOGLE_PLACES_API_KEY` set on the dashboard in preview and prod; the Places card searches
+- [ ] (M3, #47, #116) `GOOGLE_PLACES_API_KEY` set on the dashboard and the pipeline in preview and prod; the Places card searches, the pipeline's 03:30 UTC tick logs `places.refresh.completed`
 
 ## Google OAuth client and Business Profile API access (M3, #44/#45/#46)
 

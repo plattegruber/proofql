@@ -27,3 +27,13 @@ GOOGLE_CLIENT_SECRET=fake-google-client-secret
 GOOGLE_OAUTH_BASE=http://localhost:8802
 GOOGLE_TOKEN_URL=http://localhost:8802/token
 GOOGLE_API_BASE=http://localhost:8802
+
+# --- Places bootstrap refresh (#116; docs/places.md "Refresh") ---------------
+# The same key the dashboard's "Find your business on Google" card uses.
+# Empty ⇒ the daily cron logs `places.refresh.skipped` and does nothing.
+# `fake` works against the fake Places API below.
+GOOGLE_PLACES_API_KEY=
+# Point Places calls at the fake server
+# (`node apps/dashboard/test/fake-places-server.ts`, port 8803). Unset ⇒ real
+# Google. Never set this in a deployed environment.
+PLACES_API_BASE=http://localhost:8803

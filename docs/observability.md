@@ -155,6 +155,18 @@ Google connector (#46, [`google-poll.ts`](../workers/pipeline/src/google-poll.ts
 | `google.bootstrap_superseded` | info | `deleted`, `generation` | A connection's first successful sync deleted the project's Places bootstrap rows (`external_id` under `places/`, #115/#116) and bumped the cache generation (docs/google.md). |
 | `google.cap_reached` | warn | `rejected`, `limit`, `review_count` | The plan's review cap refused part of a batch (`onLimit: "truncate"`); the refused count lands in the run's `failed`. |
 
+Places bootstrap refresh (#116, [`places-refresh.ts`](../workers/pipeline/src/places-refresh.ts); [docs/places.md](places.md#refresh)). Every line carries `trigger: "cron"` and `job: "places_refresh"`; per-place lines add `project_id`, `environment`, `place_id`, `ingest_run_id` and `last_run_at` (when the run being refreshed finished).
+
+| Event | Level | Fields | When |
+|---|---|---|---|
+| `places.refresh.skipped` | warn | `reason: not_configured`, `missing: ["GOOGLE_PLACES_API_KEY"]` | The tick found no Places key (or a `TBD-` placeholder) and did nothing. Expected until the key is set on the pipeline (docs/secrets.md). |
+| `places.refresh.started` | info | `candidates`, `limit`, `after_days`, `oldest_run_at` | A tick began; `candidates` is how many `(project, environment, place)` triples are due (latest `places` run older than 25 days — a day for a failed one — no active google connection, bootstrap rows still present), capped at `limit` (200), oldest first. |
+| `places.refresh.refreshed` | info | `received`, `created`, `updated`, `skipped`, `rejected`, `deleted`, `enqueued`, `generation` | One place refreshed and its run closed `succeeded`. `deleted` is the bootstrap rows Google no longer returned (also in the run's `error` note); `generation` is the project's new cache generation, or `null` when nothing changed. |
+| `places.refresh.cap_reached` | warn | `rejected`, `limit`, `review_count` | The plan's review cap refused new reviews (`onLimit: "truncate"`); the count lands in the run's `failed`. |
+| `places.refresh.failed` | warn / error | warn: `status`, `code`, `error_message` — Google refused (404: the place is gone; 403: the key; 429: quota) and the run closed `failed` with the human description; error: `error` — something after the run row opened threw | The warn form retries the place tomorrow; the error form is the one to look at. |
+| `places.refresh.rate_limited` | warn | `deferred` | Google answered 429; the tick stopped and `deferred` places wait for tomorrow. A steady rate is the signal that the free Place Details quota is spent (docs/places.md "Quota math"). |
+| `places.refresh.completed` | info | `candidates`, `refreshed`, `failed`, `deferred`, `rate_limited`, `received`, `created`, `updated`, `skipped`, `rejected`, `deleted`, `enqueued`, `requests`, `took_ms` | Every tick that ran. `requests` is the Place Details calls sent to Google; it should equal `refreshed + failed`. |
+
 ### dashboard
 
 | Event | Level | Fields beyond the request bindings | When |

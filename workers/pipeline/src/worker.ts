@@ -7,11 +7,13 @@
  *   land here (one Worker consumes both; wrangler.jsonc); `handleQueue`
  *   routes on `batch.queue`. The body type is `unknown` on purpose — each
  *   consumer validates every message before trusting it.
- * - `scheduled`: two crons (`triggers.crons` in wrangler.jsonc), routed on
+ * - `scheduled`: three crons (`triggers.crons` in wrangler.jsonc), routed on
  *   `controller.cron`: every five minutes re-enqueue reviews stuck with
  *   `indexed_at IS NULL` (#72); every six hours poll the Google
- *   connections (#46). Locally: `wrangler dev --test-scheduled`, then GET
- *   `/__scheduled?cron=<the cron expression, URL-encoded>` on port 8798.
+ *   connections (#46); daily at 03:30 UTC refresh the Places bootstraps
+ *   older than 25 days (#116). Locally: `wrangler dev --test-scheduled`,
+ *   then GET `/__scheduled?cron=<the cron expression, URL-encoded>` on
+ *   port 8798.
  * - `fetch`: `GET /health` so `pnpm dev` has something to smoke-test.
  */
 

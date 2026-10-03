@@ -1,13 +1,16 @@
 # Google Places bootstrap
 
-- **Status:** Shipped with #47 (M3). Enabled per environment by the
-  `GOOGLE_PLACES_API_KEY` secret ([`secrets.md`](secrets.md)).
-- **Code:** `apps/dashboard/app/lib/places.ts` (shapes, mapper, keys),
-  `places.server.ts` (client, cache, import),
+- **Status:** Shipped with #47 (M3); the 25-day refresh with #116. Enabled
+  per environment by the `GOOGLE_PLACES_API_KEY` secret, on the dashboard
+  (the card) and the pipeline (the refresh) ([`secrets.md`](secrets.md)).
+- **Code:** `packages/google/src/places.ts` (shapes, mapper, keys, KV cache
+  helpers, the client — shared by both workers) and
+  `packages/google/src/fake/places.ts` (the fake Google);
+  `apps/dashboard/app/lib/places.ts` (search validation, route path),
+  `places.server.ts` (configuration, the import),
   `components/import/places-finder.tsx` (the card),
-  `routes/app.projects.$slug.places.ts` (the action),
-  `test/fake-places.ts` (the fake Google). The client should move to
-  `packages/google` once the connector work (#46) creates that package.
+  `routes/app.projects.$slug.places.ts` (the action);
+  `workers/pipeline/src/places-refresh.ts` (the refresh cron).
 
 ## What it is
 
@@ -63,6 +66,70 @@ No schema change: the place a project was seeded from is readable from its
 `places` runs (`artifact_key = places:<id>`) and from `metadata.place_id` on
 the reviews, filterable at query time (`filters.metadata.place_id`).
 
+## Refresh
+
+Google's Places policies cap how long Places *content* may be stored at 30
+days ([Terms and attribution](#terms-and-attribution)); the owner's reading
+(2026-10-03) is that this is a **cache limit, so the rows are refetched,
+never deleted**. The pipeline does the refetching
+(`workers/pipeline/src/places-refresh.ts`, cron `30 3 * * *` — daily,
+03:30 UTC, when nobody is onboarding):
+
+```
+every (project, environment, place) whose latest `places` run
+  finished more than 25 days ago                 (a failed one: more than a day ago)
+  and whose project has no `active` google connection
+  and that still has at least one bootstrap row for the place
+oldest first, 200 per tick
+  └─ GET /v1/places/<id>  (past the KV cache; the fresh copy is written back)
+  └─ mapPlaceReviews → upsertReviews(onLimit: "truncate")     same rows, by (source, external_id)
+  └─ DELETE bootstrap rows for the place whose external_id Google did not return
+  └─ ingest_runs { kind: places, artifact_key: "places:<id>", received, created, updated, skipped, failed,
+                   error: "N reviews Google no longer returns were removed." when N > 0 }
+  └─ INGEST_QUEUE ← one message per created or re-indexed review
+  └─ gen:<project> += 1 when anything changed
+```
+
+What changes on the customer's site: a review Google still returns keeps
+its row (and its id, so a link to it still works) with any edits Google
+made to the text, rating or author re-applied; a review that dropped out
+of Google's five is removed, so it stops appearing in query results as
+soon as the cache generation moves (within a minute); a review that
+entered the five appears once it is indexed, like any other new review.
+Between refreshes the site shows the rows as of the last fetch — at most
+25 days old, inside the 30-day limit. A project that connects its
+Business Profile leaves this loop at once (the connector's first sync
+replaces the bootstrap rows, [`google.md`](google.md#superseding-the-places-bootstrap-116));
+one with a `needs_reauth` connection stays in it, since the bootstrap is
+all it has until the user reconnects. A project that deleted every
+bootstrap review for the place has opted out and is left alone — a
+re-import from the Import tab starts the cycle again. A refresh never
+*starts* a bootstrap: nothing is written for a place Google now returns
+no reviews for except the removal of the rows it used to.
+
+Failure shape: a Google error fails that project's run only (`error` is
+the same human description the card shows: "Google no longer lists this
+place." for a 404, the key message for a 403), and the place is retried
+the next day rather than in 25; a 429 stops the whole tick (the key's
+per-minute quota is shared) and whatever was not reached runs tomorrow.
+Without `GOOGLE_PLACES_API_KEY` in the pipeline the cron logs
+`places.refresh.skipped` and does nothing.
+
+**Quota math.** One Place Details request per bootstrapped project per 25
+days (five reviews a time, which is all Google shares): ~1.2 requests per
+project per month, so **800 bootstrapped-and-not-connected projects fit in
+the 1,000 free Place Details requests a month** on top of onboarding's
+own fetches; at 5,000 such projects it is ~6,000 requests ≈ $125/month at
+the Enterprise + Atmosphere list price, by which point the connector
+should be carrying the load. The refresh bypasses the 24 h KV cache on
+purpose and writes the fresh copy back, so a dashboard re-import the same
+day costs nothing extra.
+
+Locally: `wrangler dev --test-scheduled` in `workers/pipeline`, then
+`curl "http://localhost:8798/__scheduled?cron=30+3+*+*+*"` against the fake
+Places API ([Local development](#local-development)); events in
+[`observability.md`](observability.md#pipeline).
+
 ## Cost and quota
 
 Places bills **per request, by the SKU the field mask lands in** (Google's
@@ -113,46 +180,50 @@ shows. The card says so ("Imported reviews keep their author and the
 Google badge, as Google's terms require"), and the docs site's Imports page
 repeats it.
 
-**Open point for the owner before launch:** the same policies limit how
-long Places *content* (anything other than a place id) may be stored —
-30 days as of this writing. The bootstrap stores the five reviews as the
-project's own review rows indefinitely, as a Takeout export would, and the
-24 h KV cache is well inside the limit. Whether a business importing its
-own public reviews falls under that storage limit is a reading of the
-terms we have not confirmed; either confirm it, or have the connector
-(#45, whose Business Profile data has no such limit) replace the
-bootstrap's rows and expire bootstrap-only rows after 30 days.
+The same policies limit how long Places *content* (anything other than a
+place id) may be stored — 30 days as of this writing. The owner's
+direction (#116, 2026-10-03) is that this is a cache limit: bootstrap rows
+are **refetched every 25 days** ([Refresh](#refresh)) rather than expired,
+and the Business Profile connector (#45, whose data carries no such limit)
+replaces them on its first sync ([`google.md`](google.md#superseding-the-places-bootstrap-116)).
+The 24 h KV cache is well inside the limit on its own.
 
 ## Local development
 
 There is no Places key locally and no need for one:
 
 ```sh
+pnpm build                                              # once: dist/ of @proofql/google
 node apps/dashboard/test/fake-places-server.ts          # fake Google on :8803
 ```
 
-and in `apps/dashboard/.dev.vars`:
+and in `apps/dashboard/.dev.vars` and `workers/pipeline/.dev.vars` (the
+pipeline's `.dev.vars.example` already carries both lines):
 
 ```
 GOOGLE_PLACES_API_KEY=fake
 PLACES_API_BASE=http://localhost:8803
 ```
 
-The fake (`apps/dashboard/test/fake-places.ts`) serves three fixture places
-around Boulder — "Cedar Ridge Dental" (five reviews, one untranslated
-Spanish), "Harbor Light Bakery" (two, one rating-only), "Quiet Corner
-Books" (none) — and behaves like Google where it matters: the key header
-is required, the field mask decides whether `reviews` is in the body, no
-match answers `{}`, an unknown id is 404. Searching "dental", "bakery",
-"books" or "boulder" finds them. The same handler runs in-process in the
-unit and integration tests; **no test calls Google**.
+The fake (`packages/google/src/fake/places.ts`, exported from
+`@proofql/google/fake`) serves three fixture places around Boulder — "Cedar
+Ridge Dental" (five reviews, one untranslated Spanish), "Harbor Light
+Bakery" (two, one rating-only), "Quiet Corner Books" (none) — and behaves
+like Google where it matters: the key header is required, the field mask
+decides whether `reviews` is in the body, no match answers `{}`, an unknown
+id is 404. Searching "dental", "bakery", "books" or "boulder" finds them.
+The same handler runs in-process in the unit and integration tests of
+`packages/google`, the dashboard and the pipeline; **no test calls Google**.
 
 Without `GOOGLE_PLACES_API_KEY`, the card renders "Not configured in this
-environment" and the action answers 503; nothing else changes.
+environment" and the action answers 503, and the pipeline's refresh cron
+logs `places.refresh.skipped`; nothing else changes.
 
 ## Observability
 
 `places.searched`, `places.imported`, `places.failed` on the dashboard —
-see [`observability.md`](observability.md#dashboard). A `places.failed`
-with `status: 403` is the key (missing, restricted to the wrong API, or
-billing disabled on the Cloud project); `429` is Google's per-minute quota.
+see [`observability.md`](observability.md#dashboard) — and
+`places.refresh.*` on the pipeline ([`observability.md`](observability.md#pipeline)).
+A `places.failed` or `places.refresh.failed` with `status: 403` is the key
+(missing, restricted to the wrong API, or billing disabled on the Cloud
+project); `429` is Google's per-minute quota.
