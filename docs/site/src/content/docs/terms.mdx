@@ -1,0 +1,53 @@
+---
+title: Terms of service
+description: The agreement for using ProofQL's API, dashboard and snippet. Placeholder text pending counsel.
+---
+
+import LegalNotice from "../../components/LegalNotice.astro";
+import { SUPPORT_EMAIL } from "../../config";
+
+<LegalNotice />
+
+_Last updated: [PLACEHOLDER date]. These terms are between you and [PLACEHOLDER legal entity] ("ProofQL", "we")._
+
+By creating an account or calling the API you agree to these terms.
+
+## The service
+
+ProofQL stores reviews you provide, indexes them, and returns the ones relevant to a query through an API and an embeddable snippet. The free tier's limits and the paid plan's limits are listed on [Limits](/limits) and may change with notice.
+
+## Your account
+
+You need a workspace created through our sign-in provider. You are responsible for the people you invite to it and for keeping your **secret** API keys secret; a leaked key can be revoked from the dashboard at any time. Publishable keys are meant to appear in web pages and are restricted to the origins you list.
+
+## Your content
+
+You keep all rights to the reviews and other data you import. You grant us the licence needed to store, index, cache and serve them to you and to the websites you authorize. You confirm you are allowed to use the reviews you import, including under the terms of the platform they came from (for Google-sourced reviews, Google's Places and Business Profile policies, which among other things require author attribution and a source badge, both of which the snippet renders).
+
+## Acceptable use
+
+Do not use the service to store content you have no right to, to fabricate or alter reviews, to circumvent rate limits or key restrictions, or to probe other customers' data. We may suspend an account that does.
+
+## Availability and changes
+
+The service is provided as is, without an uptime guarantee on the free tier. [PLACEHOLDER: paid-tier SLA, if any.] We may change or discontinue features with reasonable notice; the API is versioned by path (`/v1`) and we announce breaking changes before making them.
+
+## Fees
+
+The free tier is free. Paid plans are billed as described at the point of purchase. [PLACEHOLDER: billing terms once Stripe billing launches, #48.] Until then paid plans are arranged by email.
+
+## Termination
+
+You can delete your projects or workspace at any time. We can terminate accounts that breach these terms. On termination your data is deleted as described in the [privacy policy](/privacy).
+
+## Liability
+
+To the extent permitted by law, ProofQL is not liable for indirect or consequential losses, and our total liability is limited to [PLACEHOLDER: the fees you paid in the preceding twelve months / a fixed amount]. Nothing here limits liability that cannot be limited by law.
+
+## Governing law
+
+[PLACEHOLDER jurisdiction and venue.]
+
+## Contact
+
+<a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>

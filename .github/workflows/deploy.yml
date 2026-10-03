@@ -143,6 +143,10 @@ jobs:
       # imports @proofql/core at build time (#103), so build the workspace
       # deps first (`...`), like the dashboard above.
       - name: Build proofql-docs-preview
+        env:
+          # The footer's support address (docs/site/src/config.ts); unset
+          # ⇒ DEFAULT_SUPPORT_EMAIL from @proofql/core (docs/launch.md).
+          SUPPORT_EMAIL: ${{ vars.SUPPORT_EMAIL }}
         run: pnpm --filter "@proofql/docs..." build
       - name: Deploy proofql-docs-preview
         uses: cloudflare/wrangler-action@v3
@@ -256,6 +260,10 @@ jobs:
       # imports @proofql/core at build time (#103), so build the workspace
       # deps first (`...`), like the dashboard above.
       - name: Build proofql-docs-prod
+        env:
+          # The footer's support address (docs/site/src/config.ts); unset
+          # ⇒ DEFAULT_SUPPORT_EMAIL from @proofql/core (docs/launch.md).
+          SUPPORT_EMAIL: ${{ vars.SUPPORT_EMAIL }}
         run: pnpm --filter "@proofql/docs..." build
       - name: Deploy proofql-docs-prod
         uses: cloudflare/wrangler-action@v3

@@ -85,12 +85,18 @@ info:
     `403 forbidden`. `OPTIONS /v1/query` answers browser preflights. The
     snippet's form — `GET /v1/query?key=pq_pk_…&q=…` with no custom headers —
     is a CORS *simple request*, so browsers send it without any preflight.
+  # Contact, terms and licence point at the docs site (docs/launch.md
+  # "Legal"); the address is DEFAULT_SUPPORT_EMAIL in @proofql/core until the
+  # mailbox exists. Google's OAuth verification and Clerk's production
+  # instance need the same two URLs.
   contact:
-    name: ProofQL
-    url: https://proofql.com
+    name: ProofQL support
+    url: https://docs.proofql.com
+    email: support@proofql.com
+  termsOfService: https://docs.proofql.com/terms
   license:
     name: Proprietary
-    url: https://proofql.com/terms
+    url: https://docs.proofql.com/terms
 
 servers:
   - url: https://api.proofql.com

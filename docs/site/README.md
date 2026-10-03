@@ -14,7 +14,9 @@ pnpm --filter @proofql/docs exec wrangler deploy --dry-run --env preview
 
 | Path | What |
 |---|---|
-| `src/content/docs/*.md(x)` | The pages: getting started, snippet, imports, query (relevance and the floor), errors, limits, and the landing page. Sidebar order is in `astro.config.mjs`. |
+| `src/content/docs/*.md(x)` | The pages: getting started, snippet, imports, query (relevance and the floor), errors, limits, the landing page, and the legal pages (`privacy.mdx`, `terms.mdx` — placeholder text under a "needs counsel" banner, `LegalNotice.astro`, until counsel's text lands; docs/launch.md "Legal"). Sidebar order is in `astro.config.mjs`. |
+| `src/config.ts` | Build-time values: `SUPPORT_EMAIL` (from the `SUPPORT_EMAIL` environment variable of the build, else `DEFAULT_SUPPORT_EMAIL` from `@proofql/core`), the legal and roadmap URLs. |
+| `src/components/Footer.astro` | Overrides Starlight's footer (`components.Footer` in `astro.config.mjs`): renders the default, then one line with the support address, privacy, terms, and "Status and roadmap" → the public GitHub issues. |
 | `src/components/*.astro` | `PlanTable`, `RateLimitTable`, `BadgeRule`: the Limits page's plan numbers, rendered at build time from `@proofql/core` (`PLANS`, `planTableRows()`, `RATE_LIMIT_PERIOD_SECONDS`) so the docs cannot drift from the enforced limits (#103). |
 | `astro.config.mjs` | Starlight config: no search, Google Fonts in `head`, the sidebar, and the `starlight-openapi` plugin that renders [`docs/api/openapi.yaml`](../api/openapi.yaml) at `/api/*`. |
 | `src/styles/theme.css` | The design tokens through Starlight's variables: ink, one green, Space Grotesk and IBM Plex Mono, square corners, light and dark. |
