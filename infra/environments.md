@@ -40,7 +40,7 @@ so both repos can run at once on one machine.
 | `docs/site`        | <http://localhost:8801> | 8801       | 9243                 |
 | `workers/cdn`      | <http://localhost:8800> | 8800       | 9242                 |
 | `packages/google` fake GBP server (`pnpm --filter @proofql/google dev:fake`; local only, never deployed, not part of `pnpm dev`) | <http://localhost:8802> | 8802 | 9244 |
-| fake Places API    | <http://localhost:8803> | 8803       | —                    |
+| fake Places API (`node apps/dashboard/test/fake-places-server.ts` after `pnpm build`; local only, not part of `pnpm dev`; used by the dashboard's card and the pipeline's refresh cron) | <http://localhost:8803> | 8803 | — |
 | Postgres (compose) | `localhost:54323`       | —          | —                    |
 
 The dashboard's dev server is Vite (`@cloudflare/vite-plugin`, #36), so its
@@ -91,8 +91,8 @@ identical across workers and environments.
 | `GOOGLE_OAUTH_BASE`, `GOOGLE_TOKEN_URL`, `GOOGLE_API_BASE` | var (optional) | — | yes | yes | `.dev.vars` → `http://localhost:8802` (the fake) | unset ⇒ real Google hosts (`packages/google/src/endpoints.ts`) |
 | `GOOGLE_OAUTH_STATE_SECRET` | secret | —      | —        | yes       | `.dev.vars` (empty ⇒ dev-only secret)              | `wrangler secret put` per env (docs/secrets.md) |
 | `GOOGLE_CONNECTOR_ENABLED` | var     | —      | —        | yes       | `.dev.vars` → `true`                                | `vars`: `"false"` until Google approves API access (#44), then `"true"` (provisioning.md) |
-| `GOOGLE_PLACES_API_KEY` | secret | —      | —        | yes       | `.dev.vars` (optional; unset ⇒ the "Find your business on Google" card says not configured; `fake` against the fake server below) | `wrangler secret put` per env — the Places bootstrap (#47, [`docs/places.md`](../docs/places.md)) |
-| `PLACES_API_BASE` | var (optional) | —    | —        | yes       | `.dev.vars`; `http://localhost:8803` ⇒ the fake Places API (`node apps/dashboard/test/fake-places-server.ts`) | unset ⇒ `https://places.googleapis.com` |
+| `GOOGLE_PLACES_API_KEY` | secret | —      | yes (#116) | yes     | `.dev.vars` in each (optional; unset ⇒ the "Find your business on Google" card says not configured and the pipeline's daily refresh logs `places.refresh.skipped`; `fake` against the fake server below) | `wrangler secret put` per env on both workers, same key — the Places bootstrap (#47) and its 25-day refresh (#116, [`docs/places.md`](../docs/places.md)) |
+| `PLACES_API_BASE` | var (optional) | —    | yes (#116) | yes     | `.dev.vars` in each; `http://localhost:8803` ⇒ the fake Places API (`node apps/dashboard/test/fake-places-server.ts`) | unset ⇒ `https://places.googleapis.com` |
 
 The docs site (`docs/site`, #43) is an **assets-only** Worker: `astro build`
 writes `dist/` and `wrangler deploy` uploads it with no script and no
