@@ -39,6 +39,7 @@ so both repos can run at once on one machine.
 | `apps/dashboard`   | <http://localhost:8799> | 8799       | 9241                 |
 | `docs/site`        | <http://localhost:8801> | 8801       | 9243                 |
 | `workers/cdn`      | <http://localhost:8800> | 8800       | 9242                 |
+| fake Places API    | <http://localhost:8802> | 8802       | —                    |
 | Postgres (compose) | `localhost:54323`       | —          | —                    |
 
 The dashboard's dev server is Vite (`@cloudflare/vite-plugin`, #36), so its
@@ -83,6 +84,8 @@ identical across workers and environments.
 | `CLERK_PUBLISHABLE_KEY` | var      | —        | —        | yes       | `.dev.vars` (optional)                             | the Clerk instance's publishable key (`pk_test_…` preview, `pk_live_…` prod) |
 | `CLERK_SECRET_KEY` | secret        | —        | —        | yes       | `.dev.vars`; **unset ⇒ local auth stub** (acts as the seeded demo account) | `wrangler secret put` per env; required — no stub outside local |
 | `CLERK_WEBHOOK_SIGNING_SECRET` | secret | —   | —        | yes       | `.dev.vars` (optional; `POST /webhooks/clerk` answers 503 without it) | `wrangler secret put` per env |
+| `GOOGLE_PLACES_API_KEY` | secret | —      | —        | yes       | `.dev.vars` (optional; unset ⇒ the "Find your business on Google" card says not configured; `fake` against the fake server below) | `wrangler secret put` per env — the Places bootstrap (#47, [`docs/places.md`](../docs/places.md)) |
+| `PLACES_API_BASE` | var (optional) | —    | —        | yes       | `.dev.vars`; `http://localhost:8802` ⇒ the fake Places API (`node apps/dashboard/test/fake-places-server.ts`) | unset ⇒ `https://places.googleapis.com` |
 
 The docs site (`docs/site`, #43) is an **assets-only** Worker: `astro build`
 writes `dist/` and `wrangler deploy` uploads it with no script and no

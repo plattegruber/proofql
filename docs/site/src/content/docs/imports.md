@@ -1,9 +1,9 @@
 ---
 title: Imports
-description: Getting reviews in. The CSV upload and its supported exports, the push API's review shape and upsert rules, and the Google connector.
+description: Getting reviews in. The CSV upload and its supported exports, the push API's review shape and upsert rules, your public Google reviews through Places, and the Google connector.
 ---
 
-Three ways in, one shape out. However a review arrives, it is normalized into the same record, split and embedded by the same pipeline, and queryable within seconds.
+Four ways in, one shape out. However a review arrives, it is normalized into the same record, split and embedded by the same pipeline, and queryable within seconds.
 
 ## The review shape
 
@@ -97,10 +97,18 @@ What the normalizer accepts:
 - **`external_id`**: the vendor's review id when the export has one; otherwise a stable hash of source, author, date, and the start of the text, so re-importing the same export updates rather than duplicates.
 - **The cap**: the plan's review limit is checked against the file before the run; the result page says how many rows would not fit, and updates to existing reviews never count against it.
 
+## Find your business on Google
+
+The fastest way to a first result. On onboarding step 2 and on the project's **Import** tab, **Find your business on Google** searches Google Places for the business by name; pick it from the matches and **Import reviews** pulls the reviews Google shares publicly for that place — at most **five**, the ones Google ranks most relevant — as `source: "google"` reviews with the place's id and name in `metadata` (`place_id`, `place_name`), so you can filter on them. The import takes a few seconds and lands on the same progress view as a file import; running it again later updates the same five rather than duplicating them.
+
+Imported reviews keep their author name, photo, and link, and the snippet shows them with a "Google" badge linked back to the review — Google's terms require the attribution, and it is also what makes a review credible on your site. A review that is only a star rating has no text to search and is skipped; the result page counts it.
+
+Five is Google's limit for this API, not ours. For all of a location's reviews, kept in sync, connect your Google Business Profile below once the connector lands; until then, a Takeout export through the upload above brings in everything you have today.
+
 ## Google Business Profile
 
 Coming in M3. Connect a Google account with one OAuth consent, pick the locations, and ProofQL polls their reviews on a schedule, mapping each onto the shape above with `source: "google"` and the review's resource name as `external_id`. Polling runs inside Google's free quota, so it costs nothing on any plan.
 
-The connector is gated on Google approving ProofQL's Business Profile API access ([#44](https://github.com/plattegruber/proofql/issues/44)); the connect flow is [#45](https://github.com/plattegruber/proofql/issues/45) and polling is [#46](https://github.com/plattegruber/proofql/issues/46). A lighter companion, [#47](https://github.com/plattegruber/proofql/issues/47), pulls a place's five public reviews through the Places API at sign-up so a new project has something to query before the first import finishes.
+The connector is gated on Google approving ProofQL's Business Profile API access ([#44](https://github.com/plattegruber/proofql/issues/44)); the connect flow is [#45](https://github.com/plattegruber/proofql/issues/45) and polling is [#46](https://github.com/plattegruber/proofql/issues/46). The lighter companion above, [#47](https://github.com/plattegruber/proofql/issues/47), already pulls a place's five public reviews through the Places API so a new project has something to query before the first import finishes.
 
 Until then, a Google Takeout export through the CSV upload (or the push API) is the way to bring Google reviews in.

@@ -11,7 +11,7 @@ sentiment run on Workers AI through a binding (no key), there is no LLM
 vendor, and workers reach Postgres through the Hyperdrive **binding**, so no
 worker ever holds a database URL. Today the secrets are the two the deploy
 workflow needs, the two Neon connection strings the migrator needs, and the
-dashboard's Clerk keys (M2, #36).
+dashboard's Clerk keys (M2, #36) and its Google Places key (M3, #47).
 
 ## Where values live
 
@@ -87,9 +87,9 @@ that environment plus the matching `NEON_*_DATABASE_URL` secret.
 
 ### Worker runtime secrets (wrangler secrets / `.dev.vars`)
 
-The dashboard's Clerk rows are live (#36); the api and pipeline still need
-no runtime secret, and `wrangler deploy` of those two needs no
-`wrangler secret put`. The remaining rows reserve names for the milestones
+The dashboard's Clerk rows (#36) and Places key (#47) are live; the api and
+pipeline still need no runtime secret, and `wrangler deploy` of those two
+needs no `wrangler secret put`. The remaining rows reserve names for the milestones
 that introduce them; each lands with its own PR that adds the schema check,
 the `.dev.vars.example` line, and flips this table's status.
 
@@ -118,7 +118,8 @@ secret to paste into `.dev.vars`.
 | `GOOGLE_CLIENT_ID` | M3 (Google OAuth client, scope §7.1–2) | no (public identifier) | api (connect flow), pipeline (token refresh while polling) | `.dev.vars` (placeholders; the fake Google server ignores them) | `vars` in both workers' `wrangler.jsonc` | Changes only if the OAuth client is recreated. |
 | `GOOGLE_CLIENT_SECRET` | M3 | **yes** | api, pipeline | `.dev.vars` | `wrangler secret put GOOGLE_CLIENT_SECRET --env preview\|prod` from both workers | Google Cloud console → Credentials → the client → add a new secret, deploy it, then delete the old one. |
 | `GOOGLE_OAUTH_STATE_SECRET` | M3 | **yes** | api | `.dev.vars` | `wrangler secret put ... --env preview\|prod` | `openssl rand -base64 32`; signs the anti-CSRF `state` parameter. Rotating invalidates in-flight connect attempts only. |
-| `GOOGLE_PLACES_API_KEY` | M3 (five-review onboarding bootstrap, scope §7.5) | **yes** (billable) | api or dashboard, decided at M3 | `.dev.vars` | `wrangler secret put GOOGLE_PLACES_API_KEY --env preview\|prod` | Ordinary Cloud console key; restrict it to the Places API. Regenerate in the console to rotate. |
+| `GOOGLE_PLACES_API_KEY` | **now** (#47; the "Find your business on Google" card on onboarding step 2 and the Import tab says "not configured" until set — [`docs/places.md`](places.md)) | **yes** (billable) | dashboard | `apps/dashboard/.dev.vars` (empty ⇒ card disabled; `fake` + `PLACES_API_BASE=http://localhost:8802` against `node apps/dashboard/test/fake-places-server.ts`) | `wrangler secret put GOOGLE_PLACES_API_KEY --env preview\|prod` from `apps/dashboard` (provisioning step 14) | Cloud console → APIs & Services → enable **Places API (New)** → Credentials → Create API key → API restriction "Places API (New)" only, application restriction none (used server-side from Workers). Set a billing budget alert. Rotate by creating a second key, `wrangler secret put` it, then deleting the first. |
+| `PLACES_API_BASE` | now (#47) | no | dashboard | `apps/dashboard/.dev.vars` (`http://localhost:8802` for the fake) | not set: defaults to `https://places.googleapis.com` | Local override only; never point a deployed environment anywhere else. |
 | `STRIPE_SECRET_KEY` | M3 (billing, scope §2) | **yes** | dashboard (or a billing worker, decided at M3) | `.dev.vars` (Stripe *test* key `sk_test_…`) | `wrangler secret put STRIPE_SECRET_KEY --env preview\|prod`; preview uses the test key, prod the live key `sk_live_…` | Stripe dashboard → Developers → API keys → roll (grace period configurable). |
 | `STRIPE_WEBHOOK_SECRET` | M3 | **yes** | same worker as above | `.dev.vars` (from `stripe listen`) | `wrangler secret put STRIPE_WEBHOOK_SECRET --env preview\|prod` | One per webhook endpoint; roll in the Stripe dashboard. |
 | `STRIPE_PUBLISHABLE_KEY` | M3 | no (publishable) | dashboard | `.dev.vars` | `vars` in `apps/dashboard/wrangler.jsonc` | Changes with the Stripe account/mode. |
