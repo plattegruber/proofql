@@ -87,6 +87,11 @@ export function securityHeaders(pathname: string): Record<string, string> {
     headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS";
     // A year, the maximum browsers honour; the answer never changes.
     headers["Access-Control-Max-Age"] = "86400";
+    // The snippet exists to be embedded by other origins (#49): say so
+    // explicitly, so a customer page that opts into cross-origin isolation
+    // (COEP: require-corp) can still load it. Everything else on this host
+    // (demo, version.json, health) keeps the browser default.
+    headers["Cross-Origin-Resource-Policy"] = "cross-origin";
   }
   return headers;
 }
