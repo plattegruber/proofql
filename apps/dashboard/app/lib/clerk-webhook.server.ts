@@ -18,6 +18,9 @@ import type { Db } from "@proofql/db";
 
 import { markAccountDeleted, upsertAccountByClerkOrgId } from "./accounts";
 
+/** A Clerk organization event is a few KiB; this is a generous ceiling. */
+export const MAX_WEBHOOK_BODY_BYTES = 256 * 1024;
+
 export interface ClerkWebhookResult {
   type: string;
   /** Whether the event changed anything (false for acknowledged-only). */
@@ -58,9 +61,32 @@ export async function handleClerkWebhook(
     );
   }
 
+  // Size cap before the signature (#49): a Clerk organization event is a few
+  // KiB, so anything near the cap is not Clerk, and HMAC over a large body
+  // is work an unauthenticated caller should not be able to buy. Checked
+  // from Content-Length first, then on the bytes actually read.
+  const declared = Number(request.headers.get("content-length") ?? 0);
+  if (declared > MAX_WEBHOOK_BODY_BYTES) {
+    return Response.json({ error: "payload too large" }, { status: 413 });
+  }
+  const body = await request.text();
+  if (new TextEncoder().encode(body).byteLength > MAX_WEBHOOK_BODY_BYTES) {
+    return Response.json({ error: "payload too large" }, { status: 413 });
+  }
+
   let event: WebhookEvent;
   try {
-    event = await verifyWebhook(request, { signingSecret: opts.signingSecret });
+    // The body is consumed; hand the verifier a copy carrying the same
+    // headers. It checks the three svix headers, the HMAC, and the 5-minute
+    // timestamp tolerance (clerk-webhook.server.test.ts "stale timestamp").
+    event = await verifyWebhook(
+      new Request(request.url, {
+        method: request.method,
+        headers: request.headers,
+        body,
+      }),
+      { signingSecret: opts.signingSecret },
+    );
   } catch {
     return Response.json({ error: "invalid signature" }, { status: 400 });
   }
