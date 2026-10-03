@@ -425,7 +425,12 @@ describe("/v1/query", () => {
         "/v1/query",
         {
           method: "POST",
-          headers: { Authorization: `Bearer ${f.secret}` },
+          headers: {
+            Authorization: `Bearer ${f.secret}`,
+            // Declared JSON: this test is about the parse, not the media
+            // type (an undeclared body is a 415, src/request-guards.ts).
+            "content-type": "application/json",
+          },
           body: "{not json",
         },
         env,

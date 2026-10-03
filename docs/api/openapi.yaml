@@ -19,9 +19,16 @@ info:
 
     - JSON everywhere (`Content-Type: application/json`). Field names are
       `snake_case`. Timestamps are ISO 8601 / RFC 3339 in UTC. Ids are UUIDs.
+      A request body with any other `Content-Type` (or none) is a `415
+      unsupported_media_type`, refused before it is read.
     - Versioned by path prefix (`/v1`).
     - Every response carries an `x-request-id` header. Quote it in a support
       request; it is also inside every error envelope as `error.request_id`.
+      Send your own (up to 128 characters of `A-Z a-z 0-9 . _ : -`) to
+      correlate with your logs; anything else is replaced with a fresh id.
+    - Every response also carries `X-Content-Type-Options: nosniff`,
+      `Referrer-Policy: no-referrer`, and `Cache-Control: no-store` (except a
+      successful `GET /v1/query`).
     - Unknown fields anywhere — body or query string — are a `422
       validation_failed` naming the field, never silently ignored.
 
@@ -224,6 +231,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
         "422":
           $ref: "#/components/responses/IngestUnprocessable"
         "429":
@@ -378,6 +387,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
         "422":
           $ref: "#/components/responses/ValidationFailed"
         "429":
@@ -569,6 +580,10 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/QueryForbidden"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
         "422":
           $ref: "#/components/responses/ValidationFailed"
         "429":
@@ -983,8 +998,9 @@ components:
     PayloadTooLarge:
       description: |
         `payload_too_large`: the body exceeds the route's limit (1 MiB for
-        `POST /v1/reviews`, 64 KiB for `PATCH`). Checked before
-        authentication, so rate-limit headers are absent.
+        `POST /v1/reviews`, 64 KiB for `PATCH`, 16 KiB for `POST
+        /v1/query`). Checked before authentication, so rate-limit headers
+        are absent.
       headers:
         x-request-id:
           $ref: "#/components/headers/XRequestId"
@@ -992,6 +1008,27 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/PayloadTooLargeError"
+
+    UnsupportedMediaType:
+      description: |
+        `unsupported_media_type`: the request has a body whose
+        `Content-Type` is not `application/json` (or has none). Refused
+        before the body is read and before authentication, so rate-limit
+        headers are absent. A request with no body at all (an empty `POST
+        /v1/query` asking for the newest reviews) needs no `Content-Type`.
+      headers:
+        x-request-id:
+          $ref: "#/components/headers/XRequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/UnsupportedMediaTypeError"
+          example:
+            error:
+              code: unsupported_media_type
+              message: "Request bodies must be JSON: send `Content-Type: application/json`."
+              doc_url: https://docs.proofql.com/errors#unsupported_media_type
+              request_id: 1b7c3d9e-2f4a-4b6c-8d0e-1f2a3b4c5d6e
 
     ValidationFailed:
       description: |
@@ -1115,8 +1152,9 @@ components:
       type: string
       description: |
         Stable error codes. Status by code: `unauthorized` 401, `forbidden`
-        403, `not_found` 404, `payload_too_large` 413, `validation_failed`
-        422, `review_limit_reached` 422, `rate_limited` 429,
+        403, `not_found` 404, `payload_too_large` 413,
+        `unsupported_media_type` 415, `validation_failed` 422,
+        `review_limit_reached` 422, `rate_limited` 429,
         `query_quota_exceeded` 429, `internal` 500, `embedding_unavailable`
         503.
       enum:
@@ -1126,6 +1164,7 @@ components:
         - review_limit_reached
         - not_found
         - payload_too_large
+        - unsupported_media_type
         - rate_limited
         - embedding_unavailable
         - query_quota_exceeded
@@ -1189,6 +1228,10 @@ components:
       allOf:
         - $ref: "#/components/schemas/ErrorEnvelope"
         - $ref: "#/components/schemas/_CodePayloadTooLarge"
+    UnsupportedMediaTypeError:
+      allOf:
+        - $ref: "#/components/schemas/ErrorEnvelope"
+        - $ref: "#/components/schemas/_CodeUnsupportedMediaType"
     ValidationError:
       allOf:
         - $ref: "#/components/schemas/ErrorEnvelope"
@@ -1242,6 +1285,13 @@ components:
           type: object
           properties:
             code: { const: payload_too_large }
+    _CodeUnsupportedMediaType:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { const: unsupported_media_type }
     _CodeValidationFailed:
       type: object
       properties:
