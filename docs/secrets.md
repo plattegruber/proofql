@@ -11,8 +11,11 @@ sentiment run on Workers AI through a binding (no key), there is no LLM
 vendor, and workers reach Postgres through the Hyperdrive **binding**, so no
 worker ever holds a database URL. Today the secrets are the two the deploy
 workflow needs, the two Neon connection strings the migrator needs, the
-dashboard's Clerk keys (M2, #36) and Google Places key (M3, #47), and the Google connector's
-`CREDENTIALS_KEY` / `GOOGLE_CLIENT_SECRET` (M3, #46; dark until #44).
+dashboard's Clerk keys (M2, #36) and Google Places key (M3, #47), the Google
+connector's `CREDENTIALS_KEY` / `GOOGLE_CLIENT_SECRET` (M3, #46; dark until
+#44), and the launch switch `SIGNUP_OPEN` (M3, #51), which lives in the
+secret store for prod only because that is the slot that flips without a
+deploy.
 
 ## Where values live
 
@@ -129,6 +132,8 @@ secret to paste into `.dev.vars`.
 | `STRIPE_SECRET_KEY` | M3 (billing, scope §2) | **yes** | dashboard (or a billing worker, decided at M3) | `.dev.vars` (Stripe *test* key `sk_test_…`) | `wrangler secret put STRIPE_SECRET_KEY --env preview\|prod`; preview uses the test key, prod the live key `sk_live_…` | Stripe dashboard → Developers → API keys → roll (grace period configurable). |
 | `STRIPE_WEBHOOK_SECRET` | M3 | **yes** | same worker as above | `.dev.vars` (from `stripe listen`) | `wrangler secret put STRIPE_WEBHOOK_SECRET --env preview\|prod` | One per webhook endpoint; roll in the Stripe dashboard. |
 | `STRIPE_PUBLISHABLE_KEY` | M3 | no (publishable) | dashboard | `.dev.vars` | `vars` in `apps/dashboard/wrangler.jsonc` | Changes with the Stripe account/mode. |
+| `SIGNUP_OPEN` | **now** (#51; public signup switch, `apps/dashboard/app/lib/signup-gate.ts`, [`docs/launch.md`](launch.md) "Go") | no | dashboard | `vars` in `wrangler.jsonc` (`"true"`); `SIGNUP_OPEN=false` in `.dev.vars` to see the waitlist page | **preview:** `vars` (`"true"`). **prod:** deliberately *not* a var — `echo true \| wrangler secret put SIGNUP_OPEN --env prod` from `apps/dashboard` is the launch switch, `false` closes again; absent ⇒ closed | A var needs a PR and a deploy to change; the secret slot flips per request with no deploy, which is what a launch switch needs. Not sensitive; it lives in the secret store only for that property. |
+| `SUPPORT_EMAIL` | **now** (#51; the footer's support address, `supportEmailFrom` in `@proofql/core`; the docs site reads the same name at build time via `deploy.yml`) | no | dashboard, docs build | `vars` in `wrangler.jsonc` | `vars` in all three blocks of `apps/dashboard/wrangler.jsonc`; repository variable `SUPPORT_EMAIL` for the docs build (`gh variable set SUPPORT_EMAIL`) | Empty ⇒ `DEFAULT_SUPPORT_EMAIL` (`support@proofql.com`). Change it in [`docs/launch.md`](launch.md) "Support" when the mailbox is something else. |
 
 Not in the table on purpose:
 

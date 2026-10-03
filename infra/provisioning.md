@@ -612,9 +612,13 @@ secrets are absent — to pause polling too, remove `GOOGLE_CLIENT_SECRET`).
 
 ## Custom domains (later, outside this checklist)
 
-Scope §7.6: `api.proofql.com`, `cdn.proofql.com` and `docs.proofql.com`
-replace the workers.dev URLs once the domain is owned and its zone is on this
-Cloudflare account. Then:
+Scope §7.6: `api.proofql.com`, `cdn.proofql.com`, `app.proofql.com` and
+`docs.proofql.com` replace the workers.dev URLs once the domain is owned and
+its zone is on this Cloudflare account. The launch checklist
+([`docs/launch.md`](../docs/launch.md) "Domains") carries the full sequence
+with verify steps, including the apex redirect, the Clerk DNS records, and
+the WAF rules from [`docs/security.md` §7](../docs/security.md#7-owner-side-settings-cloudflare-dashboard)
+that only exist once the zone does. In short:
 
 1. Add **Zone → Workers Routes: Edit** and **Zone → DNS: Edit** for that zone
    to the `proofql-github-actions` token (step 8).
@@ -626,9 +630,13 @@ Cloudflare account. Then:
    and the demo link in the README then resolve; nothing in the worker
    changes. Give preview its own hostname (`cdn-preview.proofql.com`) the
    same way if a stable preview URL is wanted.
-3. The api gets its route the same way, and `API_URL` in the dashboard
-   config (step 9) and the smoke check in `deploy.yml` move to the new
-   hostnames.
+3. The api gets its route the same way (`TODO(api.proofql.com)` in
+   `workers/api/wrangler.jsonc`), and `API_URL` in the dashboard config
+   (step 9) and the smoke check in `deploy.yml` move to the new hostnames.
+   The dashboard gets `app.proofql.com` (`TODO(app.proofql.com)` in
+   `apps/dashboard/wrangler.jsonc`); the Clerk production instance's paths
+   and webhook endpoint move with it (docs/launch.md "Clerk production
+   instance").
 4. `docs/site/wrangler.jsonc`: in `env.prod`, replace the
    `TODO(docs.proofql.com)` comment with
    `"routes": [{ "pattern": "docs.proofql.com", "custom_domain": true }]`
