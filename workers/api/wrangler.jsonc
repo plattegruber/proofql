@@ -71,6 +71,7 @@
 
   // Per-key rate limits (src/rate-limit.ts), one limiter per (plan, key
   // kind): a binding's limit is fixed here, so each plan needs its own pair.
+  // Plus one per-IP limiter for authentication failures (RL_AUTH_FAIL).
   // `namespace_id` is an account-unique integer we choose, not a provisioned
   // resource. The numbers mirror PLANS[plan].rateLimits in
   // packages/core/src/plans.ts; src/rate-limit.test.ts reads this file and
@@ -95,6 +96,14 @@
       "name": "RL_PUBLISHABLE_PAID",
       "namespace_id": "1004",
       "simple": { "limit": 600, "period": 60 }
+    },
+    // Per-IP budget of authentication failures (src/auth-throttle.ts, #49):
+    // keyed on cf-connecting-ip, counted only on 401/403 with no resolved
+    // key. Mirrors AUTH_FAIL_CONFIG; src/rate-limit.test.ts checks.
+    {
+      "name": "RL_AUTH_FAIL",
+      "namespace_id": "1005",
+      "simple": { "limit": 30, "period": 60 }
     }
   ],
 
@@ -142,6 +151,14 @@
           "name": "RL_PUBLISHABLE_PAID",
           "namespace_id": "1004",
           "simple": { "limit": 600, "period": 60 }
+        },
+        // Per-IP budget of authentication failures (src/auth-throttle.ts, #49):
+        // keyed on cf-connecting-ip, counted only on 401/403 with no resolved
+        // key. Mirrors AUTH_FAIL_CONFIG; src/rate-limit.test.ts checks.
+        {
+          "name": "RL_AUTH_FAIL",
+          "namespace_id": "1005",
+          "simple": { "limit": 30, "period": 60 }
         }
       ],
       "ai": { "binding": "AI" }
@@ -182,6 +199,14 @@
           "name": "RL_PUBLISHABLE_PAID",
           "namespace_id": "1004",
           "simple": { "limit": 600, "period": 60 }
+        },
+        // Per-IP budget of authentication failures (src/auth-throttle.ts, #49):
+        // keyed on cf-connecting-ip, counted only on 401/403 with no resolved
+        // key. Mirrors AUTH_FAIL_CONFIG; src/rate-limit.test.ts checks.
+        {
+          "name": "RL_AUTH_FAIL",
+          "namespace_id": "1005",
+          "simple": { "limit": 30, "period": 60 }
         }
       ],
       "ai": { "binding": "AI" }

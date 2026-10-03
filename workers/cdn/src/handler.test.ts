@@ -154,6 +154,33 @@ describe("GET /v1.js and friends", () => {
     expect(res.headers.get("Set-Cookie")).toBeNull();
   });
 
+  it("marks the snippet files, and only them, as embeddable cross-origin (CORP)", async () => {
+    for (const path of [
+      "/v1.js",
+      "/v1.js.map",
+      "/v1.0123abcd.js",
+      "/v1.0123abcd.js.map",
+    ]) {
+      const res = await get(path);
+      expect(res.headers.get("Cross-Origin-Resource-Policy"), path).toBe(
+        "cross-origin",
+      );
+    }
+    // A missing hashed build is still a snippet path: no-store, and the
+    // same embeddability so a CORP-strict page gets a clean 404, not a
+    // blocked response it cannot see.
+    const missing = await get("/v1.ffffffff.js");
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get("Cache-Control")).toBe(NO_STORE);
+    expect(missing.headers.get("Cross-Origin-Resource-Policy")).toBe(
+      "cross-origin",
+    );
+    for (const path of ["/version.json", "/demo/", "/health"]) {
+      const res = await get(path);
+      expect(res.headers.get("Cross-Origin-Resource-Policy"), path).toBeNull();
+    }
+  });
+
   it("serves the hashed build as immutable for a year", async () => {
     const res = await get("/v1.0123abcd.js");
     expect(res.status).toBe(200);

@@ -55,6 +55,36 @@ describe("api app", () => {
     expect(res.headers.get(REQUEST_ID_HEADER)).not.toBe("x".repeat(129));
   });
 
+  it("regenerates an incoming request id outside the token charset (log injection)", async () => {
+    const uuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    for (const hostile of [
+      'abc"}{"event":"forged',
+      "abc def",
+      "abc,def",
+      "<script>",
+      "a/b",
+    ]) {
+      const res = await app.request("/health", {
+        headers: { "x-request-id": hostile },
+      });
+      const echoed = res.headers.get(REQUEST_ID_HEADER);
+      expect(echoed, hostile).not.toBe(hostile);
+      expect(echoed, hostile).toMatch(uuid);
+    }
+    // The shapes real clients send stay as they are.
+    for (const fine of [
+      "req_1",
+      "a.b:c-d",
+      "8f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f",
+    ]) {
+      const res = await app.request("/health", {
+        headers: { "x-request-id": fine },
+      });
+      expect(res.headers.get(REQUEST_ID_HEADER)).toBe(fine);
+    }
+  });
+
   it("every log line emitted during a request carries its request_id", async () => {
     const out = recordingSink();
     const logged = createApp({ logSink: out.sink });

@@ -145,6 +145,16 @@ describe("createUpload", () => {
         bytes: fixture("yelp.csv"),
       }),
     ).rejects.toBeInstanceOf(ImportError);
+    // A disguised file: the browser's declared type says CSV, the name does
+    // not. Refused server-side (#49), whatever the form's `accept=` said.
+    await expect(
+      createUpload(t.db, store, {
+        ...base,
+        filename: "payload.exe",
+        contentType: "text/csv",
+        bytes: fixture("yelp.csv"),
+      }),
+    ).rejects.toThrow(/\.csv or a \.json/);
     expect(store.objects.size).toBe(0);
   });
 

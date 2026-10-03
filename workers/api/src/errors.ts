@@ -38,6 +38,7 @@ export const ERROR_CODES = [
   "review_limit_reached",
   "not_found",
   "payload_too_large",
+  "unsupported_media_type",
   "rate_limited",
   "embedding_unavailable",
   "query_quota_exceeded",
@@ -53,6 +54,8 @@ const STATUS_BY_CODE: Record<ErrorCode, ContentfulStatusCode> = {
   review_limit_reached: 422,
   not_found: 404,
   payload_too_large: 413,
+  // A body that is not `application/json` (src/request-guards.ts).
+  unsupported_media_type: 415,
   rate_limited: 429,
   // /v1/query could not embed `q` (Workers AI down or unbound): retryable,
   // and deliberately not a degraded full-text-only answer (query/route.ts).

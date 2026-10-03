@@ -39,9 +39,15 @@ Every non-2xx response from the API is one envelope:
 
 ## payload_too_large
 
-**413.** A `POST /v1/reviews` body over 1 MiB, or a `PATCH /v1/reviews/{id}` body over 64 KiB.
+**413.** A `POST /v1/reviews` body over 1 MiB, a `PATCH /v1/reviews/{id}` body over 64 KiB, or a `POST /v1/query` body over 16 KiB.
 
-**Fix:** send fewer reviews per batch (the limit is 100 per request, and 100 maximal reviews fit comfortably under 1 MiB) or shorten the text.
+**Fix:** send fewer reviews per batch (the limit is 100 per request, and 100 maximal reviews fit comfortably under 1 MiB) or shorten the text. A query body near 16 KiB is not a query: `q` is capped at 500 characters.
+
+## unsupported_media_type
+
+**415.** The request has a body whose `Content-Type` is not `application/json`, or has none. Checked before the body is read and before the key, so the response carries no rate-limit headers. A request with no body at all (an empty `POST /v1/query` for the newest reviews) is fine without one.
+
+**Fix:** send `Content-Type: application/json` (a `charset` parameter is fine). Form posts, multipart uploads and plain-text bodies are never accepted; the dashboard's CSV import is the way to upload a file.
 
 ## validation_failed
 

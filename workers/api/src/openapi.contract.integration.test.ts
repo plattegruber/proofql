@@ -56,6 +56,7 @@ import { fakeCtx, fakeKv, issueKey, testEnv } from "../test/helpers.js";
 import { createApp } from "./app.js";
 import type { ApiBindings, AppEnv } from "./bindings.js";
 import { monthStart } from "./quota.js";
+import { QUERY_BODY_LIMIT_BYTES } from "./request-guards.js";
 import { REVIEW_BODY_LIMIT_BYTES } from "./routes/reviews.js";
 import { PATCH_BODY_LIMIT_BYTES } from "./routes/reviews-crud.js";
 
@@ -570,6 +571,27 @@ describe("POST /v1/reviews", () => {
     await conforms(res, "post", PATH);
   });
 
+  it("415: a body that is not application/json, before any key lookup", async () => {
+    for (const contentType of [
+      "text/plain",
+      "application/x-www-form-urlencoded",
+      "multipart/form-data; boundary=x",
+    ]) {
+      const res = await call(PATH, {
+        method: "POST",
+        key: f.secret,
+        headers: { "content-type": contentType },
+        body: requestExamples("post", PATH).single,
+      });
+      expect(res.status, contentType).toBe(415);
+      const body = (await conforms(res, "post", PATH)) as {
+        error: { code: string };
+      };
+      expect(body.error.code).toBe("unsupported_media_type");
+      expect(res.headers.get("RateLimit-Limit")).toBeNull();
+    }
+  });
+
   it("422: validation_failed (invalid JSON, schema, unknown field) and review_limit_reached", async () => {
     const invalid = [
       { rawBody: "{not json" },
@@ -798,6 +820,17 @@ describe("PATCH /v1/reviews/{id}", () => {
       rawBody: "x".repeat(PATCH_BODY_LIMIT_BYTES + 1),
     });
     expect(res.status).toBe(413);
+    await conforms(res, "patch", PATH);
+  });
+
+  it("415: a non-JSON body", async () => {
+    const res = await call(`/v1/reviews/${f.implant}`, {
+      method: "PATCH",
+      key: f.secret,
+      headers: { "content-type": "text/plain" },
+      body: { hidden: true },
+    });
+    expect(res.status).toBe(415);
     await conforms(res, "patch", PATH);
   });
 
@@ -1060,6 +1093,29 @@ describe("POST /v1/query", () => {
     });
     expect(noOrigin.status).toBe(403);
     await conforms(noOrigin, "post", PATH);
+  });
+
+  it("413 / 415: a body over 16 KiB, and a body that is not JSON", async () => {
+    const big = await call(PATH, {
+      method: "POST",
+      key: f.secret,
+      headers: { "content-length": String(QUERY_BODY_LIMIT_BYTES + 1) },
+      rawBody: "x".repeat(QUERY_BODY_LIMIT_BYTES + 1),
+    });
+    expect(big.status).toBe(413);
+    await conforms(big, "post", PATH);
+
+    const form = await call(PATH, {
+      method: "POST",
+      key: f.secret,
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      rawBody: "q=implant",
+    });
+    expect(form.status).toBe(415);
+    const body = (await conforms(form, "post", PATH)) as {
+      error: { code: string };
+    };
+    expect(body.error.code).toBe("unsupported_media_type");
   });
 
   it("422: invalid JSON, unknown field, out-of-range values", async () => {

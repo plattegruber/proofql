@@ -25,6 +25,20 @@ export const REQUEST_ID_HEADER = "x-request-id";
 /** Caller-supplied ids are capped so a hostile header cannot bloat logs. */
 const MAX_INCOMING_LENGTH = 128;
 
+/**
+ * And restricted to a token charset (#49): the id is echoed in a response
+ * header and written into every log line, so a value carrying newlines,
+ * quotes or control characters would be a log-injection vector. Anything a
+ * uuid, a ray id, or a sensible client correlation id needs is here;
+ * anything else earns a fresh uuid rather than an error.
+ */
+const INCOMING_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+
+/** Whether a caller-supplied id is one we will echo and log. */
+export function isAcceptableRequestId(value: string): boolean {
+  return value.length <= MAX_INCOMING_LENGTH && INCOMING_ID_PATTERN.test(value);
+}
+
 export interface RequestContextOptions {
   /** Where log lines go; tests pass `recordingSink().sink`. Default: console. */
   sink?: LogSink;
@@ -33,9 +47,7 @@ export interface RequestContextOptions {
 /** The id for this request (module doc). */
 export function resolveRequestId(c: Context<AppEnv>): string {
   const incoming = c.req.header(REQUEST_ID_HEADER) ?? c.req.header("cf-ray");
-  return incoming !== undefined &&
-    incoming.length > 0 &&
-    incoming.length <= MAX_INCOMING_LENGTH
+  return incoming !== undefined && isAcceptableRequestId(incoming)
     ? incoming
     : crypto.randomUUID();
 }

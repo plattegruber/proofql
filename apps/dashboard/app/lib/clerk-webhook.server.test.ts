@@ -9,7 +9,10 @@ import {
   signClerkWebhook,
   TEST_SIGNING_SECRET,
 } from "../../test/clerk-webhook";
-import { handleClerkWebhook } from "./clerk-webhook.server";
+import {
+  handleClerkWebhook,
+  MAX_WEBHOOK_BODY_BYTES,
+} from "./clerk-webhook.server";
 
 vi.mock("./accounts", () => ({
   upsertAccountByClerkOrgId: vi.fn(async (_db, input) => ({ ...input })),
@@ -80,6 +83,48 @@ describe("handleClerkWebhook — verification", () => {
     const body = clerkEvent("organization.created", { id: "org_1", name: "a" });
     const res = await post(body, { "content-type": "application/json" });
     expect(res.status).toBe(400);
+  });
+
+  it("rejects a body over 256 KiB before verifying it, even when correctly signed", async () => {
+    const padding = "x".repeat(MAX_WEBHOOK_BODY_BYTES);
+    const body = clerkEvent("organization.created", {
+      id: "org_big",
+      name: "a",
+      padding,
+    });
+    expect(body.length).toBeGreaterThan(MAX_WEBHOOK_BODY_BYTES);
+    // Signed with the right secret: the size check, not the HMAC, refuses it.
+    const res = await post(body, await signClerkWebhook(body));
+    expect(res.status).toBe(413);
+    expect(accounts.upsertAccountByClerkOrgId).not.toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({ clerkOrgId: "org_big" }),
+    );
+    // A lying Content-Length is refused from the header alone.
+    const small = clerkEvent("organization.created", {
+      id: "org_s",
+      name: "a",
+    });
+    const lying = await post(small, {
+      ...(await signClerkWebhook(small)),
+      "content-length": String(MAX_WEBHOOK_BODY_BYTES + 1),
+    });
+    expect(lying.status).toBe(413);
+  });
+
+  it("rejects a timestamp just past the 5-minute tolerance and accepts one inside it", async () => {
+    const body = clerkEvent("organization.created", { id: "org_1", name: "a" });
+    const now = Math.floor(Date.now() / 1000);
+    const stale = await post(
+      body,
+      await signClerkWebhook(body, { timestamp: now - 5 * 60 - 30 }),
+    );
+    expect(stale.status).toBe(400);
+    const fresh = await post(
+      body,
+      await signClerkWebhook(body, { timestamp: now - 4 * 60 }),
+    );
+    expect(fresh.status).toBe(200);
   });
 
   it("answers 503, not 400, when the signing secret is not configured", async () => {

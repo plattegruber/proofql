@@ -44,6 +44,12 @@ export interface ApiBindings {
   RL_PUBLISHABLE?: RateLimit;
   RL_SECRET_PAID?: RateLimit;
   RL_PUBLISHABLE_PAID?: RateLimit;
+  /**
+   * Per-IP budget of authentication failures (30 per 60 s; namespace 1005).
+   * Same optional/fallback rule as the per-key bindings. See
+   * src/auth-throttle.ts.
+   */
+  RL_AUTH_FAIL?: RateLimit;
 }
 
 /**

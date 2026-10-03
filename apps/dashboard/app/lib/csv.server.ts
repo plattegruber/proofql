@@ -123,7 +123,14 @@ export function kindOfArtifact(artifactKey: string): UploadKind {
   return artifactKey.endsWith(".json") ? "json" : "csv";
 }
 
-/** `.csv` / `.json` by extension first, then by declared type. */
+/**
+ * `.csv` / `.json` by extension first; the declared type decides only for a
+ * file with no extension at all (#49). The browser's `Content-Type` is
+ * client-controlled, so a `payload.exe` sent as `text/csv` must not pass an
+ * extension allowlist — the extension is the allowlist, and a file that
+ * declares another one is refused whatever the header says. The server
+ * check is the real one: the form's `accept=` is a convenience.
+ */
 export function uploadKind(
   filename: string,
   contentType: string,
@@ -136,9 +143,19 @@ export function uploadKind(
   )
     return "csv";
   if (lower.endsWith(".json")) return "json";
+  if (hasExtension(lower)) return null;
   if (/json/.test(contentType)) return "json";
   if (/csv|text\/plain|tab-separated/.test(contentType)) return "csv";
   return null;
+}
+
+/** `reviews.exe` yes; `reviews`, `.hidden`, `reviews.` no. */
+function hasExtension(filename: string): boolean {
+  const base = filename.slice(
+    Math.max(filename.lastIndexOf("/"), filename.lastIndexOf("\\")) + 1,
+  );
+  const dot = base.lastIndexOf(".");
+  return dot > 0 && dot < base.length - 1;
 }
 
 // ---------------------------------------------------------------------------
