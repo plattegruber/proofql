@@ -482,6 +482,28 @@ function top(
   return best;
 }
 
+/**
+ * Below this many indexed reviews the co-occurrence suggestion is arbitrary
+ * — on the three-review API sample or a five-review Places import it picks
+ * whatever two words happen to repeat ("afternoon asking") — so step 4
+ * prefills the tag with no `data-query` instead (#106). Recency mode always
+ * renders something; a bad query renders nothing or nonsense.
+ */
+export const MIN_REVIEWS_FOR_SUGGESTION = 20;
+
+/**
+ * The query step 4 prefills: `suggestQueryFromTexts` over the project's
+ * `full` chunks (one per indexed review), or null when there are fewer than
+ * MIN_REVIEWS_FOR_SUGGESTION of them.
+ */
+export function suggestQuery(
+  chunks: readonly string[],
+  minReviews: number = MIN_REVIEWS_FOR_SUGGESTION,
+): string | null {
+  if (chunks.length < minReviews) return null;
+  return suggestQueryFromTexts(chunks);
+}
+
 // --- The snippet tag, the demo, the curl -------------------------------------
 
 function attr(value: string): string {

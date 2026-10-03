@@ -100,6 +100,25 @@ describe("onboarding step 4", () => {
     );
   });
 
+  it("below the suggestion threshold, renders recency mode and says to add a query later", async () => {
+    const tag = SNIPPET.replace(' data-query="implant parking"', "");
+    renderStep({
+      ...base,
+      query: null,
+      counts: { reviews: 5, indexed: 5, indexing: 0 },
+      snippet: tag,
+    });
+    expect(
+      await screen.findByText(/Add a query once you have more reviews/),
+    ).toBeTruthy();
+    expect(screen.getByText(/20 or more indexed/)).toBeTruthy();
+    expect(screen.getByTestId("snippet-tag").textContent).toBe(tag);
+    expect(screen.getByTestId("snippet-tag").textContent).not.toContain(
+      "data-query",
+    );
+    expect(screen.queryByText(/No reviews are indexed yet/)).toBeNull();
+  });
+
   it("explains the missing query when nothing is indexed", async () => {
     renderStep({
       ...base,

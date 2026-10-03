@@ -6,6 +6,7 @@ import { API_KEY_PATTERN, hashApiKey } from "@proofql/core";
 import { account, chunk, project, review, setupTestDb } from "@proofql/db/test";
 import { describe, expect, it } from "vitest";
 
+import { MIN_REVIEWS_FOR_SUGGESTION } from "./onboarding";
 import {
   commitOnboardingSession,
   markOnboardingCompleted,
@@ -99,12 +100,14 @@ describe("startOnboardingProject", () => {
 });
 
 describe("suggestQuery", () => {
-  it("derives a two-word query from the project's live full chunks", async () => {
+  it("derives a two-word query from the project's live full chunks once enough are indexed", async () => {
     const p = await project(t.db);
     const texts = [
-      "Dr. Patel did my implant and parking was easy.",
-      "The implant consult with Dr. Patel was thorough; parking was easy.",
-      "Implant healed fast. Parking behind the building.",
+      ...Array.from({ length: MIN_REVIEWS_FOR_SUGGESTION - 1 }, (_, i) =>
+        i % 2 === 0
+          ? `Dr. Patel did my implant and parking was easy (${i}).`
+          : `The implant consult with Dr. Patel was thorough; parking was easy (${i}).`,
+      ),
       "Whitening was quick.",
     ];
     for (const [i, text] of texts.entries()) {
@@ -134,6 +137,25 @@ describe("suggestQuery", () => {
     expect(await suggestQuery(t.db, p.id)).toBe("implant parking");
     const empty = await project(t.db);
     expect(await suggestQuery(t.db, empty.id)).toBeNull();
+  });
+
+  it("suggests nothing below MIN_REVIEWS_FOR_SUGGESTION indexed reviews (#106)", async () => {
+    const p = await project(t.db);
+    const texts = [
+      "Dr. Patel did my implant and parking was easy.",
+      "The implant consult with Dr. Patel was thorough; parking was easy.",
+      "Implant healed fast. Parking behind the building.",
+      "Whitening was quick.",
+    ];
+    for (const [i, text] of texts.entries()) {
+      const r = await review(t.db, {
+        projectId: p.id,
+        text,
+        externalId: `s-${i}`,
+      });
+      await chunk(t.db, { reviewId: r.id, kind: "full" });
+    }
+    expect(await suggestQuery(t.db, p.id)).toBeNull();
   });
 });
 

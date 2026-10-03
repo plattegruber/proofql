@@ -36,7 +36,7 @@ import type { FlashEnv } from "./flash.server";
 import {
   type IndexingCounts,
   type OnboardingStep,
-  suggestQueryFromTexts,
+  suggestQuery as suggestQueryFromChunks,
 } from "./onboarding";
 import {
   type CreateProjectResult,
@@ -233,8 +233,10 @@ export const SUGGESTION_SAMPLE_CHUNKS = 500;
 
 /**
  * The most common content words across the project's indexed live reviews,
- * as a two-word query (`suggestQueryFromTexts`). Reads the `full` chunks —
- * one per review, so long reviews do not count twice through their windows.
+ * as a two-word query — or null below MIN_REVIEWS_FOR_SUGGESTION indexed
+ * reviews, where the suggestion would be arbitrary (#106). Reads the `full`
+ * chunks — one per review, so long reviews do not count twice through
+ * their windows.
  */
 export async function suggestQuery(
   db: Db,
@@ -251,7 +253,7 @@ export async function suggestQuery(
       ),
     )
     .limit(SUGGESTION_SAMPLE_CHUNKS);
-  return suggestQueryFromTexts(rows.map((r) => r.text));
+  return suggestQueryFromChunks(rows.map((r) => r.text));
 }
 
 // --- Completion --------------------------------------------------------------
