@@ -3,6 +3,7 @@
 // /app/workspace before any child loader runs. It also reads-and-clears the
 // one-shot flash message actions set before redirecting
 // (docs/frontend-conventions.md), which <FlashToasts /> turns into a toast.
+import { supportEmailFrom } from "@proofql/core";
 import { useEffect, useRef } from "react";
 import { data, Outlet } from "react-router";
 
@@ -21,16 +22,15 @@ export async function loader(args: Route.LoaderArgs) {
   const projects = await withRequestDb(args.context, (db) =>
     listProjectsForAccount(db, account.id),
   );
-  const { flash, headers } = await readFlash(
-    getCloudflare(args.context).env,
-    args.request,
-  );
+  const { env } = getCloudflare(args.context);
+  const { flash, headers } = await readFlash(env, args.request);
   return data(
     {
       account: { id: account.id, name: account.name, plan: account.plan },
       mode,
       projects: projects.map((p) => ({ name: p.name, slug: p.slug })),
       flash,
+      supportEmail: supportEmailFrom(env.SUPPORT_EMAIL),
     },
     // The clearing Set-Cookie; the `headers` export below forwards it.
     headers ? { headers } : undefined,
@@ -65,6 +65,7 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
       accountName={loaderData.account.name}
       mode={loaderData.mode}
       projects={loaderData.projects}
+      supportEmail={loaderData.supportEmail}
     >
       <NavigationProgress />
       <Toaster />

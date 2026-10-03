@@ -67,3 +67,9 @@ GOOGLE_API_BASE=http://localhost:8802
 # The connector is dark in deployed environments until Google approves API
 # access (#44); locally it is on, against the fake.
 GOOGLE_CONNECTOR_ENABLED=true
+# Public signup switch (app/lib/signup-gate.ts; docs/launch.md "Go"). The
+# local default from wrangler.jsonc `vars` is "true". Uncomment to see the
+# "not open yet" waitlist page on /sign-up (needs Clerk keys above — the
+# auth stub skips /sign-up entirely). In prod this is a wrangler secret, not
+# a var, so the launch flips without a deploy.
+# SIGNUP_OPEN=false
