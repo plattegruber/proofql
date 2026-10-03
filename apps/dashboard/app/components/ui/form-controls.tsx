@@ -83,7 +83,10 @@ export function Checkbox({
       className={cn(
         "size-4 shrink-0 cursor-pointer appearance-none border border-gray-400 bg-surface-card",
         "checked:border-accent-700 checked:bg-accent-700",
-        "checked:bg-[url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.2'%3E%3Cpath d='M3.5 8.5l3 3 6-7'/%3E%3C/svg%3E\")] checked:bg-center checked:bg-no-repeat",
+        // An arbitrary *property*, not `bg-[url(...)]`: tailwind-merge in
+        // `cn()` treats that one as a background conflict and drops
+        // `checked:bg-accent-700`, leaving a checked box with only a border.
+        "checked:[background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.2'%3E%3Cpath d='M3.5 8.5l3 3 6-7'/%3E%3C/svg%3E\")] checked:bg-center checked:bg-no-repeat",
         "focus-visible:shadow-focus-ring focus-visible:outline-none",
         "disabled:cursor-default disabled:opacity-40",
         className,

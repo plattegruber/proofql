@@ -46,3 +46,24 @@ GOOGLE_PLACES_API_KEY=
 # at the fake server (http://localhost:8803) for a manual run with no Google
 # account and no billing.
 PLACES_API_BASE=
+
+# --- Google connector (#45/#46; docs/google.md, docs/secrets.md) --------------
+# AES-256-GCM key for connections.credentials — the SAME value as
+# workers/pipeline/.dev.vars; `pnpm run setup` fills an empty value once and
+# copies it to every worker.
+CREDENTIALS_KEY=
+# Signs the OAuth `state`. Empty locally ⇒ a fixed dev-only secret; outside
+# ENVIRONMENT=local the connect flow refuses to start without it.
+GOOGLE_OAUTH_STATE_SECRET=
+# The fake Google server ignores the client id/secret but the flow refuses to
+# run without them, so give it placeholders.
+GOOGLE_CLIENT_ID=fake-google-client-id
+GOOGLE_CLIENT_SECRET=fake-google-client-secret
+# Point every Google call at the fake server
+# (`pnpm --filter @proofql/google dev:fake`, port 8802). Unset ⇒ real Google.
+GOOGLE_OAUTH_BASE=http://localhost:8802
+GOOGLE_TOKEN_URL=http://localhost:8802/token
+GOOGLE_API_BASE=http://localhost:8802
+# The connector is dark in deployed environments until Google approves API
+# access (#44); locally it is on, against the fake.
+GOOGLE_CONNECTOR_ENABLED=true

@@ -47,6 +47,12 @@ export default [
     // Create a project (#37). Declared before `:slug` and `new` is a reserved
     // slug (app/lib/projects.ts), so the two can never collide.
     route("app/projects/new", "routes/app.projects.new.tsx"),
+    // Google's one redirect URI per environment (#45); the project is in
+    // the signed state, so this sits outside the :slug tree.
+    route(
+      "app/integrations/google/callback",
+      "routes/app.integrations.google.callback.ts",
+    ),
     route("app/projects/:slug", "routes/app.projects.$slug.tsx", [
       index("routes/app.projects.$slug._index.tsx"),
       route("reviews", "routes/app.projects.$slug.reviews.tsx"),
@@ -56,6 +62,13 @@ export default [
       route("playground", "routes/app.projects.$slug.playground.tsx"),
       route("keys", "routes/app.projects.$slug.keys.tsx"),
       route("settings", "routes/app.projects.$slug.settings.tsx"),
+      // Integrations (#45): the Google Business Profile connection and its
+      // location mapping; `google/connect` starts the OAuth flow.
+      route("integrations", "routes/app.projects.$slug.integrations.tsx"),
+      route(
+        "integrations/google/connect",
+        "routes/app.projects.$slug.integrations.google.connect.ts",
+      ),
       // CSV / JSON import (#38): upload → map columns → run/result (+ the
       // error report as a resource route).
       route("import", "routes/app.projects.$slug.import._index.tsx"),

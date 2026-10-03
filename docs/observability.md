@@ -174,6 +174,13 @@ Google connector (#46, [`google-poll.ts`](../workers/pipeline/src/google-poll.ts
 | `onboarding.completed` | info | `account_id`, `project_id`, `elapsed_ms` | "Finish" on step 4: `accounts.onboarding_completed_at` set. `elapsed_ms` here is the number to report against the five-minute target. |
 | `onboarding.dismissed` | info | `account_id`, `elapsed_ms` | "I'll do this later" (or `?skip=1`): the flag is set without a project. A high dismiss rate on `elapsed_ms` near zero means step 1 asks too much. |
 
+| `google.connect.started` | info | `project_id`, `account_id` | The connect route minted PKCE + nonce and redirected to Google ([`app.projects.$slug.integrations.google.connect.ts`](../apps/dashboard/app/routes/app.projects.$slug.integrations.google.connect.ts), #45). |
+| `google.connect.completed` | info | `project_id`, `connection_id`, `locations`, `verified`, `discovery_error?` | The callback stored encrypted credentials and ran discovery. `discovery_error` set means the connection exists but Google refused to list locations (the flash says so; Reconnect retries). |
+| `google.connect.rejected` | info | `account_id`, `reason` (`state_expired` \| `state_bad_signature` \| `nonce_missing` \| `account_mismatch` \| `no_refresh_token` \| `exchange_failed` \| …), `detail?` | The callback refused the connect and wrote nothing. `nonce_missing` is a replayed or expired callback; `no_refresh_token` means Google withheld offline access. |
+| `google.connect.denied` | info | `account_id`, `error` | Google returned `?error=` (the user cancelled) or no code. |
+| `google.locations_saved` | info | `project_id`, `connection_id`, `enabled`, `location_ids[]`, `sync_enqueued` | The location picker was saved; `sync_enqueued` says a `connection.sync` went on the queue. |
+| `google.disconnected` | info | `project_id`, `connection_id` | Credentials cleared, `status = disconnected`. |
+
 The import rows are the dashboard's first mutating surface; the loaders'
 account and project queries remain plain reads. The onboarding (#53) also
 emits `project.created` (with `onboarding: true`) and two `api_key.created`

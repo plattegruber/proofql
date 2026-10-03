@@ -12,6 +12,70 @@ API, so every real call fails until the approval flips it to 300 QPM.
 Nothing here needs real Google to develop or test: the fake server stands
 in for every Google host.
 
+## Connecting (#45)
+
+**Project → Integrations → Connect Google.** The tab has three states:
+
+| State | When | What the user sees |
+|---|---|---|
+| Pending approval | `GOOGLE_CONNECTOR_ENABLED` is not `"true"` (every deployed environment until #44) | "Google connection is pending approval" and a link to the approval issue; the connect route answers 503. |
+| Not connected | no `connections` row, or `status = disconnected` | The pitch (read-only, every six hours) and a **Connect Google** link. |
+| Connected | `status = active` or `needs_reauth` | Status badge, last synced / last run / cadence, the **location picker**, **Reconnect**, **Disconnect**. |
+
+The flow (`apps/dashboard/app/lib/google.server.ts`, pure parts in
+`packages/google/src/connect.ts`):
+
+1. `GET /app/projects/:slug/integrations/google/connect` mints a PKCE
+   verifier and a nonce, stores `oauth:<nonce>` → `{ verifier, projectId,
+   accountId }` in KV (`CACHE`, ten-minute TTL), signs
+   `state = { projectId, accountId, nonce, exp }` with
+   `GOOGLE_OAUTH_STATE_SECRET` (HMAC-SHA256), and 302s to
+   `accounts.google.com/o/oauth2/v2/auth` with
+   `scope=business.manage`, `access_type=offline`, `prompt=consent`,
+   `code_challenge_method=S256`.
+2. Google returns to `GET /app/integrations/google/callback?code&state` —
+   **one redirect URI per environment**, the project rides in the state.
+   The callback requires the signed-in account to match the state, verifies
+   the signature and expiry, reads **and deletes** the nonce (a replay
+   finds nothing and is refused), exchanges the code with the stored
+   verifier, **refuses if Google withheld a refresh token**, encrypts
+   `{ access_token, refresh_token, expiry }` under `CREDENTIALS_KEY` and
+   upserts the project's one Google connection (`status = active`;
+   reconnecting replaces the credentials and keeps the cursor and the
+   enabled locations).
+3. Discovery: `accounts.list` (pages of 20) then `locations.list` per
+   account with `readMask=name,title,storefrontAddress,metadata` (pages of
+   100), stored as `metadata.locations[] = { id, account, title, address,
+   verified, enabled, placeId? }` plus `metadata.accounts` and
+   `discovered_at`. `verified` is `metadata.hasVoiceOfMerchant === true`
+   (the fake models that field; **confirm against the real API when #44
+   lands** — the alternative is the Verifications API's
+   `VoiceOfMerchantState`). Unverified locations render disabled with the
+   reason "Google only serves reviews for verified locations."
+4. **Save locations** sets `enabled` on the ticked verified locations,
+   `metadata.initial_sync_pending = true`, and enqueues
+   `connection.sync { connectionId, projectId }` on `proofql-ingest`; the
+   pipeline polls that connection within seconds. **Disconnect** (inline
+   confirm) clears `credentials` and sets `status = disconnected`; the
+   mapping and the reviews stay. **Reconnect** is the same connect flow;
+   it is the fix for `needs_reauth`.
+
+Local recipe (everything against the fake; no Google account involved):
+
+```sh
+pnpm run setup                                 # generates the shared CREDENTIALS_KEY
+pnpm --filter @proofql/google dev:fake         # :8802
+pnpm dev --filter @proofql/dashboard           # :8799, local auth stub
+pnpm dev --filter @proofql/pipeline            # consumes connection.sync
+open http://localhost:8799/app/projects/cedar-ridge-dental/integrations
+```
+
+Click **Connect Google**: the fake's consent screen auto-approves and
+bounces straight back; tick North and South, save, and the pipeline's
+`connection.sync` imports 113 reviews. The owner's steps for the real OAuth
+client, the redirect URIs and the testing-mode caveat are in
+[`infra/provisioning.md`](../infra/provisioning.md).
+
 ## What is polled
 
 For every `connections` row with `kind = google` and `status = active`:

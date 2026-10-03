@@ -16,3 +16,4 @@ export * from "./pacing.js";
 export * from "./schema.js";
 
 export const PACKAGE_NAME = "@proofql/google";
+export * from "./connect.js";
