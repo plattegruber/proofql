@@ -18,6 +18,23 @@
  * With no resolvable key or an unlisted origin, the preflight succeeds
  * (204) with no `Access-Control-Allow-Origin`, and the browser blocks the
  * real request itself.
+ *
+ * ## What the allowlist is, and is not (#49; docs/security.md)
+ *
+ * `Origin` is set by the *browser*, and only a browser is bound by it. A
+ * script with the publishable key — which is public by design — can send
+ * any `Origin` it likes with curl and this check will pass. The allowlist
+ * is therefore a UX guard, not a security boundary: it keeps another
+ * website from embedding a project's reviews under its own page with the
+ * key it copied out of page source, because *that* request comes from a
+ * browser that reports the true origin. The controls that bound what a
+ * copied publishable key can do are elsewhere and do not depend on
+ * `Origin`: the key kind (`requireApiKey` refuses it on every route but
+ * `/v1/query`, and it reads only publishable rows), the per-key rate limit
+ * (src/rate-limit.ts), the project's monthly query quota (src/quota.ts),
+ * and the per-IP auth-failure throttle (src/auth-throttle.ts). A leaked
+ * publishable key is at worst somebody else's quota spend; the runbook for
+ * that is in docs/security.md.
  */
 
 import type { Context } from "hono";

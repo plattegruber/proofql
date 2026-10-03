@@ -18,6 +18,10 @@ import type { LogSink } from "@proofql/core";
 import type { Db } from "@proofql/db";
 import { Hono } from "hono";
 
+import {
+  authFailureThrottle,
+  injectedAuthFailureLimiter,
+} from "./auth-throttle.js";
 import type { AppEnv } from "./bindings.js";
 import {
   type DbProvider,
@@ -41,9 +45,11 @@ import {
   type RateLimiterProvider,
   rateLimitMiddleware,
 } from "./rate-limit.js";
+import { requestGuards } from "./request-guards.js";
 import { requestContext } from "./request-id.js";
 import { reviewsRoutes } from "./routes/reviews.js";
 import { reviewsCrudRoutes } from "./routes/reviews-crud.js";
+import { securityHeaders } from "./security-headers.js";
 
 export interface CreateAppOptions {
   /** Tests: use this client instead of opening one from `env.HYPERDRIVE`. */
@@ -60,6 +66,8 @@ export interface CreateAppOptions {
   rateLimiterProvider?: RateLimiterProvider;
   /** Tests: capture log lines (`recordingSink().sink`) instead of the console. */
   logSink?: LogSink;
+  /** Tests: the per-IP auth-failure limiter (src/auth-throttle.ts). */
+  authFailureLimiter?: RateLimiter;
 }
 
 export function createApp(options: CreateAppOptions = {}): Hono<AppEnv> {
@@ -84,6 +92,18 @@ export function createApp(options: CreateAppOptions = {}): Hono<AppEnv> {
       options.logSink === undefined ? {} : { sink: options.logSink },
     ),
   );
+  // Hardening (#49; docs/security.md), outermost in: headers on every
+  // response, the per-IP auth-failure throttle (refuses boxed addresses
+  // before any body or key is read), then the body guards (415/413).
+  app.use(securityHeaders);
+  app.use(
+    authFailureThrottle(
+      options.authFailureLimiter === undefined
+        ? {}
+        : { provider: injectedAuthFailureLimiter(options.authFailureLimiter) },
+    ),
+  );
+  app.use(requestGuards);
   app.use(dbMiddleware(provider));
   app.use(embedderMiddleware(embedder));
   app.use(rateLimitMiddleware(rateLimiters));
