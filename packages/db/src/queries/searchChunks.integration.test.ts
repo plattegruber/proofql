@@ -567,6 +567,44 @@ describe("modes: one row per review", () => {
   });
 });
 
+describe("offsets are UTF-16 code units (#85 highlight)", () => {
+  const t = setupTestDb();
+
+  // A surrogate-pair emoji, a one-unit symbol, and CJK ahead of the window:
+  // the UTF-16 offset is neither the code-point count nor the byte count,
+  // and `startOffset` must be the one `String.prototype.slice` wants.
+  const TEXT =
+    "🦷✨ 歯医者さん, five stars. The front desk was warm. The implant procedure was painless and quick. Parking was fine.";
+  const WINDOW = "The implant procedure was painless and quick.";
+
+  it("returns a window's startOffset such that review.text.slice(...) is the excerpt", async () => {
+    const start = TEXT.indexOf(WINDOW);
+    expect([...TEXT.slice(0, start)].length).not.toBe(start);
+    expect(new TextEncoder().encode(TEXT.slice(0, start)).length).not.toBe(
+      start,
+    );
+
+    const p = await project(t.db);
+    const r = await indexed(t.db, { projectId: p.id, text: TEXT }, [WINDOW]);
+
+    for (const mode of ["excerpts", "reviews"] as const) {
+      const [top] = await searchChunks(
+        t.db,
+        query(p.id, "painless implant procedure", { mode }),
+      );
+      expect(top?.reviewId).toBe(r.id);
+      expect(top?.excerpt).toBe(WINDOW);
+      expect(top?.startOffset).toBe(start);
+      expect(
+        top?.review.text.slice(
+          top.startOffset,
+          top.startOffset + top.excerpt.length,
+        ),
+      ).toBe(WINDOW);
+    }
+  });
+});
+
 describe("filters", () => {
   const t = setupTestDb();
 
