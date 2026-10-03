@@ -30,6 +30,7 @@
  */
 
 import {
+  REQUEST_BODY_LIMITS,
   type ReviewInput,
   reviewBatchSchema,
   reviewInputSchema,
@@ -51,7 +52,7 @@ import type { AppEnv, AuthContext } from "../bindings.js";
 import { ApiError, type ValidationIssue } from "../errors.js";
 
 /** Hard ceiling on the request body; 100 maximal reviews are ~2 MB short of it. */
-export const REVIEW_BODY_LIMIT_BYTES = 1024 * 1024;
+export const REVIEW_BODY_LIMIT_BYTES = REQUEST_BODY_LIMITS.reviews;
 
 /** Re-exported for tests; the implementation lives with the upsert in @proofql/db. */
 export { dedupeLastWins } from "@proofql/db";
