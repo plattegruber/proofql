@@ -79,10 +79,10 @@ export async function loader(args: Route.LoaderArgs) {
   };
 }
 
-/** `intent=resume`: pick a stalled run back up. */
+/** `intent=resume`: pick a stalled run back up (uploads only; a Places run has no file). */
 export async function action(args: Route.ActionArgs) {
   const { project, run } = await loadRun(args);
-  if (run.status === "running" && isStarted(run)) {
+  if (run.kind === "csv" && run.status === "running" && isStarted(run)) {
     runImportInBackground(args.context, run.id);
   }
   return redirect(`${importPath(project.slug)}/${run.id}`);

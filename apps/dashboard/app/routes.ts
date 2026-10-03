@@ -68,6 +68,9 @@ export default [
         "import/:runId/errors.csv",
         "routes/app.projects.$slug.import.$runId.errors.ts",
       ),
+      // Places bootstrap (#47): the search/import action behind "Find your
+      // business on Google" on the Import tab and onboarding step 2.
+      route("places", "routes/app.projects.$slug.places.ts"),
     ]),
   ]),
   // Resource routes (no component).

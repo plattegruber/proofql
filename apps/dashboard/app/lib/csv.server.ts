@@ -690,17 +690,24 @@ export async function findRun(db: Db, runId: string): Promise<IngestRun> {
   return run;
 }
 
-/** A project's run, or 404 — never another tenant's. */
+/** The run kinds the import pages show: uploads, and Places bootstraps (#47). */
+export const DASHBOARD_RUN_KINDS: readonly IngestRun["kind"][] = [
+  "csv",
+  "places",
+];
+
+/** A project's run of a dashboard kind, or 404 — never another tenant's. */
 export async function findProjectRun(
   db: Db,
   projectId: string,
   runId: string,
+  kinds: readonly IngestRun["kind"][] = DASHBOARD_RUN_KINDS,
 ): Promise<IngestRun> {
   if (!z.uuid().safeParse(runId).success) {
     throw new ImportError("Import not found.", 404);
   }
   const run = await findRun(db, runId);
-  if (run.projectId !== projectId || run.kind !== "csv") {
+  if (run.projectId !== projectId || !kinds.includes(run.kind)) {
     throw new ImportError("Import not found.", 404);
   }
   return run;

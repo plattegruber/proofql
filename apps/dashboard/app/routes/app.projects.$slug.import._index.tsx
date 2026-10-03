@@ -1,10 +1,17 @@
 // Import step 1 (#38): choose the file, the environment and the export
 // format. The action stores the file in R2, opens the `ingest_runs` row
-// and sends the user on to the mapping step.
+// and sends the user on to the mapping step. Below the form, the Places
+// bootstrap (#47) — find the business on Google, import its five public
+// reviews — for projects that did not take it during onboarding.
 import { REVIEW_SOURCES } from "@proofql/core";
-import { Upload } from "lucide-react";
+import { MapPin, Upload } from "lucide-react";
 import { data, Form, redirect, useNavigation } from "react-router";
 
+import {
+  PLACES_CARD_BODY,
+  PLACES_CARD_TITLE,
+  PlacesFinder,
+} from "~/components/import/places-finder";
 import { PageHeader } from "~/components/shell/page-header";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -26,6 +33,8 @@ import {
 } from "~/lib/import-labels";
 import { importMapPath } from "~/lib/import-paths";
 import { ONBOARDING_FLAG } from "~/lib/onboarding";
+import { placesActionPath } from "~/lib/places";
+import { placesConfigured } from "~/lib/places.server";
 import type { Route } from "./+types/app.projects.$slug.import._index";
 
 export async function loader(args: Route.LoaderArgs) {
@@ -34,9 +43,14 @@ export async function loader(args: Route.LoaderArgs) {
     findProjectBySlug(db, account.id, args.params.slug),
   );
   if (!project) throw data(null, { status: 404 });
+  const { env } = getCloudflare(args.context);
   return {
     project: { slug: project.slug, name: project.name },
     maxBytes: MAX_UPLOAD_BYTES,
+    places: {
+      enabled: placesConfigured(env),
+      actionPath: placesActionPath(project.slug),
+    },
     // Started from the guided onboarding (#53): the run returns there.
     onboarding:
       new URL(args.request.url).searchParams.get(ONBOARDING_FLAG) === "1",
@@ -131,7 +145,7 @@ export default function ImportUpload({
       <PageHeader
         overline="Step 1 of 3"
         title="Import reviews"
-        description="Upload an export from your review platform. You will map its columns on the next screen."
+        description="Upload an export from your review platform and map its columns on the next screen, or pull your public Google reviews below."
       />
       <Form
         method="post"
@@ -231,6 +245,36 @@ export default function ImportUpload({
           </Button>
         </div>
       </Form>
+
+      <section
+        aria-labelledby="places-heading"
+        aria-disabled={loaderData.places.enabled ? undefined : true}
+        className="mt-6 max-w-2xl border border-hairline bg-surface-card p-5"
+      >
+        <div className="flex items-start gap-3">
+          <span className="flex size-9 shrink-0 items-center justify-center border border-hairline text-ink-900">
+            <MapPin size={18} strokeWidth={1.75} aria-hidden />
+          </span>
+          <div>
+            <h2
+              id="places-heading"
+              className="m-0 text-title font-semibold text-ink-900"
+            >
+              {PLACES_CARD_TITLE}
+            </h2>
+            <p className="mt-1 mb-0 text-small text-gray-600">
+              {PLACES_CARD_BODY}
+            </p>
+          </div>
+        </div>
+        <div className="mt-5 border-t border-hairline pt-4">
+          <PlacesFinder
+            actionPath={loaderData.places.actionPath}
+            enabled={loaderData.places.enabled}
+            chooseEnvironment
+          />
+        </div>
+      </section>
     </>
   );
 }
