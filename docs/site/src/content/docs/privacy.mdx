@@ -1,0 +1,65 @@
+---
+title: Privacy policy
+description: What ProofQL stores, why, for how long, and who to ask. Placeholder text pending counsel.
+---
+
+import LegalNotice from "../../components/LegalNotice.astro";
+import { SUPPORT_EMAIL } from "../../config";
+
+<LegalNotice />
+
+_Last updated: [PLACEHOLDER date]. Operator: [PLACEHOLDER legal entity, address, country]._
+
+ProofQL is a review search API: a business (our **customer**) sends us its reviews, and we return the ones relevant to a question so the customer can show them on its own website. This page explains what we store to do that, and what we do not.
+
+## What we collect
+
+- **Account data.** Sign-in is handled by [Clerk](https://clerk.com/legal/privacy); we store the workspace's Clerk organization id, its name, and its plan. We do not store passwords.
+- **Reviews the customer imports.** The review text, rating, author display name, author avatar URL, source, date and link, as the customer pushed or uploaded them, plus derived data we compute from them: sentence excerpts, numeric embeddings, a sentiment label. Reviews are **the customer's data**; we process them on the customer's behalf. [PLACEHOLDER: confirm the controller/processor roles with counsel.]
+- **Usage and request logs.** For every API request: a request id, the project and key ids, timing, the result count, status codes, and the requesting IP address as recorded by Cloudflare. Query text is **not** logged; its length is. Logs are kept for [PLACEHOLDER retention, e.g. 30 days].
+- **Waitlist.** If you leave your email on `/sign-up` before public signup opens, we store that address and when you left it, and use it for one thing: telling you when signup opens.
+- **Support email.** Messages you send to <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> are kept to answer them.
+
+## What we do not do
+
+- We do not sell data, and we do not use reviews to train models. Embeddings are computed by Cloudflare Workers AI and stored only for the customer's own search.
+- No large language model reads review text in the current version of the service.
+- Review text is only ever returned to callers holding one of **that project's** API keys, and publishable keys are additionally restricted to the customer's listed website origins.
+
+## Who processes data for us
+
+| Processor | Purpose | Location |
+|---|---|---|
+| Cloudflare | Hosting (Workers), caching, embeddings (Workers AI), request logs | Global edge; [PLACEHOLDER data region statement] |
+| Neon | The Postgres database holding accounts, reviews and derived data | [PLACEHOLDER region, e.g. AWS us-east-1] |
+| Clerk | Authentication and workspace membership | United States |
+| Google (Places API, Business Profile API) | When a customer imports reviews from Google, with its consent | United States |
+
+[PLACEHOLDER: add a payment processor row when billing launches.]
+
+## Google data
+
+When a customer imports its own Google reviews, the import is done with the customer's consent and the reviews are displayed with their author attribution and a Google source badge, as Google's terms require. Where a customer connects a Google account (the Business Profile connector), we store an encrypted refresh token to keep the connection current and delete it when the connection is removed. Retention of Places-sourced content follows Google's Places policies; see the decision recorded in the project's `docs/places.md`. [PLACEHOLDER: confirm the retention position, issue #116.]
+
+## Retention and deletion
+
+- Deleting a project deletes its reviews, excerpts, embeddings, keys and usage rows immediately.
+- Deleting a workspace in Clerk marks the account deleted; its data is removed after [PLACEHOLDER grace period].
+- Request logs expire after [PLACEHOLDER retention].
+- To have your data deleted or exported, email <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> from the workspace's sign-in address.
+
+## Cookies
+
+The dashboard sets the session cookies Clerk needs to keep you signed in, a short-lived cookie that carries a status message across a page change, and nothing for advertising or cross-site tracking. The embedded snippet sets no cookies on the customer's site.
+
+## Your rights
+
+Depending on where you live you may have rights to access, correct, delete or export personal data about you, and to complain to a supervisory authority. Write to <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>. [PLACEHOLDER: GDPR/UK GDPR/CCPA specifics, legal bases, and a representative if required.]
+
+## Changes
+
+We will post changes here with a new date at the top. Material changes are announced to account owners by email.
+
+## Contact
+
+<a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> · [PLACEHOLDER postal address]

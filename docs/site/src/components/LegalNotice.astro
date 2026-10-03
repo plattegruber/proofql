@@ -1,0 +1,16 @@
+---
+// The "needs counsel" banner on /privacy and /terms (docs/launch.md
+// "Legal"). Rendered as an aside so it is impossible to miss and impossible
+// to mistake for the policy itself; remove it in the PR that lands the
+// reviewed text.
+import { Aside } from "@astrojs/starlight/components";
+---
+
+<Aside type="caution" title="Draft — needs counsel before launch">
+  This page is a <strong>placeholder</strong> written by the ProofQL team,
+  not by a lawyer. Every statement marked <code>[PLACEHOLDER]</code> must be
+  confirmed or replaced, and the whole text reviewed by counsel, before
+  public signup opens (<a href="https://github.com/plattegruber/proofql/issues/51">#51</a>).
+  Until then it describes how the service is built to behave, which is
+  useful, but it is not a legal commitment.
+</Aside>

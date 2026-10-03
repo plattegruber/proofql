@@ -1,0 +1,48 @@
+---
+// Starlight's footer (edit link, pagination) plus one line of our own:
+// support, the legal pages, and where the roadmap lives. Overrides the
+// default through `components.Footer` in astro.config.mjs; the default is
+// rendered first so nothing Starlight provides is lost.
+import Default from "@astrojs/starlight/components/Footer.astro";
+
+import {
+  ISSUES_URL,
+  PRIVACY_PATH,
+  ROADMAP_URL,
+  SUPPORT_EMAIL,
+  TERMS_PATH,
+} from "../config";
+---
+
+<Default><slot /></Default>
+<nav class="site-footer" aria-label="Site">
+  <span>
+    Support: <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
+  </span>
+  <a href={PRIVACY_PATH}>Privacy</a>
+  <a href={TERMS_PATH}>Terms</a>
+  <a href={ROADMAP_URL}>Status and roadmap</a>
+  <a href={ISSUES_URL}>Issues</a>
+</nav>
+
+<style>
+  .site-footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.5rem;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--sl-color-hairline);
+    font-family: var(--sl-font-mono);
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-3);
+  }
+  .site-footer a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .site-footer a:hover {
+    color: var(--sl-color-white);
+    text-decoration: underline;
+  }
+</style>

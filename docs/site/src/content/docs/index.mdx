@@ -4,6 +4,7 @@ description: Review search as an API. Push your reviews in, ask a question, rend
 ---
 
 import { LinkCard, CardGrid } from "@astrojs/starlight/components";
+import { ISSUES_URL, ROADMAP_URL, SUPPORT_EMAIL } from "../../config";
 
 ProofQL turns a business's reviews into a semantically searchable corpus. Your implants page shows implant reviews, your pricing page shows reviews about value, your location page shows the ones that mention parking. Nothing is tagged by hand; matching is by meaning, and when nothing matches well enough the result is empty rather than wrong.
 
@@ -41,3 +42,7 @@ GET /v1/query?key=pq_pk_live_…&q=dental+implants&limit=3
 1. **Ingest.** Reviews arrive through the push API, a CSV upload in the dashboard, or (soon) the Google connector, in one normalized shape.
 2. **Index.** Every review is embedded whole; longer reviews also get sentence-window excerpts, so a review that covers four topics matches four queries. Vectors and a full-text index live in Postgres. No LLM touches your reviews.
 3. **Serve.** `/v1/query` runs hybrid search, applies a relevance floor and your publication policy in one SQL statement, and returns ranked excerpts with their parent reviews. The snippet renders them; the [hosted demo](https://cdn.proofql.com/demo/) shows it on a page.
+
+## Status and roadmap
+
+ProofQL is in pre-launch: the API, pipeline, snippet, dashboard and these docs are built and deployed to a preview environment; public signup opens once the [launch checklist](https://github.com/plattegruber/proofql/blob/main/docs/launch.md) is done. The repository is public, so the roadmap and the backlog are too: <a href={ROADMAP_URL}>roadmap</a> · <a href={ISSUES_URL}>open issues</a>. Questions go to <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.

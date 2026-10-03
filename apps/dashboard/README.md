@@ -19,7 +19,7 @@ CLOUDFLARE_ENV=preview pnpm --filter @proofql/dashboard build && pnpm --filter @
 |---|---|
 | `workers/app.ts` | The Worker. Mints the request id, builds the request-bound logger, and puts `{ env, ctx, log, requestId }` on the router context (`app/lib/context.ts`). |
 | `app/root.tsx` | Fonts and tokens, the Clerk middleware/provider pair (mounted only when Clerk is configured), the error boundary. |
-| `app/routes.ts` | `/` → `/app`; `/sign-in/*`, `/sign-up/*`; `/app/workspace`; the protected `/app` layout with the overview, the guided onboarding (`/app/onboarding`, `/app/onboarding/:slug/{reviews,indexing,snippet,preview,status}`), `/app/projects/new`, `/app/projects/:slug/{reviews,import,playground,keys,integrations,settings}` (+ `integrations/google/connect`), `/app/integrations/google/callback`; `POST /webhooks/clerk`; `GET /health`. |
+| `app/routes.ts` | `/` → `/app`; `/sign-in/*`, `/sign-up/*` (Clerk's sign-up, or the waitlist page while `SIGNUP_OPEN` is off — below); `/app/workspace`; the protected `/app` layout with the overview, the guided onboarding (`/app/onboarding`, `/app/onboarding/:slug/{reviews,indexing,snippet,preview,status}`), `/app/projects/new`, `/app/projects/:slug/{reviews,import,playground,keys,integrations,settings}` (+ `integrations/google/connect`), `/app/integrations/google/callback`; `POST /webhooks/clerk`; `GET /health`. |
 | `app/routes/app.onboarding*` | The guided onboarding (#53, below): step 1 names the project and mints both live keys; steps 2–4 add reviews, watch indexing, and hand over the prefilled snippet with a live preview. |
 | `app/lib/onboarding.ts`, `app/lib/onboarding.server.ts` | Pure rules (steps, the suggested first query, the prefilled tag, the ingest curl) and the server side (the one-hour onboarding cookie, project + keys in one transaction, indexing counts, completion). |
 | `app/routes/app.projects.$slug.import.*` | The CSV/JSON import (#38): `import` (step 1, upload → R2 + `ingest_runs` row), `import/:runId/map` (step 2, detected mapping as selects, live validation in the browser), `import/:runId` (steps 3–4, progress polling and the result), `import/:runId/errors.csv` (the per-row error report). |
@@ -28,6 +28,8 @@ CLOUDFLARE_ENV=preview pnpm --filter @proofql/dashboard build && pnpm --filter @
 | `app/components/import-progress.tsx` | `ImportProgress` + `useImportPolling`: the "spin" the onboarding (#53) reuses. |
 | `app/routes/app._index.tsx` | Overview (#36, #54): plan, badge state, an Upgrade link, and per project reviews / limit and this month's uncached queries / limit (`app/components/usage-meter.tsx`, `app/lib/usage.server.ts` reading the `usage` row the api counts into, `app/lib/usage.ts` for the meter math). |
 | `app/lib/account.server.ts` | `requireAccount(args)` — **the auth seam** (below). |
+| `app/lib/signup-gate.ts`, `app/lib/waitlist*.ts` | The public-signup switch and the waitlist behind it (#51, below). |
+| `app/components/shell/site-footer.tsx` | Support address (`SUPPORT_EMAIL` var via `supportEmailFrom`), docs, privacy, terms — under the app shell and the auth screens. |
 | `app/lib/accounts.ts` | Account/project queries, including the idempotent upsert by `clerk_org_id`. |
 | `app/lib/clerk.server.ts` | Clerk middleware built per request with keys from the Workers env. |
 | `app/lib/clerk-webhook.server.ts` | Svix-verified webhook: `organization.created|updated` upsert, `organization.deleted` soft-marks (`accounts.deleted_at`). |
@@ -92,6 +94,30 @@ deployed) and the preview queries the local api, so run the api and the
 pipeline too. Set `AUTH_STUB_ORG_ID=org_anything` in `.dev.vars` and the
 auth stub acts as an empty account with that id (created on first load)
 instead of the seeded demo; clear it to go back.
+
+## Public signup switch and the waitlist (#51)
+
+`/sign-up` renders Clerk's sign-up while signup is open and a "ProofQL is
+not open yet" page while it is closed; existing accounts sign in as usual
+either way. The decision is `signupOpen(env)` (`app/lib/signup-gate.ts`):
+`SIGNUP_OPEN` truthy (`true`/`1`/`yes`/`on`) opens; anything else closes;
+unset opens only when `ENVIRONMENT` is `local`. Locally and in preview the
+value is a var (`"true"`); in prod it is deliberately a wrangler secret so
+the launch flips with `echo true | wrangler secret put SIGNUP_OPEN --env
+prod` and no deploy ([`docs/launch.md`](../../docs/launch.md) "Go"). The
+Clerk instance's own Restricted sign-up mode is the belt behind the page.
+
+The closed page's form posts to the same route: `handleWaitlistSubmission`
+(`app/lib/waitlist.server.ts`) parses with `waitlistFormSchema` (trimmed,
+lowercased, 422 on a bad address), drops honeypot hits (200, nothing
+stored), throttles per `cf-connecting-ip` with a fixed window in the `CACHE`
+KV namespace (5 per hour; 429 with `Retry-After`; in-memory fallback when
+the binding is absent), and inserts into `waitlist` with `ON CONFLICT DO
+NOTHING` — a repeat address gets the same "you are on the list" answer, so
+the page cannot be used to probe the list. Events: `waitlist.joined`,
+`waitlist.throttled`, `waitlist.rejected` (docs/observability.md). To see
+the closed page locally, set Clerk keys and `SIGNUP_OPEN=false` in
+`.dev.vars` (the auth stub skips `/sign-up`).
 
 ## The auth seam: `requireAccount`
 

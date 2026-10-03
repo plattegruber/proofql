@@ -43,6 +43,13 @@
       "when": 1791059755411,
       "tag": "0006_reviews_recency_index",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791060581229,
+      "tag": "0007_waitlist",
+      "breakpoints": true
     }
   ]
 }

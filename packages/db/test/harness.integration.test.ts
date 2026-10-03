@@ -67,7 +67,7 @@ describe("template fidelity: the clone is the real schema", () => {
     expect(ext).toHaveLength(1);
   });
 
-  it("has every table from scope.md §4 and nothing else", async () => {
+  it("has every table from scope.md §4 (plus the #51 waitlist) and nothing else", async () => {
     const rows = await t.sql<{ table_name: string }[]>`
       SELECT table_name FROM information_schema.tables
       WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
@@ -82,6 +82,7 @@ describe("template fidelity: the clone is the real schema", () => {
       "review_chunks",
       "reviews",
       "usage",
+      "waitlist",
     ]);
   });
 

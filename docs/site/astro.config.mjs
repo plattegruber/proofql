@@ -30,6 +30,9 @@ export default defineConfig({
         "Review search as an API: push your reviews in, ask a question, render the ones that answer it.",
       pagefind: false,
       customCss: ["./src/styles/theme.css"],
+      // One footer line of our own under Starlight's (support, legal,
+      // roadmap); src/components/Footer.astro renders the default first.
+      components: { Footer: "./src/components/Footer.astro" },
       // Code blocks: square, hairline-bordered, mono from the token set.
       expressiveCode: {
         styleOverrides: {
@@ -69,6 +72,14 @@ export default defineConfig({
         { label: "Errors", slug: "errors" },
         { label: "Limits", slug: "limits" },
         ...openAPISidebarGroups,
+        {
+          label: "Legal",
+          collapsed: true,
+          items: [
+            { label: "Privacy policy", slug: "privacy" },
+            { label: "Terms of service", slug: "terms" },
+          ],
+        },
       ],
       plugins: [
         starlightOpenAPI([

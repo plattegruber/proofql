@@ -53,12 +53,22 @@
     // Where the onboarding's snippet tag and preview load the snippet from
     // (#53): the local cdn worker (workers/cdn, port 8800) here, the hosted
     // cdn in deployed environments.
-    "SNIPPET_SRC": "http://localhost:8800/v1.js"
+    "SNIPPET_SRC": "http://localhost:8800/v1.js",
     // Google connector (#45; docs/google.md): CREDENTIALS_KEY,
     // GOOGLE_OAUTH_STATE_SECRET, GOOGLE_CLIENT_ID/SECRET, the fake-server
     // endpoint overrides and GOOGLE_CONNECTOR_ENABLED come from `.dev.vars`
     // locally. Deployed: GOOGLE_CLIENT_ID and GOOGLE_CONNECTOR_ENABLED are
     // vars below, the secrets are `wrangler secret put`.
+    // Public signup switch (app/lib/signup-gate.ts, docs/launch.md "Go"):
+    // open locally and in preview via these vars; in prod it is NOT a var
+    // but a `wrangler secret put SIGNUP_OPEN --env prod` value, so the
+    // launch flips without a deploy. Unset ⇒ open only when ENVIRONMENT is
+    // "local". Set SIGNUP_OPEN=false in .dev.vars to see the waitlist page.
+    "SIGNUP_OPEN": "true",
+    // Shown in the footer (components/shell/site-footer.tsx) and as the
+    // reply-to everywhere; placeholder until the mailbox exists
+    // (docs/launch.md "Support"). Empty ⇒ DEFAULT_SUPPORT_EMAIL from core.
+    "SUPPORT_EMAIL": "support@proofql.com"
     // Clerk (docs/secrets.md): locally CLERK_PUBLISHABLE_KEY, CLERK_SECRET_KEY
     // and CLERK_WEBHOOK_SIGNING_SECRET come from the gitignored `.dev.vars`
     // (copy `.dev.vars.example`). Leave CLERK_SECRET_KEY empty and the app
@@ -114,6 +124,10 @@
         // flipped to "true" after Google approves API access (#44).
         "GOOGLE_CLIENT_ID": "TBD-provision-in-m3",
         "GOOGLE_CONNECTOR_ENABLED": "false",
+        // Preview is always open: it runs the Clerk development instance and
+        // is where the onboarding walkthrough happens (docs/launch.md).
+        "SIGNUP_OPEN": "true",
+        "SUPPORT_EMAIL": "support@proofql.com",
         // <TBD>: the Clerk *development* instance's publishable key (public,
         // `pk_test_…`; docs/secrets.md). The matching CLERK_SECRET_KEY and
         // CLERK_WEBHOOK_SIGNING_SECRET are wrangler secrets, never vars.
@@ -142,6 +156,12 @@
     },
     "prod": {
       "name": "proofql-dashboard-prod",
+      // TODO(app.proofql.com): once the zone is on this account, add
+      // "routes": [{ "pattern": "app.proofql.com", "custom_domain": true }]
+      // and move the Clerk production instance's allowed origins and
+      // webhook URL to it (docs/launch.md "Domains", "Clerk production
+      // instance"). Until then the worker answers on
+      // https://proofql-dashboard-prod.<subdomain>.workers.dev only.
       "vars": {
         "ENVIRONMENT": "prod",
         // <TBD>: the proofql-api-prod public origin.
@@ -154,6 +174,11 @@
         // flipped to "true" after Google approves API access (#44).
         "GOOGLE_CLIENT_ID": "TBD-provision-in-m3",
         "GOOGLE_CONNECTOR_ENABLED": "false",
+        // SIGNUP_OPEN is deliberately absent here (fails closed): the launch
+        // switch is `echo true | wrangler secret put SIGNUP_OPEN --env prod`
+        // from this directory, flipped back with `false` (docs/launch.md
+        // "Go"). A var would need a PR and a deploy to flip.
+        "SUPPORT_EMAIL": "support@proofql.com",
         // <TBD>: the Clerk *production* instance's publishable key
         // (`pk_live_…`).
         "CLERK_PUBLISHABLE_KEY": "TBD-provision-in-m0"

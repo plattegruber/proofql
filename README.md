@@ -35,7 +35,18 @@ ProofQL is horizontal. The search core does not know or care what industry a rev
 
 ## Status
 
-Pre-code. The scope, architecture, API contract, and milestone plan are in [docs/scope.md](docs/scope.md). The backlog lives in GitHub issues; the roadmap issue is pinned.
+**Pre-launch, feature-complete for the free tier.** M0–M2 are done: the
+data model and search core, the ingest API and pipeline, the query API with
+its cache and limits, the snippet, the dashboard with guided onboarding and
+CSV/Places imports, the OpenAPI spec and the docs site. M3 is in progress:
+abuse hardening and the load test are in; the Google Business Profile
+connector waits on Google's API approval, Stripe billing follows launch, and
+public signup opens when the [launch checklist](docs/launch.md) is done
+(`/sign-up` shows a waitlist until then). What the owner still has to
+provision is in [infra/provisioning.md](infra/provisioning.md); the build
+order and each milestone's state are on the roadmap issue,
+[#52](https://github.com/plattegruber/proofql/issues/52). The scope,
+architecture and API contract are in [docs/scope.md](docs/scope.md).
 
 The idea comes from [well-regarded](https://github.com/plattegruber/well-regarded), where review placement was one feature of a larger healthcare product. ProofQL is that feature as a standalone, horizontal product with a free tier generous enough for anyone, built fresh.
 

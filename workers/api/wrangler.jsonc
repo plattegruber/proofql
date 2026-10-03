@@ -165,6 +165,12 @@
     },
     "prod": {
       "name": "proofql-api-prod",
+      // TODO(api.proofql.com): once the zone is on this account, add
+      // "routes": [{ "pattern": "api.proofql.com", "custom_domain": true }]
+      // and move the dashboard's API_URL and deploy.yml's smoke check to it
+      // (docs/launch.md "Domains"; infra/provisioning.md "Custom domains").
+      // Until then the worker answers on
+      // https://proofql-api-prod.<subdomain>.workers.dev only.
       "vars": { "ENVIRONMENT": "prod" },
       "queues": {
         "producers": [

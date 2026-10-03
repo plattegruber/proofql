@@ -10,6 +10,7 @@ import { OrganizationSwitcher, UserButton } from "@clerk/react-router";
 import { FolderOpen, LayoutGrid, type LucideIcon } from "lucide-react";
 import { NavLink } from "react-router";
 
+import { SiteFooter } from "~/components/shell/site-footer";
 import { Badge } from "~/components/ui/badge";
 import type { AuthMode } from "~/lib/auth-mode";
 import { clerkAppearance } from "~/lib/clerk-appearance";
@@ -24,6 +25,8 @@ export interface AppShellProps {
   accountName: string;
   mode: Exclude<AuthMode, "unconfigured">;
   projects: ShellProject[];
+  /** Shown in the footer (docs/launch.md "Support"). */
+  supportEmail: string;
   children: React.ReactNode;
 }
 
@@ -121,6 +124,7 @@ export function AppShell({
   accountName,
   mode,
   projects,
+  supportEmail,
   children,
 }: AppShellProps) {
   return (
@@ -154,8 +158,14 @@ export function AppShell({
             </nav>
           </div>
         </aside>
-        <main className="min-w-0 flex-1 px-10 pt-8 pb-18">
-          <div className="mx-auto max-w-280">{children}</div>
+        <main className="flex min-w-0 flex-1 flex-col px-10 pt-8 pb-8">
+          <div className="mx-auto w-full max-w-280 flex-1 pb-10">
+            {children}
+          </div>
+          <SiteFooter
+            supportEmail={supportEmail}
+            className="mx-auto w-full max-w-280 border-t border-hairline pt-4"
+          />
         </main>
       </div>
     </div>
