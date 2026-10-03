@@ -38,6 +38,7 @@
  * migration, not a rewrite.
  */
 
+import { CHUNK_KINDS, type ChunkKind } from "@proofql/core";
 import { sql } from "drizzle-orm";
 import {
   check,
@@ -59,8 +60,7 @@ import { tsvector } from "./tsvector.js";
 /** bge-m3 output size; the only embedding dimension the schema knows. */
 export const EMBEDDING_DIMENSIONS = 1024;
 
-export const CHUNK_KINDS = ["full", "window"] as const;
-export type ChunkKind = (typeof CHUNK_KINDS)[number];
+export { CHUNK_KINDS, type ChunkKind };
 export const chunkKindEnum = pgEnum("chunk_kind", CHUNK_KINDS);
 
 export const reviewChunks = pgTable(

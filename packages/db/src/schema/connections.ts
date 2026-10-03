@@ -16,6 +16,12 @@
  * live reviews. Test data comes from the push API and CSV with a test key.
  */
 
+import {
+  CONNECTION_KINDS,
+  CONNECTION_STATUSES,
+  type ConnectionKind,
+  type ConnectionStatus,
+} from "@proofql/core";
 import { sql } from "drizzle-orm";
 import {
   jsonb,
@@ -30,16 +36,10 @@ import {
 import { id, timestamps } from "./shared.js";
 import { projects } from "./tenancy.js";
 
-export const CONNECTION_KINDS = ["google"] as const;
-export type ConnectionKind = (typeof CONNECTION_KINDS)[number];
+export { CONNECTION_KINDS, type ConnectionKind };
 export const connectionKindEnum = pgEnum("connection_kind", CONNECTION_KINDS);
 
-export const CONNECTION_STATUSES = [
-  "active",
-  "needs_reauth",
-  "disconnected",
-] as const;
-export type ConnectionStatus = (typeof CONNECTION_STATUSES)[number];
+export { CONNECTION_STATUSES, type ConnectionStatus };
 export const connectionStatusEnum = pgEnum(
   "connection_status",
   CONNECTION_STATUSES,

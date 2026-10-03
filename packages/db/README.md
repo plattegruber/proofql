@@ -32,7 +32,9 @@ const { db, sql } = createDb(process.env.DATABASE_URL);
 ## Migration workflow
 
 Run from the repo root. `db:migrate` reads `DATABASE_URL`; `db:generate`
-needs no database.
+needs no database, but it loads the schema, which takes its enum values from
+`@proofql/core` (#61) via that package's `dist/` — build it first
+(`pnpm --filter "@proofql/db^..." build`), as CI's migration-check does.
 
 | Command | What it does |
 | --- | --- |

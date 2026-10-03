@@ -15,6 +15,12 @@
  */
 
 import {
+  INGEST_RUN_KINDS,
+  INGEST_RUN_STATUSES,
+  type IngestRunKind,
+  type IngestRunStatus,
+} from "@proofql/core";
+import {
   index,
   integer,
   pgEnum,
@@ -27,12 +33,10 @@ import {
 import { environmentEnum, id } from "./shared.js";
 import { projects } from "./tenancy.js";
 
-export const INGEST_RUN_KINDS = ["api", "csv", "google", "places"] as const;
-export type IngestRunKind = (typeof INGEST_RUN_KINDS)[number];
+export { INGEST_RUN_KINDS, type IngestRunKind };
 export const ingestRunKindEnum = pgEnum("ingest_run_kind", INGEST_RUN_KINDS);
 
-export const INGEST_RUN_STATUSES = ["running", "succeeded", "failed"] as const;
-export type IngestRunStatus = (typeof INGEST_RUN_STATUSES)[number];
+export { INGEST_RUN_STATUSES, type IngestRunStatus };
 export const ingestRunStatusEnum = pgEnum(
   "ingest_run_status",
   INGEST_RUN_STATUSES,
