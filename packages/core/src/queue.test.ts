@@ -14,6 +14,22 @@ describe("ingestMessageSchema", () => {
     expect(ingestMessageSchema.parse(valid)).toEqual(valid);
   });
 
+  it("accepts a connection.sync message", () => {
+    const sync: IngestMessage = {
+      type: "connection.sync",
+      connectionId: "7c4a8d09-ca3b-4f2e-9a1d-2b3c4d5e6f70",
+      projectId: "0b1c2d3e-4f5a-4b6c-8d9e-0f1a2b3c4d5e",
+    };
+    expect(ingestMessageSchema.parse(sync)).toEqual(sync);
+    expect(
+      ingestMessageSchema.safeParse({ ...sync, connectionId: "" }).success,
+    ).toBe(false);
+    // A sync message does not carry review fields, and vice versa.
+    expect(
+      ingestMessageSchema.safeParse({ ...sync, type: "review.index" }).success,
+    ).toBe(false);
+  });
+
   it("rejects an unknown type, environment, or empty id", () => {
     expect(
       ingestMessageSchema.safeParse({ ...valid, type: "nope" }).success,

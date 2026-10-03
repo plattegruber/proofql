@@ -44,13 +44,24 @@
 
   "vars": {
     "ENVIRONMENT": "local"
+    // Google connector (#46): CREDENTIALS_KEY, GOOGLE_CLIENT_ID,
+    // GOOGLE_CLIENT_SECRET and the fake-server endpoint overrides come from
+    // the gitignored `.dev.vars` (copy `.dev.vars.example`; `pnpm run setup`
+    // generates the key). Deployed: GOOGLE_CLIENT_ID is a var below, the two
+    // secrets are `wrangler secret put`.
   },
 
-  // Re-enqueue sweep (#72, src/sweep.ts): every five minutes, reviews stuck
-  // with indexed_at IS NULL for 5+ minutes go back on the queue (500/tick,
-  // five attempts per review). Locally: `wrangler dev --test-scheduled`.
+  // Two crons, routed on `controller.cron` in src/handlers.ts:
+  // - `*/5 * * * *`  re-enqueue sweep (#72, src/sweep.ts): reviews stuck with
+  //   indexed_at IS NULL for 5+ minutes go back on the queue (500/tick, five
+  //   attempts per review).
+  // - `0 */6 * * *`  Google review polling (#46, src/google-poll.ts): every
+  //   active Google connection, paced under the shared 300 QPM quota. Does
+  //   nothing until CREDENTIALS_KEY / GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
+  //   are set (docs/secrets.md). Locally: `wrangler dev --test-scheduled`,
+  //   then GET /__scheduled?cron=0+*%2F6+*+*+* (docs/google.md).
   "triggers": {
-    "crons": ["*/5 * * * *"]
+    "crons": ["*/5 * * * *", "0 */6 * * *"]
   },
 
   "queues": {
@@ -103,8 +114,14 @@
   "env": {
     "preview": {
       "name": "proofql-pipeline-preview",
-      "vars": { "ENVIRONMENT": "preview" },
-      "triggers": { "crons": ["*/5 * * * *"] },
+      "vars": {
+        "ENVIRONMENT": "preview",
+        // <TBD>: the Google OAuth client id (public; docs/secrets.md). The
+        // connector stays dark — `google.poll.skipped` — until this and the
+        // two secrets are set, which waits on Google API access (#44).
+        "GOOGLE_CLIENT_ID": "TBD-provision-in-m3"
+      },
+      "triggers": { "crons": ["*/5 * * * *", "0 */6 * * *"] },
       "queues": {
         "producers": [
           { "binding": "INGEST_QUEUE", "queue": "proofql-ingest-preview" }
@@ -138,8 +155,14 @@
     },
     "prod": {
       "name": "proofql-pipeline-prod",
-      "vars": { "ENVIRONMENT": "prod" },
-      "triggers": { "crons": ["*/5 * * * *"] },
+      "vars": {
+        "ENVIRONMENT": "prod",
+        // <TBD>: the Google OAuth client id (public; docs/secrets.md). The
+        // connector stays dark — `google.poll.skipped` — until this and the
+        // two secrets are set, which waits on Google API access (#44).
+        "GOOGLE_CLIENT_ID": "TBD-provision-in-m3"
+      },
+      "triggers": { "crons": ["*/5 * * * *", "0 */6 * * *"] },
       "queues": {
         "producers": [
           { "binding": "INGEST_QUEUE", "queue": "proofql-ingest-prod" }

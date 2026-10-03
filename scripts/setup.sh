@@ -5,7 +5,8 @@
 #
 # Idempotent by design — safe to run any number of times:
 #   1. copies every .env.example / .dev.vars.example to its real file where
-#      missing (never overwrites an existing file),
+#      missing (never overwrites an existing file), and fills an empty
+#      CREDENTIALS_KEY in every .dev.vars with one shared random key,
 #   2. starts the docker compose Postgres and waits for its healthcheck,
 #   3. applies database migrations when @proofql/db has a `db:migrate` script
 #      (re-running is a no-op; skipped with a note until #15 lands),
@@ -48,6 +49,39 @@ while IFS= read -r example; do
   copy_if_missing "${example#./}"
 done < <(find . \( -name node_modules -o -name .git -o -name .wrangler \) -prune -o \
   \( -name .env.example -o -name .dev.vars.example \) -type f -print | sort)
+
+# --- 1b. CREDENTIALS_KEY ---------------------------------------------------------
+# The Google connector encrypts connections.credentials with AES-256-GCM under
+# CREDENTIALS_KEY (docs/secrets.md). Every worker that touches the table must
+# hold the SAME key, so: reuse a value already present in any .dev.vars, else
+# generate one (`openssl rand -base64 32`), then fill every .dev.vars whose
+# CREDENTIALS_KEY line is empty. Existing non-empty values are never touched.
+dev_vars_files() {
+  find . \( -name node_modules -o -name .git -o -name .wrangler \) -prune -o \
+    -name .dev.vars -type f -print | sort
+}
+existing_key=""
+while IFS= read -r file; do
+  value="$(sed -n 's/^CREDENTIALS_KEY=\(.*\)$/\1/p' "$file" | head -n 1)"
+  if [ -n "$value" ]; then
+    existing_key="$value"
+    break
+  fi
+done < <(dev_vars_files)
+while IFS= read -r file; do
+  if grep -q '^CREDENTIALS_KEY=$' "$file"; then
+    if [ -z "$existing_key" ]; then
+      if ! command -v openssl >/dev/null 2>&1; then
+        fail "openssl is needed to generate CREDENTIALS_KEY (or paste a base64 32-byte value into $file)."
+      fi
+      existing_key="$(openssl rand -base64 32)"
+      info "Generated a local CREDENTIALS_KEY (base64, 32 bytes)"
+    fi
+    # Use a delimiter that cannot appear in base64 (`|`).
+    sed -i.bak "s|^CREDENTIALS_KEY=$|CREDENTIALS_KEY=${existing_key}|" "$file" && rm -f "$file.bak"
+    info "  set CREDENTIALS_KEY in $file"
+  fi
+done < <(dev_vars_files)
 
 # --- 2. Postgres via docker compose -------------------------------------------
 if ! command -v docker >/dev/null 2>&1; then

@@ -11,3 +11,19 @@
 #
 # The inventory of every planned secret (Clerk, Stripe, Google, CREDENTIALS_KEY)
 # and which worker gets it: docs/secrets.md.
+
+# --- Google connector (#46; docs/google.md, docs/secrets.md) -----------------
+# AES-256-GCM key for connections.credentials: base64 of 32 random bytes.
+# `pnpm run setup` fills an empty value with `openssl rand -base64 32` and
+# uses the SAME value for every worker that shares the table (pipeline,
+# dashboard). Never paste a deployed environment's key here.
+CREDENTIALS_KEY=
+# The fake Google server ignores the client id/secret but the poller refuses
+# to run without them, so give it placeholders.
+GOOGLE_CLIENT_ID=fake-google-client-id
+GOOGLE_CLIENT_SECRET=fake-google-client-secret
+# Point every Google call at the fake server
+# (`pnpm --filter @proofql/google dev:fake`, port 8802). Unset ⇒ real Google.
+GOOGLE_OAUTH_BASE=http://localhost:8802
+GOOGLE_TOKEN_URL=http://localhost:8802/token
+GOOGLE_API_BASE=http://localhost:8802

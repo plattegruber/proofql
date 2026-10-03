@@ -1,0 +1,16 @@
+{
+  "extends": "@proofql/tsconfig/base.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    // Runtime-agnostic: WebCrypto, fetch, URL, TextEncoder — all in the DOM
+    // lib, which both workerd and Node 22 provide. No Workers types, no
+    // Node types: this package must bundle into a Worker and run under
+    // Vitest unchanged.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
+}

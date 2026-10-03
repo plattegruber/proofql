@@ -15,9 +15,9 @@ import {
 } from "@proofql/ai";
 import {
   generationKey,
-  type IngestMessage,
   MemoryKv,
   type RecordingSink,
+  type ReviewIndexMessage,
 } from "@proofql/core";
 import { assertVerbatimSlice, schema } from "@proofql/db";
 import { project, review, setupTestDb } from "@proofql/db/test";
@@ -60,8 +60,8 @@ function context(overrides: Partial<QueueContext> = {}): FakeContext {
 
 function messageFor(
   r: Pick<ReviewRow, "id" | "projectId">,
-  environment: IngestMessage["environment"] = "live",
-): IngestMessage {
+  environment: ReviewIndexMessage["environment"] = "live",
+): ReviewIndexMessage {
   return {
     type: "review.index",
     reviewId: r.id,

@@ -5,7 +5,7 @@
  * is acked whatever happened to it.
  */
 
-import type { IngestMessage } from "@proofql/core";
+import type { IngestMessage, ReviewIndexMessage } from "@proofql/core";
 import { schema } from "@proofql/db";
 import { project, review, setupTestDb } from "@proofql/db/test";
 import { eq } from "drizzle-orm";
@@ -39,8 +39,8 @@ function deadLetter(body: unknown, id = "dl1", attempts = 4): QueueMessage {
 function messageFor(r: {
   id: string;
   projectId: string;
-  environment?: IngestMessage["environment"];
-}): IngestMessage {
+  environment?: ReviewIndexMessage["environment"];
+}): ReviewIndexMessage {
   return {
     type: "review.index",
     reviewId: r.id,

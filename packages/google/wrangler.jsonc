@@ -1,0 +1,24 @@
+// The fake Google Business Profile server as a local-only Worker
+// (`pnpm --filter @proofql/google dev:fake`). It stands in for every Google
+// host the connector talks to — accounts.google.com, oauth2.googleapis.com,
+// mybusinessaccountmanagement / mybusinessbusinessinformation / mybusiness
+// .googleapis.com — from one origin, so the pipeline's and dashboard's
+// `.dev.vars` point GOOGLE_OAUTH_BASE / GOOGLE_TOKEN_URL / GOOGLE_API_BASE
+// at http://localhost:8802 (docs/google.md "Running against the fake").
+//
+// Never deployed: there are no `env.preview` / `env.prod` blocks on purpose,
+// and nothing in infra/ or the deploy workflow references this worker. The
+// integration suites do not use this port either — they inject the fake's
+// `app.fetch` in-process (packages/google/src/fake).
+//
+// Ports follow the local dev matrix in infra/environments.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "proofql-fake-gbp-local",
+  "main": "src/fake/worker.ts",
+  "compatibility_date": "2026-09-01",
+  "dev": {
+    "port": 8802,
+    "inspector_port": 9244
+  }
+}
