@@ -97,11 +97,14 @@ export async function renderElement(
       el.removeAttribute(RENDERED_ATTR);
       return;
     }
-    const mode = query.mode ?? "excerpts";
+    const options = {
+      mode: query.mode ?? "excerpts",
+      highlight: query.highlight,
+    };
     ensureStyles(el.ownerDocument);
     const template = findTemplate(el);
-    if (template !== null) renderTemplate(el, template, response, mode);
-    else renderInto(el, response, mode);
+    if (template !== null) renderTemplate(el, template, response, options);
+    else renderInto(el, response, options);
   } catch (error) {
     debug("render failed", error);
     el.removeAttribute(RENDERED_ATTR);

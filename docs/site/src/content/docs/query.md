@@ -1,6 +1,6 @@
 ---
 title: Relevance and the floor
-description: What score measures, why an empty result beats an irrelevant one, how min_rating, the similarity floor, and the sentiment gate interact, and how to tune the floor from query.completed logs.
+description: What score measures, why an empty result beats an irrelevant one, how to highlight the matching sentence inside the untouched review, how min_rating, the similarity floor, and the sentiment gate interact, and how to tune the floor from query.completed logs.
 ---
 
 ## Relevance
@@ -13,6 +13,24 @@ Two things `score` is not:
 - It is not present without `q`. With no query the endpoint returns the newest publishable reviews and every `score` is `null`.
 
 An `excerpt` is always a verbatim slice of the review's text. Longer reviews are split into overlapping sentence windows at index time, each window gets its own vector, and the best-matching window is what you get back, so a review that covers four topics can answer four different pages with four different excerpts. Nothing generates or rewrites text.
+
+## Highlighting
+
+A four-paragraph review usually answers your page's question in one sentence. Rather than rewriting the review, the API returns it untouched and tells you where that sentence is: every result carries `highlight`, the excerpt's `{ start, end }` offsets within `review.text`, so you can put a highlighter over the exact phrase and leave the author's punctuation alone.
+
+The offsets are **UTF-16 code units** with `end` exclusive, the unit `String.prototype.slice` uses, so `review.text.slice(highlight.start, highlight.end) === excerpt` holds in every browser and runtime, with emoji and CJK ahead of the span included. `review.text` is present in `mode=reviews`, or in `mode=excerpts` when you ask for it with `include: ["text"]` (`include=text` on GET). `highlight` is `null` when there is nothing to mark: without `q`, and when the match is the review as a whole.
+
+```js
+const { results } = await (await fetch(url)).json();
+for (const { review, highlight } of results) {
+  const el = document.createElement("blockquote");
+  if (!highlight) el.textContent = review.text;
+  else el.append(review.text.slice(0, highlight.start), Object.assign(document.createElement("mark"), { textContent: review.text.slice(highlight.start, highlight.end) }), review.text.slice(highlight.end));
+  document.querySelector("#reviews").append(el);
+}
+```
+
+Three nodes, no `innerHTML`: a review can contain `<script>` and it stays text. The snippet does exactly this with [`data-highlight="true"`](/snippet#highlighting-the-match), and the dashboard's Playground shows the mark on every card.
 
 ## Empty beats irrelevant
 

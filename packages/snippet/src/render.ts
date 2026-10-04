@@ -10,7 +10,7 @@
  *     <span class="pq-stars" role="img" aria-label="4 out of 5 stars">
  *       <span aria-hidden="true">★★★★</span><span class="pq-stars-off" aria-hidden="true">☆</span>
  *     </span>
- *     <blockquote class="pq-excerpt">…</blockquote>
+ *     <blockquote class="pq-excerpt">…</blockquote>   <!-- data-highlight: text, <mark class="pq-mark">, text -->
  *     <footer class="pq-meta">
  *       <span class="pq-author">…</span>
  *       <a class="pq-source" href="…">Google</a>   <!-- <span> without a URL; none for `custom` -->
@@ -28,7 +28,12 @@
  * sibling of the list, not a child: a list may only own list items.
  */
 
-import type { QueryMode, QueryResponse, QueryResult } from "./types.js";
+import type {
+  QueryMode,
+  QueryResponse,
+  QueryResult,
+  RenderOptions,
+} from "./types.js";
 
 export const BADGE_HREF = "https://proofql.com/?ref=badge";
 export const BADGE_TEXT = "Reviews by ProofQL";
@@ -94,6 +99,42 @@ export function displayText(result: QueryResult, mode: QueryMode): string {
     : result.excerpt;
 }
 
+/**
+ * The nodes for a result's text. With `highlight` on and the whole text
+ * present, the review is split into three text nodes around a
+ * `<mark class="pq-mark">` holding the excerpt — the API's `highlight`
+ * offsets are UTF-16 code units, the unit `slice` uses, and the span is
+ * checked against the excerpt before it is marked, so a stale or
+ * mismatched span renders the plain text rather than a wrong mark. With
+ * nothing to mark (no `q`, a whole-review match) it is the text in one
+ * node; without the text, the excerpt. Never `innerHTML`.
+ */
+export function textNodes(
+  doc: Document,
+  result: QueryResult,
+  options: RenderOptions,
+): Node[] {
+  const text = result.review.text;
+  const span = result.highlight;
+  if (options.highlight && typeof text === "string" && text !== "") {
+    if (
+      span &&
+      span.start >= 0 &&
+      span.start < span.end &&
+      span.end <= text.length &&
+      text.slice(span.start, span.end) === result.excerpt
+    ) {
+      return [
+        doc.createTextNode(text.slice(0, span.start)),
+        element(doc, "mark", "pq-mark", result.excerpt),
+        doc.createTextNode(text.slice(span.end)),
+      ];
+    }
+    return [doc.createTextNode(text)];
+  }
+  return [doc.createTextNode(displayText(result, options.mode))];
+}
+
 function element<K extends keyof HTMLElementTagNameMap>(
   doc: Document,
   tag: K,
@@ -124,16 +165,16 @@ export function renderStars(doc: Document, count: number): HTMLElement {
 export function renderItem(
   doc: Document,
   result: QueryResult,
-  mode: QueryMode,
+  options: RenderOptions,
 ): HTMLElement {
   const item = element(doc, "li", "pq-item");
 
   const stars = starCount(result.review.rating);
   if (stars !== null) item.appendChild(renderStars(doc, stars));
 
-  item.appendChild(
-    element(doc, "blockquote", "pq-excerpt", displayText(result, mode)),
-  );
+  const quote = element(doc, "blockquote", "pq-excerpt");
+  quote.append(...textNodes(doc, result, options));
+  item.appendChild(quote);
 
   const meta = element(doc, "footer", "pq-meta");
   const author = result.review.author_name;
@@ -180,13 +221,13 @@ export function renderBadge(doc: Document): HTMLAnchorElement {
 export function renderInto(
   el: Element,
   response: QueryResponse,
-  mode: QueryMode,
+  options: RenderOptions,
 ): void {
   const doc = el.ownerDocument;
   const list = element(doc, "ul", "pq-list");
   list.setAttribute("role", "list");
   for (const result of response.results) {
-    list.appendChild(renderItem(doc, result, mode));
+    list.appendChild(renderItem(doc, result, options));
   }
   const nodes: Node[] = [list];
   if (response.badge) nodes.push(renderBadge(doc));

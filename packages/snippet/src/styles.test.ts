@@ -20,7 +20,10 @@ describe("ensureStyles", () => {
     const selectors = STYLESHEET.replace(/\/\*[\s\S]*?\*\//g, "")
       .split("}")
       .map((block) => block.split("{")[0]?.trim() ?? "")
-      .filter((s) => s !== "" && !s.startsWith("@media"));
+      .filter(
+        (s) =>
+          s !== "" && !s.startsWith("@media") && !s.startsWith("@supports"),
+      );
     expect(selectors.length).toBeGreaterThan(5);
     for (const selector of selectors) {
       for (const part of selector.split(",")) {
@@ -45,6 +48,7 @@ describe("ensureStyles", () => {
       "--pq-border",
       "--pq-radius",
       "--pq-gap",
+      "--pq-mark",
     ]) {
       expect(STYLESHEET).toContain(`var(${prop}`);
     }
@@ -93,6 +97,19 @@ describe("default colours meet WCAG AA (4.5:1) on light and dark hosts", () => {
       expect(contrast(mix(ink, bg, 0.72), bg)).toBeGreaterThanOrEqual(4.5);
     });
   }
+
+  it("the highlight tint keeps the host's ink readable: ≥ 4.5:1 on both, with a solid fallback", () => {
+    // `--pq-mark` default: the accent at 18% over the host background; the
+    // text inside the mark inherits the host's colour.
+    expect(STYLESHEET).toContain("rgba(0, 145, 90, 0.18)");
+    expect(STYLESHEET).toContain("var(--pq-accent, #00915a) 18%");
+    expect(STYLESHEET).toContain("forced-colors: active");
+    for (const { ink, bg } of hosts) {
+      expect(contrast(ink, mix("#00915a", bg, 0.18))).toBeGreaterThanOrEqual(
+        4.5,
+      );
+    }
+  });
 
   it("the accent is a graphic (stars, focus ring, marker): ≥ 3:1 on both, never text", () => {
     expect(contrast("#00915a", "#ffffff")).toBeGreaterThanOrEqual(3);

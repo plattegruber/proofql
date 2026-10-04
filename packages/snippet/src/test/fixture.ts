@@ -11,6 +11,7 @@ export function fixtureResponse(
         excerpt:
           "Dr. Patel explained the implant process clearly <script>alert(1)</script> & I felt at ease.",
         excerpt_id: "c1",
+        highlight: { start: 25, end: 116 },
         review: {
           id: "r1",
           rating: 5,
@@ -27,6 +28,7 @@ export function fixtureResponse(
         score: 0.71,
         excerpt: "Quick, painless, and the front desk was lovely.",
         excerpt_id: "c2",
+        highlight: null,
         review: {
           id: "r2",
           rating: 4,
@@ -42,6 +44,7 @@ export function fixtureResponse(
         score: null,
         excerpt: "Great with nervous kids.",
         excerpt_id: "c3",
+        highlight: null,
         review: {
           id: "r3",
           rating: null,

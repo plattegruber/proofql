@@ -7,8 +7,10 @@ import {
   safeHref,
   sourceName,
   starCount,
+  textNodes,
 } from "./render.js";
 import { fixtureResponse } from "./test/fixture.js";
+import type { QueryResult } from "./types.js";
 
 function host(): HTMLElement {
   const el = document.createElement("div");
@@ -20,7 +22,7 @@ function host(): HTMLElement {
 describe("renderInto", () => {
   it("renders one list item per result with the documented structure", () => {
     const el = host();
-    renderInto(el, fixtureResponse(), "excerpts");
+    renderInto(el, fixtureResponse(), { mode: "excerpts" });
 
     const list = el.querySelector(".pq-list");
     expect(list?.tagName).toBe("UL");
@@ -61,7 +63,7 @@ describe("renderInto", () => {
 
   it("escapes everything from the API — no markup is ever parsed", () => {
     const el = host();
-    renderInto(el, fixtureResponse(), "excerpts");
+    renderInto(el, fixtureResponse(), { mode: "excerpts" });
     expect(el.querySelector("script")).toBeNull();
     expect(el.querySelector("b")).toBeNull();
     const excerpt = el.querySelector(".pq-excerpt");
@@ -73,7 +75,7 @@ describe("renderInto", () => {
 
   it("omits what a result does not have, and never links to non-http URLs", () => {
     const el = host();
-    renderInto(el, fixtureResponse(), "excerpts");
+    renderInto(el, fixtureResponse(), { mode: "excerpts" });
     const items = el.querySelectorAll(".pq-item");
 
     const second = items[1] as HTMLElement; // custom source, no author, no date, javascript: url
@@ -97,7 +99,7 @@ describe("renderInto", () => {
 
   it("appends the badge when badge is true, after the list", () => {
     const el = host();
-    renderInto(el, fixtureResponse({ badge: true }), "excerpts");
+    renderInto(el, fixtureResponse({ badge: true }), { mode: "excerpts" });
     const badge = el.querySelector<HTMLAnchorElement>(":scope > .pq-badge");
     expect(badge?.textContent).toBe("Reviews by ProofQL");
     expect(badge?.href).toBe(BADGE_HREF);
@@ -110,7 +112,7 @@ describe("renderInto", () => {
 
   it("renders no badge when badge is false", () => {
     const el = host();
-    renderInto(el, fixtureResponse({ badge: false }), "excerpts");
+    renderInto(el, fixtureResponse({ badge: false }), { mode: "excerpts" });
     expect(el.querySelector(".pq-badge")).toBeNull();
     expect(el.children).toHaveLength(1);
   });
@@ -118,13 +120,13 @@ describe("renderInto", () => {
   it("replaces fallback content", () => {
     const el = host();
     el.textContent = "Loading reviews…";
-    renderInto(el, fixtureResponse(), "excerpts");
+    renderInto(el, fixtureResponse(), { mode: "excerpts" });
     expect(el.textContent).not.toContain("Loading");
   });
 
   it("shows the whole review in reviews mode when the API sent it", () => {
     const el = host();
-    renderInto(el, fixtureResponse(), "reviews");
+    renderInto(el, fixtureResponse(), { mode: "reviews" });
     const excerpts = el.querySelectorAll(".pq-excerpt");
     expect(excerpts[0]?.textContent).toMatch(/^Full review text for r1\./);
     // No `text` on the second result: falls back to the excerpt.
@@ -170,5 +172,83 @@ describe("helpers", () => {
     expect(formatDate("2026-01-15T10:30:00.000Z")?.text).toMatch(/2026/);
     expect(formatDate("nope")).toBeNull();
     expect(formatDate(null)).toBeNull();
+  });
+});
+
+describe("data-highlight (#85)", () => {
+  const r1 = () => fixtureResponse().results[0] as QueryResult;
+
+  it('splits the whole review into text, <mark class="pq-mark">, text — three nodes, no innerHTML', () => {
+    const el = host();
+    renderInto(el, fixtureResponse(), { mode: "excerpts", highlight: true });
+    const quote = el.querySelector(".pq-excerpt") as HTMLElement;
+    const text = r1().review.text as string;
+    expect(quote.childNodes).toHaveLength(3);
+    const [before, mark, after] = Array.from(quote.childNodes);
+    expect(before?.nodeType).toBe(Node.TEXT_NODE);
+    expect(before?.textContent).toBe(text.slice(0, 25));
+    expect((mark as HTMLElement).tagName).toBe("MARK");
+    expect((mark as HTMLElement).className).toBe("pq-mark");
+    expect(mark?.textContent).toBe(r1().excerpt);
+    expect(after?.nodeType).toBe(Node.TEXT_NODE);
+    expect(after?.textContent).toBe(text.slice(116));
+    expect(quote.textContent).toBe(text);
+    // Hostile markup inside the span stays text.
+    expect(quote.querySelector("script")).toBeNull();
+    expect(mark?.textContent).toContain("<script>alert(1)</script>");
+  });
+
+  it("renders the plain text in one node when highlight is null, and the excerpt when there is no text", () => {
+    const el = host();
+    renderInto(el, fixtureResponse(), { mode: "excerpts", highlight: true });
+    const quotes = el.querySelectorAll(".pq-excerpt");
+    // r2: no text in the response (older build / include missing) → excerpt.
+    expect(quotes[1]?.childNodes).toHaveLength(1);
+    expect(quotes[1]?.textContent).toBe(
+      "Quick, painless, and the front desk was lovely.",
+    );
+    expect(el.querySelectorAll(".pq-mark")).toHaveLength(1);
+
+    const response = fixtureResponse();
+    const first = response.results[0] as QueryResult;
+    first.highlight = null;
+    const el2 = host();
+    renderInto(el2, response, { mode: "excerpts", highlight: true });
+    const quote = el2.querySelector(".pq-excerpt") as HTMLElement;
+    expect(quote.childNodes).toHaveLength(1);
+    expect(quote.textContent).toBe(first.review.text);
+    expect(el2.querySelector(".pq-mark")).toBeNull();
+  });
+
+  it("is off by default: today's output, excerpt only, no <mark>", () => {
+    const el = host();
+    renderInto(el, fixtureResponse(), { mode: "excerpts" });
+    expect(el.querySelector(".pq-mark")).toBeNull();
+    expect(el.querySelector(".pq-excerpt")?.childNodes).toHaveLength(1);
+    expect(el.querySelector(".pq-excerpt")?.textContent).toBe(r1().excerpt);
+  });
+
+  it("refuses a span that does not slice to the excerpt, or is out of range", () => {
+    const doc = document;
+    for (const highlight of [
+      { start: 0, end: 10 }, // wrong text
+      { start: 25, end: 25 }, // empty
+      { start: -1, end: 116 },
+      { start: 25, end: 10_000 },
+    ]) {
+      const nodes = textNodes(
+        doc,
+        { ...r1(), highlight },
+        { mode: "excerpts", highlight: true },
+      );
+      expect(nodes, JSON.stringify(highlight)).toHaveLength(1);
+      expect(nodes[0]?.textContent).toBe(r1().review.text);
+    }
+  });
+
+  it("works in reviews mode too, where the text is always present", () => {
+    const el = host();
+    renderInto(el, fixtureResponse(), { mode: "reviews", highlight: true });
+    expect(el.querySelector(".pq-mark")?.textContent).toBe(r1().excerpt);
   });
 });

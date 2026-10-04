@@ -33,6 +33,7 @@ The key rides in the URL (`?key=pq_pk_…`) rather than a header on purpose: a `
 | `data-query`       | none       | `q`              | Search text. Without it: the newest publishable reviews. |
 | `data-limit`       | `3`        | `limit`          | 1 to 20; out-of-range values are clamped. |
 | `data-mode`        | `excerpts` | `mode`           | `excerpts` (the matching slice) or `reviews` (the whole review). |
+| `data-highlight`   | `false`    | `include=text`   | `"true"` renders the whole review with the matching sentence in `<mark class="pq-mark">`; see [Highlighting](#highlighting-the-match). |
 | `data-min-rating`  | none       | `min_rating`     | Integer 1 to 5. Tightens the project's policy, never loosens it. |
 | `data-source`      | none       | `source`         | Comma-separated: `google,yelp`. |
 | `data-since`       | none       | `since`          | ISO date (`2025-01-01`) or timestamp. |
@@ -66,6 +67,14 @@ Nothing else is sent. The API rejects unknown parameters, and the snippet adds n
 - The badge appears when the API says `badge: true` (free tier). It sits after the list, not inside it.
 - `data-proofql-rendered` marks an element that has been (or is being) rendered; a rendering never runs twice for the same element.
 
+## Highlighting the match
+
+```html
+<div data-proofql data-query="dental implants" data-highlight="true"></div>
+```
+
+Instead of the excerpt alone, the element shows the whole review, untouched, with the sentence that answered the query wrapped in `<mark class="pq-mark">`. The API supplies the span ([Highlighting](/query#highlighting) explains the offsets); the snippet splits the text into three DOM nodes around the mark, never parsing HTML, and checks the span against the excerpt first. A result with nothing to mark (no `data-query`, or a match on the review as a whole) renders the plain text. The tint is `--pq-mark`, by default the accent at 18% over the host's background, so the text inside keeps the host's contrast; forced-colors mode uses the system marker colours. In your own markup, `data-pq="text-highlighted"` gives the same three nodes.
+
 ## Styling
 
 The bundle carries its own stylesheet, injected once as `<style data-proofql-styles>` the first time something renders, so a page where nothing matches keeps an untouched `<head>`. The default look is deliberately quiet: hairline-bordered items, square corners, stars in one accent, a small monospace metadata line. It inherits the host's font and text colour (so it reads on white and on dark pages), loads no web fonts, and animates nothing beyond a hairline colour change (off under `prefers-reduced-motion`).
@@ -75,6 +84,7 @@ Every selector is scoped under a `pq-` class. To restyle, set custom properties 
 ```css
 [data-proofql] {
   --pq-accent: #c8102e;    /* stars, focus ring, badge marker   (default #00915a) */
+  --pq-mark: #fff3bf;      /* data-highlight tint    (default the accent at 18%)   */
   --pq-radius: 8px;        /* item corners                      (default 0)       */
   --pq-gap: 16px;          /* space between items               (default 12px)    */
   --pq-font: inherit;      /* text                              (default inherit) */
@@ -112,6 +122,7 @@ For full control, point `data-template` at a `<template>`. Its content is cloned
 | marker    | the element gets |
 |-----------|------------------|
 | `excerpt` | the excerpt (the whole review in `data-mode="reviews"`) |
+| `text-highlighted` | the whole review with the matching sentence in `<mark class="pq-mark">`; needs the text (`data-highlight="true"` or `data-mode="reviews"`), else the excerpt |
 | `author`  | the author's name |
 | `source`  | the platform's display name (`Google`, `Yelp`, …); nothing for `custom` |
 | `date`    | a short local date, plus `datetime` when the element is a `<time>` |

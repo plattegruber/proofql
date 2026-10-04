@@ -1,7 +1,9 @@
 // One playground result: rank, similarity as a number and a bar with the
-// floor ticked on it, the excerpt (or the whole review with the excerpt
-// marked, in reviews mode), and the review's attribution. Below-floor cards
-// are the same card, muted, with the reason spelled out.
+// floor ticked on it, the whole review with the matching excerpt marked (the
+// api's `highlight` span, #85 — always on here, in both modes, so the
+// developer sees exactly what `data-highlight` would render), and the
+// review's attribution. Below-floor cards are the same card, muted, with the
+// reason spelled out.
 import { Link } from "react-router";
 
 import { Stars } from "~/components/reviews/stars";
@@ -41,8 +43,12 @@ export function SimilarityBar({
   );
 }
 
-/** The review text with the excerpt emphasized, for `mode: "reviews"`. */
-function MarkedText({
+/**
+ * The review text with the excerpt emphasized — what the snippet renders
+ * with `data-highlight="true"`. A whole-review match (the `full` chunk) has
+ * nothing to mark and renders plain, as the api's `highlight: null` does.
+ */
+export function MarkedText({
   text,
   excerpt,
   startOffset,
@@ -53,10 +59,16 @@ function MarkedText({
 }) {
   const end = startOffset + excerpt.length;
   if (text.slice(startOffset, end) !== excerpt) return <>{text}</>;
+  if (startOffset === 0 && end === text.length) return <>{text}</>;
   return (
     <>
       {text.slice(0, startOffset)}
-      <mark className="bg-accent-100 text-ink-900">{excerpt}</mark>
+      <mark
+        data-highlight
+        className="rounded-none bg-accent-100 px-0.5 text-ink-900"
+      >
+        {excerpt}
+      </mark>
       {text.slice(end)}
     </>
   );
@@ -66,13 +78,11 @@ export function ResultCard({
   result,
   rank,
   floor,
-  mode,
   reviewHref,
 }: {
   result: PlaygroundResult;
   rank: number;
   floor: number;
-  mode: "excerpts" | "reviews";
   reviewHref: string;
 }) {
   const { review } = result;
@@ -123,15 +133,11 @@ export function ResultCard({
           result.belowFloor ? "text-gray-500" : "text-ink-900",
         )}
       >
-        {mode === "reviews" ? (
-          <MarkedText
-            text={review.text}
-            excerpt={result.excerpt}
-            startOffset={result.startOffset}
-          />
-        ) : (
-          result.excerpt
-        )}
+        <MarkedText
+          text={review.text}
+          excerpt={result.excerpt}
+          startOffset={result.startOffset}
+        />
       </blockquote>
 
       <footer className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 font-mono text-label text-gray-500">

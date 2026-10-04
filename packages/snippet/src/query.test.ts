@@ -54,6 +54,29 @@ describe("element attributes → query string", () => {
     });
   });
 
+  it('data-highlight="true" asks for the text in excerpts mode only', () => {
+    expect(
+      Object.fromEntries(
+        params({ "data-query": "x", "data-highlight": "true" }),
+      ),
+    ).toEqual({ key: KEY, q: "x", limit: "3", include: "text" });
+    // reviews mode already carries review.text.
+    expect(
+      params({ "data-highlight": "true", "data-mode": "reviews" }).has(
+        "include",
+      ),
+    ).toBe(false);
+    for (const value of ["", "yes", "false", "TRUE"]) {
+      expect(params({ "data-highlight": value }).has("include"), value).toBe(
+        false,
+      );
+    }
+    expect(readElementQuery(el({ "data-highlight": "true" })).highlight).toBe(
+      true,
+    );
+    expect(readElementQuery(el({})).highlight).toBe(false);
+  });
+
   it("encodes the query text", () => {
     const url = buildQueryUrl(
       API,

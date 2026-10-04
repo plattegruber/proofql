@@ -28,6 +28,7 @@ The page's origin must be in the project's allowed origins, or the API answers 4
 | `data-query`       | none       | `q`              | Search text. Without it: the newest publishable reviews. |
 | `data-limit`       | `3`        | `limit`          | 1–20; out-of-range values are clamped.                   |
 | `data-mode`        | `excerpts` | `mode`           | `excerpts` (the matching slice) or `reviews` (whole review). |
+| `data-highlight`   | `false`    | `include=text`   | `"true"` renders the whole review with the matching sentence in `<mark class="pq-mark">` (below). In `excerpts` mode it asks the API for `review.text`. |
 | `data-min-rating`  | none       | `min_rating`     | Integer 1–5. Tightens the project's policy, never loosens it. |
 | `data-source`      | none       | `source`         | Comma-separated: `google,yelp`.                           |
 | `data-since`       | none       | `since`          | ISO date (`2025-01-01`) or timestamp.                    |
@@ -59,6 +60,14 @@ Nothing else is sent. The API rejects unknown parameters, and the snippet adds n
 - A native list with an explicit `role="list"` (Safari drops list semantics under `list-style: none`). The badge appears when the API says `badge: true` (free tier). It sits after the list, not inside it: a list may only own list items.
 - `data-proofql-rendered` marks an element that has been (or is being) rendered; a rendering never runs twice for the same element.
 
+### Highlighting the match: `data-highlight`
+
+```html
+<div data-proofql data-query="dental implants" data-highlight="true"></div>
+```
+
+The API returns every review untouched plus a `highlight` span — the excerpt's `{ start, end }` offsets in `review.text` (UTF-16 code units, the unit `String.prototype.slice` uses, so emoji and CJK ahead of the span cannot shift it). With `data-highlight="true"` the `.pq-excerpt` holds the whole review as three nodes: the text before, `<mark class="pq-mark">` with the matching sentence, the text after — built with the DOM API, never `innerHTML`, and the span is checked against the excerpt before it is marked. When there is nothing to mark (no `data-query`, or the match is the review as a whole, `highlight: null`) the whole text renders plain. The mark is a translucent tint of the accent (`--pq-mark`, default `color-mix(in srgb, var(--pq-accent) 18%, transparent)` with an `rgba` fallback); the text inside keeps the host's ink, and forced-colors mode uses the system `Mark`/`MarkText` colours.
+
 ### Styling
 
 The bundle carries its own stylesheet, injected once as `<style data-proofql-styles>` the first time something renders — so a page where nothing matches keeps an untouched `<head>`, and one tag is still the whole integration. The default look is deliberately quiet: hairline-bordered items, square corners, stars in one accent, a small monospace metadata line. It inherits the host's font and text colour (so it reads on white *and* dark pages), loads no web fonts, and animates nothing beyond a hairline colour change (off under `prefers-reduced-motion`).
@@ -68,6 +77,7 @@ Every selector is scoped under a `pq-` class. To restyle, set custom properties 
 ```css
 [data-proofql] {
   --pq-accent: #c8102e;    /* stars, focus ring, badge marker   (default #00915a) */
+  --pq-mark: #fff3bf;      /* data-highlight tint    (default the accent at 18%)   */
   --pq-radius: 8px;        /* item corners                      (default 0)       */
   --pq-gap: 16px;          /* space between items               (default 12px)    */
   --pq-font: inherit;      /* text                              (default inherit) */
@@ -105,6 +115,7 @@ For full control, point `data-template` at a `<template>`. Its content is cloned
 | marker    | the element gets                                                      |
 |-----------|-----------------------------------------------------------------------|
 | `excerpt` | the excerpt (the whole review in `data-mode="reviews"`)               |
+| `text-highlighted` | the whole review with the matching sentence in `<mark class="pq-mark">`; needs the text (`data-highlight="true"` or `data-mode="reviews"`), else the excerpt |
 | `author`  | the author's name                                                     |
 | `source`  | the platform's display name (`Google`, `Yelp`…); nothing for `custom` |
 | `date`    | a short local date, plus `datetime` when the element is a `<time>`    |
