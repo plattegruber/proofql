@@ -8,7 +8,7 @@ relative path and runs under `packages/db`'s `tsx`, so nothing here ships.
 
 | Path | What |
 |---|---|
-| `scripts/seed-load.ts` | Creates the load account (`org_load_proofql`, paid plan): N projects × M reviews plus one 50,000-chunk tenant, two fake-embedded chunks per review, and mints keys per project. Writes `.keys.json` (gitignored). |
+| `scripts/seed-load.ts` | Creates the load account (`org_load_proofql`, paid plan): N projects × M reviews plus one 50,000-chunk tenant, two fake-embedded chunks per review, and mints keys per project. Writes `.keys.json` (gitignored). The two fixed chunks (`full` + first-sentence `window`) are a shape for the scan, not `chunkReview`'s output — since #127 a real review averages ~4 chunks on the demo corpus, so a 1,000-review load tenant stands in for ~500 real reviews; read [`docs/performance.md`](../docs/performance.md) §2 for the conversion. |
 | `k6/query.js` | The five scenarios, one per run (`-e SCENARIO=…`), with the thresholds. |
 | `run.sh` | Runs the scenarios in sequence, snapshots Postgres before and after each, writes `results/` (gitignored). |
 | `scripts/pg-stats.sh` | The Postgres snapshot (`pg_stat_database.sessions`, backends by state). |
