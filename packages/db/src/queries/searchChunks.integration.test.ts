@@ -601,6 +601,11 @@ describe("modes: one row per review", () => {
   const FOUR =
     "Parking behind the building was easy. The implant procedure was painless and quick. Front desk explained every charge. Our kids love the hygienist.";
   const SENTENCE_TWO = "The implant procedure was painless and quick.";
+  // A second, single-sentence review on the same topic but a weaker match
+  // ({painless, implant, honestly}: 2/sqrt(3·3) ≈ 0.67 against the
+  // sentence's 3/sqrt(3·4) ≈ 0.87), so the order between the two reviews
+  // is never a tie.
+  const WEAKER = "Painless implant, honestly.";
 
   it.each([
     "excerpts",
@@ -610,7 +615,7 @@ describe("modes: one row per review", () => {
     const four = await indexedByChunker(t.db, { projectId: p.id, text: FOUR });
     const single = await indexedByChunker(t.db, {
       projectId: p.id,
-      text: IMPLANT,
+      text: WEAKER,
     });
     const stored = await t.db
       .select({ kind: reviewChunks.kind })
@@ -657,8 +662,10 @@ describe("modes: one row per review", () => {
     );
     expect(strict.map((r) => [r.reviewId, r.excerpt])).toEqual([
       [four.id, SENTENCE_TWO],
-      [single.id, IMPLANT],
+      [single.id, WEAKER],
     ]);
+    expect(top?.similarity).toBeCloseTo(3 / Math.sqrt(12), 2);
+    expect(results[1]?.similarity).toBeCloseTo(2 / 3, 2);
   });
 });
 
