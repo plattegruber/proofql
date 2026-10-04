@@ -91,6 +91,10 @@ jobs:
       # wrangler fail on the first placeholder id.
       - name: Check every binding is provisioned
         run: node scripts/check-provisioning.mjs preview
+      # The pipeline and api bundle workspace packages whose exports point at
+      # dist/; build them first (a fresh runner has none).
+      - name: Build pipeline and api workspace dependencies
+        run: pnpm --filter "@proofql/pipeline^..." --filter "@proofql/api^..." build
       - name: Deploy proofql-pipeline-preview
         uses: cloudflare/wrangler-action@v3
         with:
@@ -208,6 +212,10 @@ jobs:
       - uses: ./.github/actions/setup
       - name: Check every binding is provisioned
         run: node scripts/check-provisioning.mjs prod
+      # The pipeline and api bundle workspace packages whose exports point at
+      # dist/; build them first (a fresh runner has none).
+      - name: Build pipeline and api workspace dependencies
+        run: pnpm --filter "@proofql/pipeline^..." --filter "@proofql/api^..." build
       - name: Deploy proofql-pipeline-prod
         uses: cloudflare/wrangler-action@v3
         with:
