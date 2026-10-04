@@ -78,6 +78,21 @@ local seed embeds with a bag-of-words fake, so the page's queries are phrased
 to share words with the seeded reviews; against real embeddings any phrasing
 works. See [`workers/cdn/README.md`](workers/cdn/README.md).
 
+**The M1 exit** is [`scripts/demo.sh`](scripts/demo.sh) (`pnpm demo`): the
+whole ingest → indexed → query → hide → delete loop over the API with every
+response asserted — including the policy gate (a 2-star review is ingested
+and must never come back) and the honest `match: "none"` for a query the
+corpus cannot answer. It passed against the local stack and against preview
+on 2026-10-04 (transcripts and numbers in
+[`docs/performance.md`](docs/performance.md) §5). To run it yourself:
+
+```sh
+PQ_SECRET_KEY=pq_sk_live_… PQ_PUBLISHABLE_KEY=pq_pk_live_… pnpm demo       # local, after pnpm run setup && pnpm dev
+API_URL=https://proofql-api-preview.<subdomain>.workers.dev \
+ORIGIN=https://proofql-cdn-preview.<subdomain>.workers.dev \
+PQ_SECRET_KEY=… PQ_PUBLISHABLE_KEY=… pnpm demo                                # preview
+```
+
 ## Quickstart
 
 Prerequisites:

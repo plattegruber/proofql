@@ -11,8 +11,10 @@ target from #16 is **under 20 ms** for tenants below the ~50k-vector line.
 
 ## 1. Local baseline (2026-10-02/03)
 
-Staging is not provisioned yet (#14, owner-gated), so this is the **local**
-run: k6 → `wrangler dev` → the docker compose Postgres, all on one laptop.
+Staging was not provisioned when this was measured (#14, owner-gated), so
+this is the **local** run: k6 → `wrangler dev` → the docker compose
+Postgres, all on one laptop. The first numbers from real infrastructure —
+single requests, not a load test — are in §5.
 What that leaves out, and why the staging numbers will differ:
 
 - **No Workers AI.** Locally the embedder is the deterministic fake
@@ -440,6 +442,96 @@ connection) waits for a staging measurement. Not fixed here.
 5. **Re-run on staging** (#14) and add a column: the two numbers to watch
    are the Workers AI share of `took_ms` on misses and whether 53300 ever
    surfaces behind Hyperdrive.
+
+## 5. Preview baseline (2026-10-04)
+
+The first numbers from the real stack — Workers AI `bge-m3`, Workers KV,
+Hyperdrive in front of the Neon preview branch — come from
+[`scripts/demo.sh`](../scripts/demo.sh) (`pnpm demo`, #31), the M1 exit:
+one run, single requests from a laptop, so these are **points, not
+percentiles**; the k6 scenarios of §1 have not been run against preview yet
+(recommendation 5 in §4 still stands). Same script, same morning, against
+the local stack for the pairing.
+
+| | Local (`wrangler dev`, fake embedder) | Preview (Workers AI, KV, Hyperdrive → Neon) |
+|---|---|---|
+| Cold query `took_ms` (MISS, embed + search) | 29 ms | **391 ms** |
+| Cache HIT `took_ms` | 1 ms | **6 ms** |
+| Ingest → all 6 `indexed` | 6.5 s | **17.1 s** |
+| `POST /v1/reviews` (6 reviews), end to end | 138 ms | 1,038 ms |
+| 6 × `DELETE` + 6 × `GET` (404), end to end | 467 ms | 5,530 ms |
+
+Reading it:
+
+- **The cold query is the number to watch: 391 ms against a 400 ms p95
+  target.** Locally the same request is 29 ms, and the search statement on
+  an 80-review tenant is single-digit milliseconds, so almost all of the
+  preview figure is the Workers AI embedding call plus the Hyperdrive round
+  trips — exactly the two shares §1 said staging would reveal. A dozen
+  probe queries during the same session landed between 204 and 533 ms
+  `took_ms`, so the embedding latency is also the variance. Before quoting a
+  prod number, run `pnpm load:run cold` against preview and read
+  `embedding_ms` from the `query.completed` lines; if it is the bulk, the
+  options are a smaller embedding model for queries, or caching query
+  vectors by normalized `q` (misses on a *new phrasing* still pay, repeats
+  of a phrasing with a purged result cache would not).
+- **A HIT is 6 ms in the handler** (1 ms locally): the KV read is a real
+  network hop now, and still ~65× cheaper than the miss. The cache is doing
+  its job; the 24 h TTL / generation-purge design (§4.3) needs no change.
+- **Ingest → indexed is 17 s** for a batch of six, against 6.5 s locally.
+  That is queue delivery plus one `bge-m3` call per chunk on the pipeline
+  side, well inside the "seconds" the API promises, but the onboarding
+  meter (`Indexed N of N`) should expect tens of seconds, not single
+  digits, on a real batch.
+- **Management calls are ~0.5–1 s each on preview** (the 6 deletes + 6
+  gets took 5.5 s): per-request Postgres connection through Hyperdrive plus
+  the cache purge. Fine for the dashboard; a reason to keep ingest batched
+  (one call per 100 reviews, as the API allows), not per review.
+- One finding on the way here is about relevance, not speed: with real
+  embeddings the default **0.55 floor is close to bge-m3's baseline for
+  unrelated short sentences.** A query phrased like a clinic complaint but
+  about nothing in the corpus ("the lobby coffee kiosk swallowed my coins")
+  scored 0.55–0.60 against unrelated dental reviews ("knocked out half a
+  front tooth playing pickup basketball" at 0.579) and came back as
+  `match: "query"`; only a genuinely off-domain phrasing ("guest wifi
+  password router kept dropping", "roofing shingles") produced the
+  `match: "none"` the script asserts. The script was changed to use the
+  off-domain topic; the floor itself (`similarity_floor`, per project) is
+  worth re-tuning on real embeddings with the relevance fixtures before
+  launch — that is a separate issue, not a §4 recommendation about the
+  query path.
+
+### Transcripts
+
+Local (`pnpm run setup && pnpm dev`, keys from the seed output):
+
+```
+[demo] http://localhost:8797 · origin http://localhost:3000 · reviews demo-1791145905-1…6
+[1/8] GET /health                                              PASS     61 ms  ok, x-request-id d8fe875e-a09b-4dd0-8a82-c84ff7f2f799
+[2/8] POST /v1/reviews (6 reviews, demo-1791145905-n)          PASS    138 ms  stored 6: indexing, indexing, indexing, indexing, indexing, indexing
+[3/8] GET /v1/reviews?source=custom until 6/6 indexed          PASS   7562 ms  6/6 indexed after 6.5s
+[4/8] GET /v1/query (publishable key + Origin) ×3             PASS    375 ms  a: 1 result(s), top=review 1 score 0.845 took_ms 29 · b: match none, results [] · c: match fallback, 5 labelled row(s)
+[5/8] GET /v1/query (repeat a) → x-cache: HIT                PASS    127 ms  HIT, took_ms 1
+[6/8] GET /v1/query (a, include=text) → highlights           PASS    119 ms  1 result(s), every text.slice(highlight.start, highlight.end) === excerpt
+[7/8] PATCH /v1/reviews/{review 1} hidden → gone from a      PASS    190 ms  hidden; MISS, match none, 0 result(s), review 1 absent
+[8/8] DELETE /v1/reviews/{id} ×6 → 204, GET → 404         PASS    467 ms  6 deleted, 6 × 404
+demo: 8/8 steps passed in 9s against http://localhost:8797 — cold query 29 ms, cache HIT 1 ms, ingest→indexed 6.5s
+```
+
+Preview (`API_URL=https://proofql-api-preview.…`, `ORIGIN=https://proofql-cdn-preview.…`, the seeded demo project's live keys):
+
+```
+[demo] https://proofql-api-preview.gruberplatte.workers.dev · origin https://proofql-cdn-preview.gruberplatte.workers.dev · reviews demo-1791145915-1…6
+[1/8] GET /health                                              PASS    114 ms  ok, x-request-id a456f3f21bfa089c
+[2/8] POST /v1/reviews (6 reviews, demo-1791145915-n)          PASS   1038 ms  stored 6: indexing, indexing, indexing, indexing, indexing, indexing
+[3/8] GET /v1/reviews?source=custom until 6/6 indexed          PASS  18227 ms  6/6 indexed after 17.1s
+[4/8] GET /v1/query (publishable key + Origin) ×3             PASS   2069 ms  a: 5 result(s), top=review 1 score 0.915 took_ms 391 · b: match none, results [] · c: match fallback, 5 labelled row(s)
+[5/8] GET /v1/query (repeat a) → x-cache: HIT                PASS    269 ms  HIT, took_ms 6
+[6/8] GET /v1/query (a, include=text) → highlights           PASS    812 ms  5 result(s), every text.slice(highlight.start, highlight.end) === excerpt
+[7/8] PATCH /v1/reviews/{review 1} hidden → gone from a      PASS   1391 ms  hidden; MISS, match query, 5 result(s), review 1 absent
+[8/8] DELETE /v1/reviews/{id} ×6 → 204, GET → 404         PASS   5530 ms  6 deleted, 6 × 404
+demo: 8/8 steps passed in 29s against https://proofql-api-preview.gruberplatte.workers.dev — cold query 391 ms, cache HIT 6 ms, ingest→indexed 17.1s
+```
 
 ## Appendix: raw k6 output
 
