@@ -162,7 +162,7 @@
       ],
       "hyperdrive": [
         // <TBD>: id of Hyperdrive config `proofql-hyperdrive-preview`.
-        { "binding": "HYPERDRIVE", "id": "TBD-provision-in-m0" }
+        { "binding": "HYPERDRIVE", "id": "ec18323ec9474ad9a0c404aa1911bfd7" }
       ],
       "ai": { "binding": "AI" }
     },
@@ -205,7 +205,7 @@
       ],
       "hyperdrive": [
         // <TBD>: id of Hyperdrive config `proofql-hyperdrive-prod`.
-        { "binding": "HYPERDRIVE", "id": "TBD-provision-in-m0" }
+        { "binding": "HYPERDRIVE", "id": "796092f0ab1444bb8df0a60fdf8b7824" }
       ],
       "ai": { "binding": "AI" }
     }
