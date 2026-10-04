@@ -131,7 +131,7 @@
         // <TBD>: the Clerk *development* instance's publishable key (public,
         // `pk_test_…`; docs/secrets.md). The matching CLERK_SECRET_KEY and
         // CLERK_WEBHOOK_SIGNING_SECRET are wrangler secrets, never vars.
-        "CLERK_PUBLISHABLE_KEY": "TBD-provision-in-m0"
+        "CLERK_PUBLISHABLE_KEY": "pk_test_Y3Jpc3AtZmluY2gtODgxNy5jbGVyay5hY2NvdW50cy5kZXYk"
       },
       "kv_namespaces": [
         // KV namespace proofql-cache-preview (created 2026-10-04).
