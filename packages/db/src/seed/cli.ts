@@ -33,8 +33,8 @@ async function main(): Promise<void> {
       `  reviews  ${summary.reviews.live} live, ${summary.reviews.test} test`,
     );
     console.log(
-      `  chunks   ${summary.chunks.full} full, ${summary.chunks.window} window ` +
-        "(all embedded with the fake provider)",
+      `  chunks   ${summary.chunks.full} full, ${summary.chunks.window} window, ` +
+        `${summary.chunks.sentence} sentence (all embedded with the fake provider)`,
     );
     console.log("");
     console.log(

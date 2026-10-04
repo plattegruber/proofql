@@ -41,7 +41,7 @@ GET /v1/query?key=pq_pk_live_…&q=dental+implants&limit=3
 ## How it fits together
 
 1. **Ingest.** Reviews arrive through the push API, a CSV upload in the dashboard, or (soon) the Google connector, in one normalized shape.
-2. **Index.** Every review is embedded whole; longer reviews also get sentence-window excerpts, so a review that covers four topics matches four queries. Vectors and a full-text index live in Postgres. No LLM touches your reviews.
+2. **Index.** Every review is embedded whole, every sentence of it is embedded on its own, and longer reviews also get sentence-window excerpts, so a review that covers four topics matches four queries and the highlight lands on the one sentence that answered. Vectors and a full-text index live in Postgres. No LLM touches your reviews.
 3. **Serve.** `/v1/query` runs hybrid search, applies a relevance floor and your publication policy in one SQL statement, and returns ranked excerpts with their parent reviews. The snippet renders them; the [hosted demo](https://cdn.proofql.com/demo/) shows it on a page.
 
 ## Status and roadmap

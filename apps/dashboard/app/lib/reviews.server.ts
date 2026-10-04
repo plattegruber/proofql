@@ -12,7 +12,11 @@
  * (Hyperdrive + the CACHE binding) and the integration tests (the
  * @proofql/db harness + `MemoryKv`) run the same code.
  */
-import { bumpProjectGeneration, type GenerationKv } from "@proofql/core";
+import {
+  bumpProjectGeneration,
+  type ChunkKind,
+  type GenerationKv,
+} from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
 import {
   and,
@@ -184,7 +188,7 @@ export async function listReviewSources(
 /** A chunk as the detail page lists it — the vector itself is never read. */
 export interface ReviewChunkRow {
   id: string;
-  kind: "full" | "window";
+  kind: ChunkKind;
   text: string;
   startOffset: number;
   embedded: boolean;
@@ -229,7 +233,7 @@ export async function getReviewDetail(
     .from(schema.reviewChunks)
     .where(eq(schema.reviewChunks.reviewId, review.id))
     .orderBy(
-      // The full chunk first, then windows in text order.
+      // The full chunk first, then windows and sentences in text order.
       sql`${schema.reviewChunks.kind} = 'full' DESC`,
       asc(schema.reviewChunks.startOffset),
       asc(schema.reviewChunks.id),

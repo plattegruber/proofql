@@ -1,0 +1,11 @@
+-- #127: single-sentence chunks. `chunkReview` now emits one `sentence`
+-- chunk per sentence for reviews of two or more sentences, so the API's
+-- highlight can narrow to the sentence that answered. Append-only: the
+-- existing `full` and `window` values and rows are untouched; projects
+-- indexed before this keep their old chunks until re-indexed
+-- (`pnpm db:reindex`, packages/db/README.md).
+--
+-- `ALTER TYPE … ADD VALUE` has been allowed inside a transaction block since
+-- Postgres 12 (the new value just cannot be *used* in the same transaction),
+-- so drizzle's transactional migrator applies it as is on PG16.
+ALTER TYPE "public"."chunk_kind" ADD VALUE 'sentence';

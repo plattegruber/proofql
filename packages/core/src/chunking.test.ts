@@ -26,17 +26,31 @@ function windows(chunks: readonly Chunk[]): Chunk[] {
   return chunks.filter((c) => c.kind === "window");
 }
 
+function sentenceChunks(chunks: readonly Chunk[]): Chunk[] {
+  return chunks.filter((c) => c.kind === "sentence");
+}
+
 function sentences(n: number): string {
   return Array.from({ length: n }, (_, i) => `Sentence ${i + 1}.`).join(" ");
 }
 
 describe("chunkReview", () => {
-  it("emits only the full chunk for a short review", () => {
+  it("emits the full chunk and one sentence chunk per sentence for a short review", () => {
     const text = "Great service. Would recommend. Five stars.";
     const chunks = chunkReview(text);
 
-    expect(chunks).toEqual([{ kind: "full", text, startOffset: 0 }]);
+    expect(chunks).toEqual([
+      { kind: "full", text, startOffset: 0 },
+      { kind: "sentence", text: "Great service.", startOffset: 0 },
+      { kind: "sentence", text: "Would recommend.", startOffset: 15 },
+      { kind: "sentence", text: "Five stars.", startOffset: 32 },
+    ]);
     expectVerbatim(text, chunks);
+  });
+
+  it("a single-sentence review is the full chunk alone", () => {
+    const text = "Great service from start to finish!";
+    expect(chunkReview(text)).toEqual([{ kind: "full", text, startOffset: 0 }]);
   });
 
   it("emits the full chunk first, as the whole text at offset 0", () => {
@@ -46,7 +60,7 @@ describe("chunkReview", () => {
     expect(full).toEqual({ kind: "full", text, startOffset: 0 });
   });
 
-  it("four sentences → full + two windows with correct offsets", () => {
+  it("four sentences → full + two windows + four sentences with correct offsets", () => {
     const text = "One. Two! Three? Four.";
     const chunks = chunkReview(text);
 
@@ -54,6 +68,10 @@ describe("chunkReview", () => {
       { kind: "full", text, startOffset: 0 },
       { kind: "window", text: "One. Two! Three?", startOffset: 0 },
       { kind: "window", text: "Three? Four.", startOffset: 10 },
+      { kind: "sentence", text: "One.", startOffset: 0 },
+      { kind: "sentence", text: "Two!", startOffset: 5 },
+      { kind: "sentence", text: "Three?", startOffset: 10 },
+      { kind: "sentence", text: "Four.", startOffset: 17 },
     ]);
     expectVerbatim(text, chunks);
   });
@@ -100,8 +118,14 @@ describe("chunkReview", () => {
     const text = sentences(4);
     const chunks = chunkReview(text, { maxSentencesPerWindow: 10 });
 
-    expect(chunks).toHaveLength(1);
-    expect(chunks[0]?.kind).toBe("full");
+    expect(windows(chunks)).toHaveLength(0);
+    expect(chunks.map((c) => c.kind)).toEqual([
+      "full",
+      "sentence",
+      "sentence",
+      "sentence",
+      "sentence",
+    ]);
   });
 
   it("respects minSentencesForWindows", () => {
@@ -245,10 +269,158 @@ describe("chunkReview", () => {
       });
       expect(chunks[0]).toEqual({ kind: "full", text, startOffset: 0 });
       expectVerbatim(text, chunks);
-      // Windows are in text order and never empty.
+      // Windows are in text order and never empty; so are sentences, and
+      // the kinds come out in blocks: full, windows, sentences.
       const offsets = windows(chunks).map((c) => c.startOffset);
       expect([...offsets].sort((a, b) => a - b)).toEqual(offsets);
+      const sentenceOffsets = sentenceChunks(chunks).map((c) => c.startOffset);
+      expect([...sentenceOffsets].sort((a, b) => a - b)).toEqual(
+        sentenceOffsets,
+      );
+      expect(chunks.map((c) => c.kind).join(",")).toMatch(
+        /^full(,window)*(,sentence)*$/,
+      );
+      // No chunk duplicates the full text.
+      for (const c of chunks.slice(1)) expect(c.text).not.toBe(text);
     }
+  });
+
+  describe("sentence chunks (#127)", () => {
+    it.each([
+      [1, 0, 0],
+      [2, 0, 2],
+      [3, 0, 3],
+      [4, 2, 4],
+      [7, 3, 7],
+    ])("%i sentences → %i windows and %i sentence chunks", (count, windowCount, sentenceCount) => {
+      const text = sentences(count);
+      const chunks = chunkReview(text);
+
+      expect(chunks[0]).toEqual({ kind: "full", text, startOffset: 0 });
+      expect(windows(chunks)).toHaveLength(windowCount);
+      expect(sentenceChunks(chunks)).toHaveLength(sentenceCount);
+      expect(chunks).toHaveLength(1 + windowCount + sentenceCount);
+      expectVerbatim(text, chunks);
+    });
+
+    it("emits full, then windows, then sentences, each block in text order", () => {
+      const text = sentences(7);
+      const kinds = chunkReview(text).map((c) => c.kind);
+
+      expect(kinds).toEqual([
+        "full",
+        "window",
+        "window",
+        "window",
+        ...Array.from({ length: 7 }, () => "sentence" as const),
+      ]);
+    });
+
+    it("every sentence chunk is exactly a segmentSentences span", () => {
+      const text =
+        "  Dr. Patel did my implant. It was painless! Would I go back? Yes.  ";
+      const chunks = chunkReview(text);
+      const spans = segmentSentences(text);
+
+      expect(sentenceChunks(chunks)).toEqual(
+        spans.map((s) => ({
+          kind: "sentence",
+          text: text.slice(s.start, s.end),
+          startOffset: s.start,
+        })),
+      );
+      expect(sentenceChunks(chunks).map((c) => c.text)).toEqual([
+        "Dr. Patel did my implant.",
+        "It was painless!",
+        "Would I go back?",
+        "Yes.",
+      ]);
+      expectVerbatim(text, chunks);
+    });
+
+    it("never duplicates the full chunk, even when the text is one trimmed sentence", () => {
+      for (const text of [
+        "Just one sentence.",
+        "  padded single sentence  ",
+        "no terminator at all",
+        "こんにちは。",
+      ]) {
+        const chunks = chunkReview(text);
+        expect(chunks, text).toEqual([{ kind: "full", text, startOffset: 0 }]);
+      }
+    });
+
+    it("emoji before the sentence shift its UTF-16 offset, not its text", () => {
+      const text =
+        "Great 👍🏽 service. Crème brûlée 🙏 was perfect! Would go again.";
+      const chunks = chunkReview(text);
+      const s = sentenceChunks(chunks);
+
+      expect(s.map((c) => c.text)).toEqual([
+        "Great 👍🏽 service.",
+        "Crème brûlée 🙏 was perfect!",
+        "Would go again.",
+      ]);
+      // Two surrogate pairs in the first sentence: the code-unit offset of
+      // the second sentence is larger than its code-point index.
+      expect(s[1]?.startOffset).toBe(text.indexOf("Crème"));
+      expect([...text.slice(0, s[1]?.startOffset)].length).toBeLessThan(
+        s[1]?.startOffset ?? 0,
+      );
+      expectVerbatim(text, chunks);
+    });
+
+    it("CJK with the ja locale: one chunk per 。/？ sentence", () => {
+      const text = "こんにちは。元気ですか？はい。元気です。また来ます。";
+      const chunks = chunkReview(text, { locale: "ja" });
+
+      expect(sentenceChunks(chunks).map((c) => c.text)).toEqual([
+        "こんにちは。",
+        "元気ですか？",
+        "はい。",
+        "元気です。",
+        "また来ます。",
+      ]);
+      expect(windows(chunks)).toHaveLength(2);
+      expectVerbatim(text, chunks);
+    });
+
+    it("CRLF between sentences stays out of the sentence chunks", () => {
+      const text = "Line one.\r\nLine two.\r\nLine three.";
+      const chunks = chunkReview(text);
+
+      expect(sentenceChunks(chunks)).toEqual([
+        { kind: "sentence", text: "Line one.", startOffset: 0 },
+        { kind: "sentence", text: "Line two.", startOffset: 11 },
+        { kind: "sentence", text: "Line three.", startOffset: 22 },
+      ]);
+      expectVerbatim(text, chunks);
+    });
+
+    it("sentenceChunks: false reproduces the full + windows output", () => {
+      for (const count of [1, 2, 3, 4, 5, 6, 7]) {
+        const text = sentences(count);
+        const legacy = chunkReview(text, { sentenceChunks: false });
+        const current = chunkReview(text);
+
+        expect(legacy.some((c) => c.kind === "sentence")).toBe(false);
+        expect(legacy).toEqual(
+          current.filter((c) => c.kind === "full" || c.kind === "window"),
+        );
+      }
+      expect(
+        chunkReview("Great service. Would recommend. Five stars.", {
+          sentenceChunks: false,
+        }),
+      ).toEqual([
+        {
+          kind: "full",
+          text: "Great service. Would recommend. Five stars.",
+          startOffset: 0,
+        },
+      ]);
+      expect(DEFAULT_CHUNK_OPTIONS.sentenceChunks).toBe(true);
+    });
   });
 });
 
@@ -392,7 +564,8 @@ describe("segmentSentences", () => {
       const text =
         "Dr. Patel did my implant. Zero pain after day two. Would recommend.";
       expect(segmentSentences(text)).toHaveLength(3);
-      expect(chunkReview(text)).toEqual([
+      expect(chunkReview(text).filter((c) => c.kind === "window")).toEqual([]);
+      expect(chunkReview(text, { sentenceChunks: false })).toEqual([
         { kind: "full", text, startOffset: 0 },
       ]);
     });

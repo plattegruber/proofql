@@ -8,7 +8,8 @@
  */
 
 import { fakeEmbed } from "@proofql/ai";
-import { sql } from "drizzle-orm";
+import { chunkReview } from "@proofql/core";
+import { eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { chunk, project, type Review, review } from "../../test/factories.js";
@@ -62,6 +63,30 @@ async function indexed(
       text: w,
       startOffset,
       embedding: embed(w),
+    });
+  }
+  return r;
+}
+
+/**
+ * A review indexed exactly as the pipeline indexes it: every chunk
+ * `chunkReview` emits (`full`, the `window`s, the `sentence`s; #127),
+ * embedded.
+ */
+async function indexedByChunker(
+  db: Db,
+  overrides: Partial<ReviewInsert> & { text: string },
+): Promise<Review> {
+  const r = await review(db, overrides);
+  const chunks = chunkReview(r.text, { locale: r.language });
+  const vectors = fakeEmbed(chunks.map((c) => c.text));
+  for (const [i, c] of chunks.entries()) {
+    await chunk(db, {
+      reviewId: r.id,
+      kind: c.kind,
+      text: c.text,
+      startOffset: c.startOffset,
+      embedding: vectors[i] ?? null,
     });
   }
   return r;
@@ -564,6 +589,83 @@ describe("modes: one row per review", () => {
     expect(top?.similarity).toBeCloseTo(2 / Math.sqrt(6), 2);
     expect(top?.score).toBeGreaterThan(second?.score ?? Number.NaN);
     expect(top?.score).toBeLessThanOrEqual(1);
+  });
+
+  // Sentence chunks (#127): a four-sentence review indexed by the real
+  // chunker has seven chunks — full, two windows, four sentences. When only
+  // the second sentence is about the query, that sentence is a tighter
+  // match than the window around it (the fake embedder's cosine is
+  // shared/sqrt(|q|·|chunk|) over content words, so the extra words of the
+  // window and the full chunk only dilute it), and the collapse still
+  // yields one row per review — quoting the sentence.
+  const FOUR =
+    "Parking behind the building was easy. The implant procedure was painless and quick. Front desk explained every charge. Our kids love the hygienist.";
+  const SENTENCE_TWO = "The implant procedure was painless and quick.";
+  // A second, single-sentence review on the same topic but a weaker match
+  // ({painless, implant, honestly}: 2/sqrt(3·3) ≈ 0.67 against the
+  // sentence's 3/sqrt(3·4) ≈ 0.87), so the order between the two reviews
+  // is never a tie.
+  const WEAKER = "Painless implant, honestly.";
+
+  it.each([
+    "excerpts",
+    "reviews",
+  ] as const)("%s: a sentence chunk wins over its window when it is the better match, one row per review", async (mode) => {
+    const p = await project(t.db);
+    const four = await indexedByChunker(t.db, { projectId: p.id, text: FOUR });
+    const single = await indexedByChunker(t.db, {
+      projectId: p.id,
+      text: WEAKER,
+    });
+    const stored = await t.db
+      .select({ kind: reviewChunks.kind })
+      .from(reviewChunks)
+      .where(eq(reviewChunks.reviewId, four.id));
+    expect(stored.map((c) => c.kind).sort()).toEqual(
+      [
+        "full",
+        "window",
+        "window",
+        "sentence",
+        "sentence",
+        "sentence",
+        "sentence",
+      ].sort(),
+    );
+
+    const results = await searchChunks(
+      t.db,
+      query(p.id, "painless implant procedure", { mode, policy: OPEN_FLOOR }),
+    );
+    // One row per review, the multi-sentence one first.
+    expect(results.map((r) => r.reviewId)).toEqual([four.id, single.id]);
+
+    const [top] = results;
+    expect(top?.excerpt).toBe(SENTENCE_TWO);
+    expect(top?.startOffset).toBe(FOUR.indexOf(SENTENCE_TWO));
+    expect(
+      FOUR.slice(
+        top?.startOffset ?? 0,
+        (top?.startOffset ?? 0) + SENTENCE_TWO.length,
+      ),
+    ).toBe(SENTENCE_TWO);
+    // ...and that chunk is the `sentence` row, not the window containing it.
+    const [winner] = await t.db
+      .select({ kind: reviewChunks.kind, text: reviewChunks.text })
+      .from(reviewChunks)
+      .where(eq(reviewChunks.id, top?.chunkId ?? ""));
+    expect(winner).toEqual({ kind: "sentence", text: SENTENCE_TWO });
+    // Under the default floor the answer is the same.
+    const strict = await searchChunks(
+      t.db,
+      query(p.id, "painless implant procedure", { mode }),
+    );
+    expect(strict.map((r) => [r.reviewId, r.excerpt])).toEqual([
+      [four.id, SENTENCE_TWO],
+      [single.id, WEAKER],
+    ]);
+    expect(top?.similarity).toBeCloseTo(3 / Math.sqrt(12), 2);
+    expect(results[1]?.similarity).toBeCloseTo(2 / 3, 2);
   });
 });
 

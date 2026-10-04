@@ -4,8 +4,13 @@
  * Every review yields one `full` chunk covering its whole text. Reviews with
  * more than a few sentences also yield `window` chunks of up to three
  * sentences, stepping by two so consecutive windows overlap by one, so a
- * review that covers four topics can match four queries. The best-matching
- * chunk is the excerpt the API returns.
+ * review that covers four topics can match four queries. Reviews of two or
+ * more sentences additionally yield one `sentence` chunk per sentence
+ * (#127), so the best-matching chunk — the excerpt the API returns, and
+ * the span its `highlight` marks — can be the one sentence that answered
+ * rather than the two or three around it. A single-sentence review is its
+ * `full` chunk alone: a sentence identical to the whole text is never
+ * emitted twice, so such a review highlights nothing, which is correct.
  *
  * **Verbatim by construction.** Every chunk's `text` is a slice of the
  * input and `startOffset` is where that slice begins:
@@ -32,7 +37,12 @@
  * demo seed (#20) is meant to switch to it.
  */
 
-export const CHUNK_KINDS = ["full", "window"] as const;
+/**
+ * Chunk kinds, in the order `chunkReview` emits them. Also the Postgres
+ * `chunk_kind` enum (`@proofql/db` passes this tuple into `pgEnum`), so a
+ * new kind is a migration (`ALTER TYPE … ADD VALUE`, append-only).
+ */
+export const CHUNK_KINDS = ["full", "window", "sentence"] as const;
 export type ChunkKind = (typeof CHUNK_KINDS)[number];
 
 export interface Chunk {
@@ -58,6 +68,12 @@ export interface ChunkOptions {
    * sentences (default 4). Shorter reviews are a single `full` chunk.
    */
   minSentencesForWindows?: number;
+  /**
+   * Emit one `sentence` chunk per sentence for reviews of two or more
+   * sentences (default true; #127). `false` reproduces the pre-#127
+   * output: `full` plus windows only.
+   */
+  sentenceChunks?: boolean;
 }
 
 export const DEFAULT_CHUNK_OPTIONS = {
@@ -65,7 +81,14 @@ export const DEFAULT_CHUNK_OPTIONS = {
   maxSentencesPerWindow: 3,
   windowStep: 2,
   minSentencesForWindows: 4,
+  sentenceChunks: true,
 } as const satisfies Required<ChunkOptions>;
+
+/**
+ * Sentence chunks need at least this many sentences. Below it the one
+ * sentence *is* the full text and would duplicate the `full` chunk.
+ */
+const MIN_SENTENCES_FOR_SENTENCE_CHUNKS = 2;
 
 /** A sentence's position in the text, with surrounding whitespace excluded. */
 export interface SentenceSpan {
@@ -90,10 +113,10 @@ export class ChunkInvariantError extends Error {
 /**
  * Chunk a review's text.
  *
- * Returns the `full` chunk first, then `window` chunks in text order. Throws
- * `RangeError` when `text` is empty or whitespace-only — there is nothing to
- * index, and callers are expected to skip such reviews rather than store an
- * empty excerpt.
+ * Returns the `full` chunk first, then `window` chunks in text order, then
+ * `sentence` chunks in text order. Throws `RangeError` when `text` is empty
+ * or whitespace-only — there is nothing to index, and callers are expected
+ * to skip such reviews rather than store an empty excerpt.
  */
 export function chunkReview(text: string, options: ChunkOptions = {}): Chunk[] {
   if (text.trim().length === 0) {
@@ -102,23 +125,37 @@ export function chunkReview(text: string, options: ChunkOptions = {}): Chunk[] {
   const resolved = resolveOptions(options);
 
   const chunks: Chunk[] = [{ kind: "full", text, startOffset: 0 }];
-
   const sentences = segmentSentences(text, resolved.locale);
-  if (sentences.length < resolved.minSentencesForWindows) {
-    return chunks;
+
+  if (sentences.length >= resolved.minSentencesForWindows) {
+    for (const window of planWindows(sentences.length, resolved)) {
+      const first = sentences[window.start];
+      const last = sentences[window.end - 1];
+      if (!first || !last) continue; // unreachable: planWindows stays in range
+      // A single window spanning every sentence would duplicate the full chunk.
+      if (window.start === 0 && window.end === sentences.length) continue;
+      chunks.push({
+        kind: "window",
+        text: text.slice(first.start, last.end),
+        startOffset: first.start,
+      });
+    }
   }
 
-  for (const window of planWindows(sentences.length, resolved)) {
-    const first = sentences[window.start];
-    const last = sentences[window.end - 1];
-    if (!first || !last) continue; // unreachable: planWindows stays in range
-    // A single window spanning every sentence would duplicate the full chunk.
-    if (window.start === 0 && window.end === sentences.length) continue;
-    chunks.push({
-      kind: "window",
-      text: text.slice(first.start, last.end),
-      startOffset: first.start,
-    });
+  if (
+    resolved.sentenceChunks &&
+    sentences.length >= MIN_SENTENCES_FOR_SENTENCE_CHUNKS
+  ) {
+    for (const span of sentences) {
+      // Spans are trimmed and never overlap, so with two or more of them
+      // none can cover the whole text; the guard is the stated contract.
+      if (span.start === 0 && span.end === text.length) continue;
+      chunks.push({
+        kind: "sentence",
+        text: text.slice(span.start, span.end),
+        startOffset: span.start,
+      });
+    }
   }
 
   return chunks;
@@ -371,6 +408,8 @@ function resolveOptions(options: ChunkOptions): ResolvedOptions {
     maxSentencesPerWindow,
     windowStep,
     minSentencesForWindows,
+    sentenceChunks:
+      options.sentenceChunks ?? DEFAULT_CHUNK_OPTIONS.sentenceChunks,
   };
 }
 

@@ -16,8 +16,8 @@
  * - **Same chunker as the pipeline.** Chunks come from `chunkReview` in
  *   `@proofql/core` with the review's `language` as the locale — exactly
  *   the call `workers/pipeline` makes — so a seeded review's chunks are
- *   byte-identical (same `full` + `window` boundaries, same UTF-16
- *   offsets) to what ingesting it would produce. `assertVerbatimChunks`
+ *   byte-identical (same `full` + `window` + `sentence` boundaries, same
+ *   UTF-16 offsets) to what ingesting it would produce. `assertVerbatimChunks`
  *   gates every chunk before insert, as it does on the pipeline write
  *   path. Embeddings come from `fakeEmbed` in `@proofql/ai`, so a query
  *   vector built with the same fake lands near the right rows. Sentiment is
@@ -90,7 +90,7 @@ export interface SeedSummary {
   accountId: string;
   projectId: string;
   reviews: { live: number; test: number };
-  chunks: { full: number; window: number };
+  chunks: { full: number; window: number; sentence: number };
   keys: SeedKey[];
 }
 
@@ -205,6 +205,7 @@ export async function runSeed(
       chunks: {
         full: chunkRows.filter((c) => c.kind === "full").length,
         window: chunkRows.filter((c) => c.kind === "window").length,
+        sentence: chunkRows.filter((c) => c.kind === "sentence").length,
       },
       keys: minted.map((key) => ({
         kind: key.kind,

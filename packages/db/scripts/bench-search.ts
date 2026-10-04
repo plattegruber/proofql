@@ -11,6 +11,10 @@
  * size so the `(project_id, environment)` filter is doing real work, then
  * times hybrid, vector-only and no-query searches. Fake embeddings from
  * `@proofql/ai`: the arithmetic pgvector does is identical for real ones.
+ * The two fixed chunks per review are a shape for the *scan*, not the
+ * chunker's output: since #127 a real review averages ~4 chunks (full,
+ * windows, one per sentence) on the demo corpus, so read the results as
+ * "per 1,000 chunks" and convert with `docs/performance.md` §2.
  *
  * ## Against an existing multi-tenant database
  *
@@ -18,8 +22,11 @@
  *   DATABASE_URL=… pnpm --filter @proofql/db exec tsx scripts/bench-search.ts \
  *     --project load-01 [--explain]                    # or load-large
  *
- * `--project <slug>` skips the clone and the seed and times the same
- * scenarios against the named project in `DATABASE_URL` as it is. The
+ * `--project <slug|uuid>` skips the clone and the seed and times the same
+ * scenarios against the named project in `DATABASE_URL` as it is (a slug
+ * is not unique across accounts — the demo seed and the dashboard's local
+ * stub both own a `cedar-ridge-dental` — so pass the id when it matters:
+ * the demo project is `de300000-0000-4000-8000-000000000002`). The
  * two-tenant database cannot show costs that scale with the *table*
  * rather than the tenant — the `reviews` join of #111 was invisible to it
  * (`docs/performance.md` §2) — so re-run this mode on the load database
@@ -212,7 +219,9 @@ async function runScenarios(
   }
 }
 
-/** `--project <slug>`: bench the named project in `DATABASE_URL` as it is. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** `--project <slug|uuid>`: bench the named project in `DATABASE_URL` as it is. */
 function projectSlugArg(): string | undefined {
   const i = process.argv.indexOf("--project");
   if (i < 0) return undefined;
@@ -226,11 +235,21 @@ function projectSlugArg(): string | undefined {
 async function benchExisting(databaseUrl: string, slug: string): Promise<void> {
   const { db, sql } = createDb(databaseUrl, { max: 1 });
   try {
-    const [found] = await sql<{ id: string }[]>`
-      SELECT id FROM projects WHERE slug = ${slug}`;
-    if (!found) throw new Error(`no project with slug ${JSON.stringify(slug)}`);
+    const matches = await sql<{ id: string; slug: string }[]>`
+      SELECT id, slug FROM projects
+      WHERE ${UUID.test(slug) ? sql`id = ${slug}` : sql`slug = ${slug}`}
+      ORDER BY created_at`;
+    const [found] = matches;
+    if (!found) throw new Error(`no project matches ${JSON.stringify(slug)}`);
+    if (matches.length > 1) {
+      console.warn(
+        `warning: ${matches.length} projects have slug ${JSON.stringify(slug)} ` +
+          `(${matches.map((m) => m.id).join(", ")}); using the oldest. ` +
+          "Pass the id to pick one.",
+      );
+    }
     console.log(
-      `project ${slug} (${found.id}) in ${new URL(databaseUrl).pathname.slice(1)}`,
+      `project ${found.slug} (${found.id}) in ${new URL(databaseUrl).pathname.slice(1)}`,
     );
     await runScenarios(db, sql, found.id);
   } finally {

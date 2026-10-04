@@ -50,6 +50,13 @@
       "when": 1791060581229,
       "tag": "0007_waitlist",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791123769314,
+      "tag": "0008_chunk_kind_sentence",
+      "breakpoints": true
     }
   ]
 }

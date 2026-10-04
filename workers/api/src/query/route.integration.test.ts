@@ -11,7 +11,7 @@
  */
 
 import { FakeEmbeddingProvider, fakeEmbed } from "@proofql/ai";
-import { generateApiKey, recordingSink } from "@proofql/core";
+import { chunkReview, generateApiKey, recordingSink } from "@proofql/core";
 import { type Db, setAccountPlan } from "@proofql/db";
 import {
   type ApiKey,
@@ -113,6 +113,31 @@ async function indexedWindows(
     });
   }
   return id;
+}
+
+/**
+ * A review indexed exactly as the pipeline indexes it: every chunk
+ * `chunkReview` emits (`full`, `window`s, `sentence`s; #127), embedded.
+ */
+async function indexedByChunker(
+  db: Db,
+  projectId: string,
+  text: string,
+  overrides: Parameters<typeof review>[1] = {},
+): Promise<string> {
+  const r = await review(db, { projectId, text, ...overrides });
+  const chunks = chunkReview(text, { locale: r.language });
+  const vectors = fakeEmbed(chunks.map((c) => c.text));
+  for (const [i, c] of chunks.entries()) {
+    await chunk(db, {
+      reviewId: r.id,
+      kind: c.kind,
+      text: c.text,
+      startOffset: c.startOffset,
+      embedding: vectors[i] ?? null,
+    });
+  }
+  return r.id;
 }
 
 const makeKey = (
@@ -424,6 +449,43 @@ describe("/v1/query", () => {
         end: START + WINDOW.length,
       });
       expectVerbatim(body);
+    });
+
+    it("a sentence chunk narrows the highlight to exactly the sentence that answered (#127)", async () => {
+      // Four sentences, indexed by the real chunker (full + two windows +
+      // four sentences); only the third is about whitening, so the
+      // `sentence` chunk beats the window and the full chunk and the
+      // highlight is that one sentence's span — not the 2–3 around it.
+      const FOUR =
+        "Parking behind the building was easy. 🙏 The front desk was warm. Whitening made a visible difference for my wedding photos. Our kids love the hygienist.";
+      const SENTENCE =
+        "Whitening made a visible difference for my wedding photos.";
+      const id = await indexedByChunker(t.db, h.project.id, FOUR, {
+        rating: 5,
+        occurredAt: new Date("2025-12-01T00:00:00Z"), // older than `long`
+      });
+
+      for (const mode of ["excerpts", "reviews"] as const) {
+        const body = await json<QueryResponse>(
+          await post(app, h.secret, {
+            q: "whitening wedding photos",
+            mode,
+            include: ["text"],
+            limit: 5,
+          }),
+        );
+        // One row for the review, despite its seven chunks.
+        expect(body.results.filter((r) => r.review.id === id)).toHaveLength(1);
+        const hit = body.results.find((r) => r.review.id === id);
+        expect(hit?.excerpt).toBe(SENTENCE);
+        expect(hit?.review.text).toBe(FOUR);
+        const start = FOUR.indexOf(SENTENCE);
+        expect(hit?.highlight).toEqual({ start, end: start + SENTENCE.length });
+        expect(
+          FOUR.slice(hit?.highlight?.start ?? 0, hit?.highlight?.end ?? 0),
+        ).toBe(SENTENCE);
+        expectVerbatim(body);
+      }
     });
 
     it("no q: highlight is null on every result, text on request", async () => {

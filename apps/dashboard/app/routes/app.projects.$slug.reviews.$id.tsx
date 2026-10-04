@@ -2,6 +2,7 @@
 // pipeline cut from it (kind, offsets, embedded or not), and the inline
 // Hide / Unhide. Hiding asks once, inline — it takes effect on the next
 // query and the snippet, which is worth a second click; unhiding does not.
+import type { ChunkKind } from "@proofql/core";
 import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { data, Link, useFetcher } from "react-router";
@@ -59,7 +60,7 @@ export interface ReviewDetailData {
   };
   chunks: Array<{
     id: string;
-    kind: "full" | "window";
+    kind: ChunkKind;
     text: string;
     startOffset: number;
     endOffset: number;

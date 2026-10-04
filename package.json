@@ -14,6 +14,7 @@
     "db:generate": "pnpm --filter @proofql/db db:generate",
     "db:migrate": "pnpm --filter @proofql/db db:migrate",
     "db:set-plan": "pnpm --filter @proofql/db db:set-plan",
+    "db:reindex": "pnpm --filter @proofql/db db:reindex",
     "seed": "pnpm --filter @proofql/db seed",
     "lint": "turbo run lint && pnpm openapi:lint",
     "lint:fix": "biome check --write .",

@@ -126,7 +126,7 @@ describe("demo review fixtures", () => {
     }
   });
 
-  it("chunks to 90 full + 30 window chunks, windows on 10 live and 1 test review", () => {
+  it("chunks to 90 full + 30 window + 236 sentence chunks, windows on 10 live and 1 test review", () => {
     // Pinned output of `chunkReview` over the corpus — the same numbers
     // `runSeed` reports and the integration test checks against the DB. A
     // change here is a change to the dataset: bump SEED_VERSION with it.
@@ -136,9 +136,32 @@ describe("demo review fixtures", () => {
     }));
     const windows = (c: { kind: string }[]) =>
       c.filter((chunk) => chunk.kind === "window").length;
+    const sentences = (c: { kind: string }[]) =>
+      c.filter((chunk) => chunk.kind === "sentence").length;
 
     expect(all.every(({ chunks }) => chunks[0]?.kind === "full")).toBe(true);
     expect(all.reduce((n, { chunks }) => n + windows(chunks), 0)).toBe(30);
+    // Seed v5 (#127): one sentence chunk per sentence on every review of two
+    // or more sentences — 87 of 90 (79 live, 8 test); the other three are
+    // single sentences and stay full-only. Live: 80 full, 28 window, 218
+    // sentence = 326 chunks, ~4.1 per review (docs/performance.md §2).
+    expect(all.reduce((n, { chunks }) => n + sentences(chunks), 0)).toBe(236);
+    const withSentences = all.filter(({ chunks }) => sentences(chunks) > 0);
+    expect(
+      withSentences.filter((e) => e.fixture.environment === "live"),
+    ).toHaveLength(79);
+    expect(
+      withSentences.filter((e) => e.fixture.environment === "test"),
+    ).toHaveLength(8);
+    for (const { fixture, chunks } of all) {
+      const count = segmentSentences(
+        fixture.text,
+        demoLanguage(fixture),
+      ).length;
+      expect(sentences(chunks), fixture.key).toBe(count >= 2 ? count : 0);
+    }
+    const live = all.filter((e) => e.fixture.environment === "live");
+    expect(live.reduce((n, { chunks }) => n + chunks.length, 0)).toBe(326);
 
     const withWindows = all.filter(({ chunks }) => windows(chunks) > 0);
     expect(

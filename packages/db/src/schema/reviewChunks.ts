@@ -3,8 +3,11 @@
  *
  * Every review gets one `full` chunk covering its whole text; reviews longer
  * than a few sentences also get `window` chunks (2–3 sentences, overlapping
- * by one) so a review that covers four topics can match four queries. The
- * best-matching chunk is the excerpt the API returns.
+ * by one) so a review that covers four topics can match four queries, and
+ * reviews of two or more sentences get one `sentence` chunk per sentence
+ * (#127, migration 0008) so the excerpt — and the API's `highlight` — can
+ * be the one sentence that answered. The best-matching chunk is the excerpt
+ * the API returns.
  *
  * **Verbatim by construction.** `text` is always a slice of the parent
  * review's text starting at `start_offset`:
