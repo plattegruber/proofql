@@ -23,7 +23,11 @@
     allowed origins. Full recipe: workers/cdn/README.md.
 
     Four sections carry the snippet: three queries (implants, kids, parking)
-    and one `data-mode="reviews"`. The implants section turns on
+    and one `data-mode="reviews"`. The parking section uses the honest
+    fallback (#86): `data-fallback="recent"` with `data-heading` and
+    `data-fallback-heading`, so it never renders empty — when nothing
+    matches, the newest reviews show under the second heading and the
+    container carries `data-pq-match="fallback"`. The implants section turns on
     `data-highlight="true"` (#85): the whole review, with the sentences that
     matched the query marked — so its query is phrased to land on a window
     of a long seeded review rather than on a short whole review, which
@@ -120,7 +124,9 @@
     .split .copy p { max-width: 36em; }
     .split .copy ul { padding-left: 1.2em; color: var(--muted); margin: 0 0 1.4em; }
     .split .copy ul li { margin: 4px 0; }
-    .reviews-label { font-family: var(--sans); font-size: 0.82rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 0 14px; }
+    .reviews-label, .pq-heading { font-family: var(--sans); font-size: 0.82rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 0 14px; }
+    /* Honest fallback: the snippet marks the container, the host restyles. */
+    [data-proofql].pq-fallback .pq-heading::after { content: " · recent"; font-weight: 500; letter-spacing: 0; text-transform: none; }
     .reviews-fallback { color: var(--muted); font-size: 0.95rem; margin: 0; }
     .doctor { display: flex; align-items: center; gap: 14px; margin: 22px 0 0; padding-top: 18px; border-top: 1px solid var(--line); }
     .doctor .avatar { width: 48px; height: 48px; border-radius: 50%; background: var(--brand); color: #fff; display: grid; place-items: center; font-family: var(--serif); font-weight: 700; }
@@ -294,8 +300,8 @@
           </ul>
         </div>
       </div>
-      <p class="reviews-label">What patients say about getting here</p>
-      <div data-proofql data-query="free parking and Saturday hours at the north office" data-limit="3">
+      <div data-proofql data-query="free parking and Saturday hours at the north office" data-limit="3" data-fallback="recent" data-heading="What patients say about getting here" data-fallback-heading="What patients say about working with us">
+        <p class="reviews-label">What patients say about getting here</p>
         <p class="reviews-fallback">Read more reviews on <a href="#reviews">our reviews page</a>.</p>
       </div>
     </div>

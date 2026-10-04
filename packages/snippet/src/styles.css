@@ -18,6 +18,7 @@
  */
 
 .pq-list,
+.pq-heading,
 .pq-badge {
   box-sizing: border-box;
   font-family: var(--pq-font, inherit);
@@ -34,6 +35,24 @@
   font-size: 15px;
   line-height: 1.55;
   font-weight: 400;
+}
+
+/* data-heading / data-fallback-heading: a quiet label above the list. */
+.pq-heading {
+  margin: 0 0 10px;
+  font-family: var(
+    --pq-font-mono,
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace
+  );
+  font-size: 12px;
+  line-height: 1.4;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pq-muted, color-mix(in srgb, currentColor 72%, transparent));
 }
 
 .pq-item {

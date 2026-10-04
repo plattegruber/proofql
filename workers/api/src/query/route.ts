@@ -24,6 +24,16 @@
  * 3. `searchChunks` runs policy, filters, exact cosine, full-text rank,
  *    RRF fusion, floor, and per-review collapse in one SQL statement.
  *    Without `q` it returns the newest publishable reviews.
+ * 4. **Honest fallback (#86).** With `q` and `fallback: "recent"`, an
+ *    *empty* floored result is replaced by the newest publishable reviews
+ *    under the same policy and filters — the no-`q` statement — and the
+ *    response says so: `match: "fallback"`, every result `matched: false`
+ *    with `score` and `highlight` null. Only an empty result falls back;
+ *    a partial page is never topped up, because a list that is two real
+ *    matches and three recent reviews has no honest label. The default
+ *    `fallback: "none"` keeps `results: []` ("empty beats irrelevant"),
+ *    reported as `match: "none"`. The verdict rides in the cache entry so
+ *    a HIT stays labelled.
  *
  * ## Cache (`./cache.ts`, #28)
  *
@@ -44,9 +54,9 @@
  *
  * Exactly one `query.completed` line per answered query, hit or miss, with
  * the knobs that shaped the result (`similarity_floor`, `min_rating`,
- * `limit`, `mode`, `has_q`, `q_length`) and what came of them (`returned`,
- * `cached`, `took_ms`, `embedding_ms`, `search_ms`) — the data the floor is
- * tuned from. Never the query text, never an excerpt. Refused requests are
+ * `limit`, `mode`, `fallback`, `has_q`, `q_length`) and what came of them
+ * (`returned`, `match`, `cached`, `took_ms`, `embedding_ms`, `search_ms`) —
+ * the data the floor is tuned from. Never the query text, never an excerpt. Refused requests are
  * one `query.rejected` line from `onError` (`../errors.ts`); an embedding
  * outage is `query.embedding_failed`; a KV fault is `query.cache_error`.
  * Every line carries `request_id` via the per-request logger.
@@ -54,13 +64,22 @@
  * ## Response
  *
  * ```json
- * { "results": [{ "score": 0.83, "excerpt": "…", "excerpt_id": "<chunk uuid>",
+ * { "results": [{ "score": 0.83, "matched": true, "excerpt": "…",
+ *                 "excerpt_id": "<chunk uuid>",
  *                 "highlight": { "start": 41, "end": 97 },   // or null
  *                 "review": { "id", "rating", "author_name", "author_avatar_url",
  *                             "source", "occurred_at", "url", "metadata",
  *                             "text" } }],   // text: mode=reviews, or include: ["text"]
+ *   "match": "query",   // query | fallback | none | recent
  *   "took_ms": 12, "cached": false, "badge": true }
  * ```
+ *
+ * `match` is the response's one-word verdict: `query` (real matches),
+ * `fallback` (nothing cleared the floor; these are the newest reviews
+ * because the caller asked for `fallback: "recent"`), `none` (nothing
+ * cleared the floor and `results` is empty), `recent` (no `q` was sent).
+ * A response is all matches or all fallback, never a mix; `matched` on
+ * each result is the same fact per row, for templates.
  *
  * `score` is the returned excerpt's **cosine similarity to the query**
  * (`SearchResult.similarity`): already in [0, 1], already at or above the
@@ -105,6 +124,7 @@ import { enforceQueryQuota, markCacheHit, queryQuota } from "../quota.js";
 import { logFor } from "../request-id.js";
 import {
   CACHE_HEADER,
+  type CachedBody,
   type CacheOutcome,
   cacheKey,
   getCached,
@@ -132,6 +152,9 @@ export interface QueryResponseReview {
   text?: string;
 }
 
+/** The response's verdict on its `results` (module doc "Response"). */
+export type QueryMatch = "query" | "fallback" | "none" | "recent";
+
 /** Where `excerpt` sits in `review.text`: UTF-16 code units, `end` exclusive. */
 export interface QueryHighlight {
   start: number;
@@ -139,8 +162,10 @@ export interface QueryHighlight {
 }
 
 export interface QueryResponseResult {
-  /** Cosine similarity of the excerpt to `q`, in [0, 1]; null without `q`. */
+  /** Cosine similarity of the excerpt to `q`, in [0, 1]; null without `q` and on fallback rows. */
   score: number | null;
+  /** True for a real match; false for a fallback row and without `q`. */
+  matched: boolean;
   excerpt: string;
   /** `review_chunks.id` of the excerpt. */
   excerpt_id: string;
@@ -154,6 +179,7 @@ export interface QueryResponseResult {
 
 export interface QueryResponse {
   results: QueryResponseResult[];
+  match: QueryMatch;
   took_ms: number;
   /** Whether `results` were served from the KV cache. */
   cached: boolean;
@@ -221,7 +247,8 @@ const handleQuery: Handler<AppEnv> = async (c) => {
     markCacheHit(c);
     const tookMs = Math.round(performance.now() - started);
     logCompleted(c, request, policy, {
-      returned: cache.hit.length,
+      returned: cache.hit.results.length,
+      match: cache.hit.match,
       cached: cache.outcome,
       took_ms: tookMs,
       embedding_ms: 0,
@@ -261,25 +288,39 @@ const handleQuery: Handler<AppEnv> = async (c) => {
   }
 
   const searchStarted = performance.now();
-  const rows = await searchChunks(c.get("getDb")(), {
+  const search = {
     projectId: auth.projectId,
     environment: auth.environment,
-    queryEmbedding,
-    queryText: request.q,
     limit: request.limit,
     policy,
     filters: toSearchFilters(request.filters),
     mode: request.mode,
+  };
+  let rows = await searchChunks(c.get("getDb")(), {
+    ...search,
+    queryEmbedding,
+    queryText: request.q,
   });
+  let match: QueryMatch =
+    request.q === undefined ? "recent" : rows.length > 0 ? "query" : "none";
+  if (match === "none" && request.fallback === "recent") {
+    // Honest fallback (module doc §4): the no-q statement, same policy and
+    // filters, labelled as what it is.
+    rows = await searchChunks(c.get("getDb")(), search);
+    match = "fallback";
+  }
   const searchMs = performance.now() - searchStarted;
-  const results = rows.map((r) => toResponseResult(r, request));
+  const body: CachedBody = {
+    results: rows.map((r) => toResponseResult(r, request, match)),
+    match,
+  };
 
   if (cache.key !== null) {
     // After the response: a slow KV write must not add to `took_ms`, and a
     // failed one is a cache miss next time, not an error now.
     waitUntil(
       c,
-      putCached(c.env.CACHE, cache.key, results, {
+      putCached(c.env.CACHE, cache.key, body, {
         generation: cache.generation,
       }).catch((error: unknown) => logCacheError(c, "put", error)),
     );
@@ -287,20 +328,21 @@ const handleQuery: Handler<AppEnv> = async (c) => {
 
   const tookMs = Math.round(performance.now() - started);
   logCompleted(c, request, policy, {
-    returned: results.length,
+    returned: body.results.length,
+    match,
     cached: cache.outcome,
     took_ms: tookMs,
     embedding_ms: Math.round(embedMs),
     search_ms: Math.round(searchMs),
   });
-  return respond(c, results, tookMs, false, cache.outcome);
+  return respond(c, body, tookMs, false, cache.outcome);
 };
 
 interface CacheLookup {
   /** Null when KV could not be read; the result is then not stored either. */
   key: string | null;
   generation: number;
-  hit: QueryResponseResult[] | null;
+  hit: CachedBody | null;
   outcome: CacheOutcome;
 }
 
@@ -327,7 +369,8 @@ async function lookupCache(
     return {
       key,
       generation,
-      hit: entry?.results ?? null,
+      hit:
+        entry === null ? null : { results: entry.results, match: entry.match },
       outcome: entry === null ? "MISS" : "HIT",
     };
   } catch (error) {
@@ -338,13 +381,14 @@ async function lookupCache(
 
 function respond(
   c: Context<AppEnv>,
-  results: QueryResponseResult[],
+  cachedBody: CachedBody,
   tookMs: number,
   cached: boolean,
   outcome: CacheOutcome,
 ): Response {
   const body: QueryResponse = {
-    results,
+    results: cachedBody.results,
+    match: cachedBody.match,
     took_ms: tookMs,
     cached,
     badge: planFor(c.get("auth").plan).badge,
@@ -356,6 +400,7 @@ function respond(
 /** What `query.completed` reports beyond the request's own knobs. */
 interface QueryOutcome {
   returned: number;
+  match: QueryMatch;
   cached: CacheOutcome;
   took_ms: number;
   embedding_ms: number;
@@ -379,6 +424,7 @@ function logCompleted(
     key_environment: auth.environment,
     key_kind: auth.kind,
     mode: request.mode,
+    fallback: request.fallback,
     has_q: request.q !== undefined,
     q_length: request.q?.length ?? 0,
     limit: request.limit,
@@ -451,6 +497,7 @@ export function highlightFor(
 function toResponseResult(
   r: SearchResult,
   request: Pick<QueryRequest, "mode" | "include">,
+  match: QueryMatch,
 ): QueryResponseResult {
   const review: QueryResponseReview = {
     id: r.reviewId,
@@ -465,8 +512,11 @@ function toResponseResult(
   if (request.mode === "reviews" || request.include.includes("text")) {
     review.text = r.review.text;
   }
+  // A fallback row came from the recency statement, so `similarity` and
+  // `highlight` are already null; `matched` restates the response verdict.
   return {
     score: r.similarity,
+    matched: match === "query",
     excerpt: r.excerpt,
     excerpt_id: r.chunkId,
     highlight: highlightFor(r),

@@ -29,12 +29,22 @@
  * A marker whose value the review lacks is removed from the clone. Values
  * are always text content or validated attributes — never parsed as HTML.
  * The badge is still appended after the clones when the API asks for it.
+ * Every element at the top of a clone carries `data-pq-match` with the
+ * response's verdict (`query` | `fallback` | `none` | `recent`, #86), and
+ * the host element gets the same attribute plus `pq-fallback` on a
+ * fallback, as the default render does; `data-heading` /
+ * `data-fallback-heading` render a `<p class="pq-heading">` before the
+ * clones.
  */
 
 import {
   displayText,
   formatDate,
+  MATCH_ATTR,
+  markMatch,
+  matchOf,
   renderBadge,
+  renderHeading,
   safeHref,
   sourceName,
   starCount,
@@ -132,14 +142,21 @@ export function renderTemplate(
   options: RenderOptions,
 ): void {
   const doc = el.ownerDocument;
+  const match = matchOf(response);
   const nodes: Node[] = [];
+  const heading = renderHeading(doc, match, options);
+  if (heading) nodes.push(heading);
   for (const result of response.results) {
     const clone = doc.importNode(template.content, true);
     for (const slot of Array.from(clone.querySelectorAll("[data-pq]"))) {
       fillSlot(slot, result, options);
     }
+    for (const root of Array.from(clone.children)) {
+      root.setAttribute(MATCH_ATTR, match);
+    }
     nodes.push(clone);
   }
   if (response.badge) nodes.push(renderBadge(doc));
+  markMatch(el, match);
   el.replaceChildren(...nodes);
 }

@@ -11,10 +11,12 @@
  *
  * The hash is over the canonical JSON of what the search actually
  * receives — `q` normalized (trimmed, whitespace collapsed, lower-cased),
- * `limit`, `mode`, `filters` with sorted keys and a sorted, de-duplicated
- * `source` list, and the project policy inputs (`min_rating`,
- * `similarity_floor`) — so two requests that would run the same SQL share
- * an entry and nothing that changes the SQL can share one. Policy is in
+ * `limit`, `mode`, `fallback`, a sorted `include` list, `filters` with
+ * sorted keys and a sorted, de-duplicated `source` list, and the project
+ * policy inputs (`min_rating`, `similarity_floor`) — so two requests that
+ * would run the same SQL share an entry and nothing that changes the SQL
+ * *or the stored shape* can share one (`include: ["text"]` changes what
+ * each result carries, not the SQL; it is in the key for the body's sake). Policy is in
  * the hash as well as being a purge trigger (below): a policy edit that
  * forgets to bump the generation still cannot serve results computed under
  * the old floor, because its key differs.
@@ -44,8 +46,11 @@
  *
  * ## What is stored
  *
- * The `results` array of the response as JSON, with `{ generation,
- * storedAt }` as KV metadata. `took_ms`, `cached`, and `badge` are
+ * `{ results, match }` — the response's `results` array and its `match`
+ * verdict (#86: a fallback answer must stay labelled as one on a HIT) as
+ * JSON, with `{ generation, storedAt }` as KV metadata. An entry in the
+ * older bare-array shape is treated as a miss, never served without its
+ * verdict. `took_ms`, `cached`, and `badge` are
  * per-request: the first two by definition, `badge` because it is derived
  * from the account's plan, which arrives with the key on every request and
  * must flip the moment the plan does, not when the cache turns over — so a
@@ -56,7 +61,7 @@
 import { bumpProjectGeneration, type GenerationKv } from "@proofql/core";
 
 import type { QueryRequest } from "./request.js";
-import type { QueryResponseResult } from "./route.js";
+import type { QueryMatch, QueryResponseResult } from "./route.js";
 
 /** Safety net for orphaned entries; a bump is the real invalidation. */
 export const CACHE_TTL_SECONDS = 24 * 60 * 60;
@@ -86,10 +91,22 @@ export interface CacheEntryMetadata {
   storedAt: string;
 }
 
-export interface CachedQuery {
+/** The stored body (module doc "What is stored"). */
+export interface CachedBody {
   results: QueryResponseResult[];
+  match: QueryMatch;
+}
+
+export interface CachedQuery extends CachedBody {
   metadata: CacheEntryMetadata | null;
 }
+
+const MATCHES: ReadonlySet<string> = new Set([
+  "query",
+  "fallback",
+  "none",
+  "recent",
+]);
 
 /** The policy inputs that shape the SQL; read with the key (`AuthContext`). */
 export interface CacheKeyPolicy {
@@ -123,6 +140,7 @@ export function cacheIdentity(input: CacheKeyInput): Record<string, unknown> {
     limit: request.limit,
     mode: request.mode,
     include: [...request.include].sort(),
+    fallback: request.fallback,
     filters: {
       min_rating: filters.min_rating ?? null,
       // `IN (...)` is order-insensitive, so the list's order is not identity.
@@ -183,9 +201,9 @@ export async function cacheKey(input: CacheKeyInput): Promise<string> {
 }
 
 /**
- * The stored results for `key`, or null for a miss. An entry that does not
- * parse as a results array is treated as a miss rather than served: the
- * cache can only ever be stale, never wrong-shaped.
+ * The stored body for `key`, or null for a miss. An entry that does not
+ * parse as `{ results: [...], match }` is treated as a miss rather than
+ * served: the cache can only ever be stale, never wrong-shaped.
  */
 export async function getCached(
   kv: CacheStore,
@@ -193,31 +211,40 @@ export async function getCached(
 ): Promise<CachedQuery | null> {
   const { value, metadata } = await kv.getWithMetadata(key, "text");
   if (value === null) return null;
-  let results: unknown;
+  let body: unknown;
   try {
-    results = JSON.parse(value);
+    body = JSON.parse(value);
   } catch {
     return null;
   }
-  if (!Array.isArray(results)) return null;
+  if (!isCachedBody(body)) return null;
   return {
-    results: results as QueryResponseResult[],
+    results: body.results,
+    match: body.match,
     metadata: isEntryMetadata(metadata) ? metadata : null,
   };
 }
 
-/** Store a successful search's `results` under `key` for `ttlSeconds`. */
+function isCachedBody(value: unknown): value is CachedBody {
+  if (typeof value !== "object" || value === null) return false;
+  const { results, match } = value as Partial<CachedBody>;
+  return (
+    Array.isArray(results) && typeof match === "string" && MATCHES.has(match)
+  );
+}
+
+/** Store a successful search's body under `key` for `ttlSeconds`. */
 export async function putCached(
   kv: CacheStore,
   key: string,
-  results: QueryResponseResult[],
+  body: CachedBody,
   options: { generation: number; ttlSeconds?: number; now?: Date },
 ): Promise<void> {
   const metadata: CacheEntryMetadata = {
     generation: options.generation,
     storedAt: (options.now ?? new Date()).toISOString(),
   };
-  await kv.put(key, JSON.stringify(results), {
+  await kv.put(key, JSON.stringify(body), {
     expirationTtl: options.ttlSeconds ?? CACHE_TTL_SECONDS,
     metadata,
   });

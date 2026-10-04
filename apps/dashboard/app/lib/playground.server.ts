@@ -14,6 +14,13 @@
  * No KV cache on this path, on purpose: the playground exists to see what
  * the database says right now, including after a hide. `took_ms` is the
  * embed plus the search, which is what an uncached api call pays.
+ *
+ * Honest fallback (#86): with `fallback: "recent"` and nothing above the
+ * floor, the api answers with the newest publishable reviews labelled
+ * `match: "fallback"`. The playground runs the same recency statement and
+ * returns those rows separately (`fallback`), keeping the below-floor
+ * candidates in `results` so the page can still show *why* the query came
+ * back thin. `match` is the api's verdict for this request.
  */
 import {
   createWorkersAiEmbedder,
@@ -67,10 +74,17 @@ export interface PlaygroundPolicy {
   similarityFloor: number;
 }
 
+/** The api's response-level verdict (`workers/api/src/query/route.ts`). */
+export type PlaygroundMatch = "query" | "fallback" | "none" | "recent";
+
 export type PlaygroundOutcome =
   | {
       ok: true;
       results: PlaygroundResult[];
+      /** What the api would say about this request. */
+      match: PlaygroundMatch;
+      /** The rows the api would return on `match: "fallback"`; null otherwise. */
+      fallback: PlaygroundResult[] | null;
       policy: PlaygroundPolicy;
       tookMs: number;
       embeddingMs: number;
@@ -122,11 +136,9 @@ export async function runPlayground(
   }
 
   const searchStarted = performance.now();
-  const rows = await searchChunks(db, {
+  const search = {
     projectId: params.projectId,
     environment: request.environment,
-    queryEmbedding,
-    queryText: request.q,
     limit: request.limit,
     policy,
     filters: {
@@ -136,13 +148,29 @@ export async function runPlayground(
         Object.keys(request.metadata).length > 0 ? request.metadata : undefined,
     },
     mode: request.mode,
+  };
+  const rows = await searchChunks(db, {
+    ...search,
+    queryEmbedding,
+    queryText: request.q,
     includeBelowFloor: true,
   });
+  const above = rows.filter((r) => !r.belowFloor).length;
+  let match: PlaygroundMatch =
+    request.q === undefined ? "recent" : above > 0 ? "query" : "none";
+  let fallback: PlaygroundResult[] | null = null;
+  if (match === "none" && request.fallback === "recent") {
+    // Same statement the api runs for its fallback: no query, same policy.
+    fallback = (await searchChunks(db, search)).map(toPlaygroundResult);
+    match = "fallback";
+  }
   const searchMs = performance.now() - searchStarted;
 
   return {
     ok: true,
     results: rows.map(toPlaygroundResult),
+    match,
+    fallback,
     policy,
     tookMs: Math.round(performance.now() - started),
     embeddingMs: Math.round(embeddingMs),

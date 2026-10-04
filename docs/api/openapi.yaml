@@ -450,18 +450,19 @@ paths:
         | `limit` | `limit` |
         | `mode` | `mode` |
         | `include` (repeatable, or comma-separated) | `include` |
+        | `fallback` | `fallback` |
         | `min_rating` | `filters.min_rating` |
         | `source` (repeatable, or comma-separated) | `filters.source` |
         | `since` | `filters.since` |
         | `metadata.<key>` (one per key, e.g. `metadata.location=north`) | `filters.metadata.<key>` |
         | `key` | authentication (publishable keys only), not part of the shape |
 
-        Any other parameter, or `q`/`limit`/`mode`/`min_rating`/`since` given
-        twice, is a `422 validation_failed`.
+        Any other parameter, or `q`/`limit`/`mode`/`fallback`/`min_rating`/`since`
+        given twice, is a `422 validation_failed`.
 
         See `POST /v1/query` for the semantics of `q`, the relevance floor,
-        policy, `score`, `highlight`, `include`, `badge`, `cached`, and the
-        cache.
+        policy, `score`, `highlight`, `include`, `fallback` and `match`,
+        `badge`, `cached`, and the cache.
       security:
         - secretKey: []
         - publishableKey: []
@@ -472,6 +473,7 @@ paths:
         - $ref: "#/components/parameters/QueryLimit"
         - $ref: "#/components/parameters/QueryMode"
         - $ref: "#/components/parameters/QueryInclude"
+        - $ref: "#/components/parameters/QueryFallback"
         - $ref: "#/components/parameters/QueryMinRating"
         - $ref: "#/components/parameters/QuerySource"
         - $ref: "#/components/parameters/QuerySince"
@@ -542,6 +544,21 @@ paths:
           `review.text` to every result in `mode=excerpts` (it is always
           present in `mode=reviews`), which is what a highlighted render
           needs without switching modes. Part of the cache key.
+        - **`fallback`** and **`match`** — the honest fallback. By default
+          (`fallback: "none"`) a query nothing clears the floor for returns
+          `results: []`. With `fallback: "recent"` that empty result is
+          replaced by the newest publishable reviews under the same policy
+          and filters, and the response **says so**: `match` is `"fallback"`
+          and every result has `matched: false` with `score` and `highlight`
+          `null`, so a UI can change its heading from "What patients say
+          about insurance" to "What patients say about working with us"
+          instead of lying or rendering an empty box. Otherwise `match` is
+          `"query"` (real matches, every `matched: true`), `"none"` (nothing
+          cleared the floor, `results` empty), or `"recent"` (no `q` was
+          sent). A response is all matches or all fallback, never a mix:
+          only an *empty* result falls back; a short page is never topped
+          up. Part of the cache key, and the verdict is cached with the
+          results.
         - **`badge`** mirrors the project's plan: `true` means the snippet
           must render the "Reviews by ProofQL" badge (free tier).
         - **Cache.** Results are cached in KV, keyed on project, environment,
@@ -599,6 +616,12 @@ paths:
                   q: dental implants
                   limit: 3
                   include: [text]
+              fallback:
+                summary: Newest reviews instead of an empty list, labelled
+                value:
+                  q: roofing
+                  limit: 3
+                  fallback: recent
               newest:
                 summary: No `q` — the newest publishable reviews
                 value:
@@ -806,6 +829,12 @@ components:
         items:
           $ref: "#/components/schemas/QueryInclude"
       example: [text]
+    QueryFallback:
+      name: fallback
+      in: query
+      description: "`recent`: when nothing clears the floor, return the newest publishable reviews with `match: fallback`. Default `none`."
+      schema:
+        $ref: "#/components/schemas/QueryFallback"
     QueryMinRating:
       name: min_rating
       in: query
@@ -930,7 +959,9 @@ components:
     QueryOk:
       description: |
         The matches in rank order — possibly none: below-floor candidates are
-        dropped, never padded.
+        dropped, never padded. `match` says what the list is: real matches,
+        an honest fallback the caller asked for, nothing, or the newest
+        reviews because no `q` was sent.
       headers:
         x-request-id:
           $ref: "#/components/headers/XRequestId"
@@ -956,6 +987,7 @@ components:
               value:
                 results:
                   - score: 0.83
+                    matched: true
                     excerpt: "Dr. Patel did my implant and I honestly forgot it wasn't my own tooth within a week."
                     excerpt_id: 7c2e4b9a-1d3f-4a5b-8c6d-0e9f1a2b3c4d
                     highlight: { start: 26, end: 110 }
@@ -968,6 +1000,7 @@ components:
                       occurred_at: "2026-03-14T18:20:00.000Z"
                       url: "https://maps.google.com/?cid=123"
                       metadata: { location: north }
+                match: query
                 took_ms: 12
                 cached: false
                 badge: true
@@ -976,6 +1009,7 @@ components:
               value:
                 results:
                   - score: 0.83
+                    matched: true
                     excerpt: "Dr. Patel did my implant and I honestly forgot it wasn't my own tooth within a week."
                     excerpt_id: 7c2e4b9a-1d3f-4a5b-8c6d-0e9f1a2b3c4d
                     highlight: { start: 26, end: 110 }
@@ -989,6 +1023,7 @@ components:
                       url: "https://maps.google.com/?cid=123"
                       metadata: { location: north }
                       text: "Three visits, zero drama. Dr. Patel did my implant and I honestly forgot it wasn't my own tooth within a week. The whole team remembered my name."
+                match: query
                 took_ms: 14
                 cached: false
                 badge: true
@@ -996,7 +1031,30 @@ components:
               summary: Nothing above the floor
               value:
                 results: []
+                match: none
                 took_ms: 9
+                cached: false
+                badge: true
+            fallback:
+              summary: "`fallback=recent` for `q=roofing`: nothing cleared the floor, so the newest reviews, labelled"
+              value:
+                results:
+                  - score: null
+                    matched: false
+                    excerpt: "Three visits, zero drama. Dr. Patel did my implant and I honestly forgot it wasn't my own tooth within a week. The whole team remembered my name."
+                    excerpt_id: 0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d
+                    highlight: null
+                    review:
+                      id: 2f1c9e5a-3b7d-4c1e-9f0a-6d2b8e4a1c3f
+                      rating: 5
+                      author_name: Marcus T.
+                      author_avatar_url: null
+                      source: google
+                      occurred_at: "2026-03-14T18:20:00.000Z"
+                      url: "https://maps.google.com/?cid=123"
+                      metadata: { location: north }
+                match: fallback
+                took_ms: 11
                 cached: false
                 badge: true
 
@@ -1445,6 +1503,17 @@ components:
       description: "An optional response field. `text`: `review.text` on every result (always present in `mode=reviews`)."
       enum: [text]
 
+    QueryFallback:
+      type: string
+      description: "What to return when `q` is present and nothing clears the floor: `none` (default) an empty list; `recent` the newest publishable reviews under the same policy and filters, with `match: fallback`."
+      enum: [none, recent]
+      default: none
+
+    QueryMatch:
+      type: string
+      description: "What `results` is: `query` real matches; `fallback` the newest reviews because nothing cleared the floor and `fallback: recent` was requested; `none` nothing cleared the floor and `results` is empty; `recent` no `q` was sent."
+      enum: [query, fallback, none, recent]
+
     QueryHighlight:
       type: object
       description: |
@@ -1721,6 +1790,8 @@ components:
               maxItems: 8
               items:
                 $ref: "#/components/schemas/QueryInclude"
+        fallback:
+          $ref: "#/components/schemas/QueryFallback"
         filters:
           $ref: "#/components/schemas/QueryFilters"
 
@@ -1755,7 +1826,7 @@ components:
 
     QueryResult:
       type: object
-      required: [score, excerpt, excerpt_id, highlight, review]
+      required: [score, matched, excerpt, excerpt_id, highlight, review]
       additionalProperties: false
       properties:
         score:
@@ -1767,7 +1838,10 @@ components:
             `[0, 1]`, already at or above the project's relevance floor
             (default 0.55), and comparable across queries. Not the fused rank
             the results are ordered by, so it may be non-monotone down the
-            list. `null` when the request had no `q`.
+            list. `null` when the request had no `q` and on fallback rows.
+        matched:
+          type: boolean
+          description: "`true` for a real match (`match: query`); `false` on a fallback row and without `q`."
         excerpt:
           type: string
           description: A verbatim slice of the review's text — the best-matching chunk.
@@ -1788,14 +1862,16 @@ components:
 
     QueryResponse:
       type: object
-      required: [results, took_ms, cached, badge]
+      required: [results, match, took_ms, cached, badge]
       additionalProperties: false
       properties:
         results:
           type: array
-          description: In rank order. Empty when nothing clears the floor.
+          description: In rank order. Empty when nothing clears the floor and no fallback was requested. All matches or all fallback, never a mix.
           items:
             $ref: "#/components/schemas/QueryResult"
+        match:
+          $ref: "#/components/schemas/QueryMatch"
         took_ms:
           type: integer
           minimum: 0

@@ -5,9 +5,17 @@
  *
  * ```json
  * { "q": "dental implants", "limit": 5, "mode": "excerpts", "include": ["text"],
+ *   "fallback": "none",
  *   "filters": { "min_rating": 4, "source": ["google"],
  *                "since": "2025-01-01", "metadata": { "location": "north" } } }
  * ```
+ *
+ * `fallback` (#86) is what to do when `q` is present and nothing clears the
+ * floor: `none` (default) keeps the "empty beats irrelevant" invariant and
+ * returns `results: []`; `recent` returns the newest publishable reviews
+ * under the same policy and filters instead, with the response saying so
+ * (`match: "fallback"`, every result `matched: false`) — never mixed with
+ * real matches and never pretending to be them.
  *
  * `include` names optional response fields: `text` adds `review.text` to
  * every result in `mode=excerpts` (it is always present in `mode=reviews`),
@@ -26,6 +34,7 @@
  * | `limit`            | `limit`                         |
  * | `mode`             | `mode`                          |
  * | `include` (repeat or comma-separated) | `include`    |
+ * | `fallback`         | `fallback`                      |
  * | `min_rating`       | `filters.min_rating`            |
  * | `source` (repeat or comma-separated) | `filters.source` |
  * | `since`            | `filters.since`                 |
@@ -93,6 +102,10 @@ const filtersSchema = z.strictObject({
 export const QUERY_MODES = ["excerpts", "reviews"] as const;
 export type QueryMode = (typeof QUERY_MODES)[number];
 
+/** What to return when `q` is present and nothing clears the floor. */
+export const QUERY_FALLBACKS = ["none", "recent"] as const;
+export type QueryFallback = (typeof QUERY_FALLBACKS)[number];
+
 /** Optional response fields a request may ask for (`include`). */
 export const QUERY_INCLUDES = ["text"] as const;
 export type QueryInclude = (typeof QUERY_INCLUDES)[number];
@@ -116,6 +129,7 @@ export const queryRequestSchema = z.strictObject({
   limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).default(DEFAULT_LIMIT),
   mode: z.enum(QUERY_MODES).default("excerpts"),
   include: includeList.default([]),
+  fallback: z.enum(QUERY_FALLBACKS).default("none"),
   filters: z.preprocess(foldMetadataKeys, filtersSchema).default({}),
 });
 
@@ -185,6 +199,7 @@ const GET_PARAMS = new Set([
   "limit",
   "mode",
   "include",
+  "fallback",
   "min_rating",
   "source",
   "since",

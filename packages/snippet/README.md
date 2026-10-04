@@ -29,6 +29,9 @@ The page's origin must be in the project's allowed origins, or the API answers 4
 | `data-limit`       | `3`        | `limit`          | 1–20; out-of-range values are clamped.                   |
 | `data-mode`        | `excerpts` | `mode`           | `excerpts` (the matching slice) or `reviews` (whole review). |
 | `data-highlight`   | `false`    | `include=text`   | `"true"` renders the whole review with the matching sentence in `<mark class="pq-mark">` (below). In `excerpts` mode it asks the API for `review.text`. |
+| `data-fallback`    | none       | `fallback`       | `recent`: when nothing matches `data-query`, the newest publishable reviews render instead, labelled (below). |
+| `data-heading`     | none       | —                | Text for a `<p class="pq-heading">` above the list. |
+| `data-fallback-heading` | none  | —                | Used instead of `data-heading` on a fallback response. |
 | `data-min-rating`  | none       | `min_rating`     | Integer 1–5. Tightens the project's policy, never loosens it. |
 | `data-source`      | none       | `source`         | Comma-separated: `google,yelp`.                           |
 | `data-since`       | none       | `since`          | ISO date (`2025-01-01`) or timestamp.                    |
@@ -59,6 +62,16 @@ Nothing else is sent. The API rejects unknown parameters, and the snippet adds n
 - Parts a review lacks are omitted: no stars without a rating, no author, date, or `.pq-meta` without data. `.pq-source` is a link only when the review has an `http(s)` URL, a `<span>` otherwise, and absent for `source: custom`.
 - A native list with an explicit `role="list"` (Safari drops list semantics under `list-style: none`). The badge appears when the API says `badge: true` (free tier). It sits after the list, not inside it: a list may only own list items.
 - `data-proofql-rendered` marks an element that has been (or is being) rendered; a rendering never runs twice for the same element.
+
+### Honest fallback: `data-fallback`
+
+```html
+<div data-proofql data-query="roofing" data-fallback="recent"
+     data-heading="What customers say about roofing"
+     data-fallback-heading="What customers say about working with us"></div>
+```
+
+By default a query nothing matches renders nothing (the API answers `results: []`, `match: "none"`). With `data-fallback="recent"` the API answers with the project's newest publishable reviews instead and **says so**: `match: "fallback"`, every result `matched: false`. The snippet never hides that: the host element gets `data-pq-match="fallback"` and the class `pq-fallback` (on every render it carries `data-pq-match` with the verdict: `query`, `fallback`, `none`, or `recent`), and the heading swaps from `data-heading` to `data-fallback-heading`, so the page says "working with us" rather than pretending the reviews are about roofing. Both heading attributes are optional; nothing is rendered for one that is absent, and the one given is used in both cases. A response is all matches or all fallback, never a mix.
 
 ### Highlighting the match: `data-highlight`
 
@@ -116,6 +129,8 @@ For full control, point `data-template` at a `<template>`. Its content is cloned
 |-----------|-----------------------------------------------------------------------|
 | `excerpt` | the excerpt (the whole review in `data-mode="reviews"`)               |
 | `text-highlighted` | the whole review with the matching sentence in `<mark class="pq-mark">`; needs the text (`data-highlight="true"` or `data-mode="reviews"`), else the excerpt |
+
+Every top-level element of a clone also gets `data-pq-match` with the response's verdict (`query` | `fallback` | `none` | `recent`), the host element gets the same attribute plus `pq-fallback` on a fallback, and `data-heading` / `data-fallback-heading` render a `<p class="pq-heading">` before the clones, as in the default render.
 | `author`  | the author's name                                                     |
 | `source`  | the platform's display name (`Google`, `Yelp`…); nothing for `custom` |
 | `date`    | a short local date, plus `datetime` when the element is a `<time>`    |

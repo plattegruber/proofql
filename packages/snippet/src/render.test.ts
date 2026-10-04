@@ -10,7 +10,7 @@ import {
   textNodes,
 } from "./render.js";
 import { fixtureResponse } from "./test/fixture.js";
-import type { QueryResult } from "./types.js";
+import type { QueryResponse, QueryResult } from "./types.js";
 
 function host(): HTMLElement {
   const el = document.createElement("div");
@@ -250,5 +250,68 @@ describe("data-highlight (#85)", () => {
     const el = host();
     renderInto(el, fixtureResponse(), { mode: "reviews", highlight: true });
     expect(el.querySelector(".pq-mark")?.textContent).toBe(r1().excerpt);
+  });
+});
+
+describe("honest fallback (#86): match on the host, heading swap", () => {
+  it("marks the host with data-pq-match and pq-fallback only on a fallback", () => {
+    const el = host();
+    renderInto(el, fixtureResponse({ match: "query" }), { mode: "excerpts" });
+    expect(el.getAttribute("data-pq-match")).toBe("query");
+    expect(el.classList.contains("pq-fallback")).toBe(false);
+
+    renderInto(el, fixtureResponse({ match: "fallback" }), {
+      mode: "excerpts",
+    });
+    expect(el.getAttribute("data-pq-match")).toBe("fallback");
+    expect(el.classList.contains("pq-fallback")).toBe(true);
+
+    // A later real answer clears the class again.
+    renderInto(el, fixtureResponse({ match: "recent" }), { mode: "excerpts" });
+    expect(el.getAttribute("data-pq-match")).toBe("recent");
+    expect(el.classList.contains("pq-fallback")).toBe(false);
+
+    // An older build without `match` is a query answer.
+    const { match: _m, ...legacy } = fixtureResponse();
+    renderInto(el, legacy as QueryResponse, { mode: "excerpts" });
+    expect(el.getAttribute("data-pq-match")).toBe("query");
+  });
+
+  it("renders the heading above the list, swapping to the fallback heading on a fallback", () => {
+    const options = {
+      mode: "excerpts" as const,
+      heading: "What patients say about insurance",
+      fallbackHeading: "What patients say about working with us",
+    };
+    const el = host();
+    renderInto(el, fixtureResponse({ match: "query" }), options);
+    expect(el.firstElementChild?.className).toBe("pq-heading");
+    expect(el.firstElementChild?.tagName).toBe("P");
+    expect(el.firstElementChild?.textContent).toBe(
+      "What patients say about insurance",
+    );
+    expect(el.firstElementChild?.nextElementSibling?.className).toBe("pq-list");
+
+    renderInto(el, fixtureResponse({ match: "fallback" }), options);
+    expect(el.querySelector(".pq-heading")?.textContent).toBe(
+      "What patients say about working with us",
+    );
+
+    // Only one heading given: it is used in both cases.
+    renderInto(el, fixtureResponse({ match: "fallback" }), {
+      mode: "excerpts",
+      heading: "Reviews",
+    });
+    expect(el.querySelector(".pq-heading")?.textContent).toBe("Reviews");
+    renderInto(el, fixtureResponse({ match: "query" }), {
+      mode: "excerpts",
+      fallbackHeading: "Only on fallback",
+    });
+    expect(el.querySelector(".pq-heading")).toBeNull();
+
+    // Nothing given: nothing rendered.
+    renderInto(el, fixtureResponse(), { mode: "excerpts" });
+    expect(el.querySelector(".pq-heading")).toBeNull();
+    expect(el.firstElementChild?.className).toBe("pq-list");
   });
 });

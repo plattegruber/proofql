@@ -461,6 +461,132 @@ describe("/v1/query", () => {
     });
   });
 
+  describe("honest fallback (#86): match and matched", () => {
+    it("match: query — real matches, every result matched: true", async () => {
+      const body = await json<QueryResponse>(
+        await post(app, f.secret, { q: "implant tooth", fallback: "recent" }),
+      );
+      expect(body.match).toBe("query");
+      expect(body.results.map((r) => r.review.id)).toEqual([f.reviews.implant]);
+      expect(body.results.every((r) => r.matched && r.score !== null)).toBe(
+        true,
+      );
+    });
+
+    it("match: none — the default keeps results: [] (empty beats irrelevant)", async () => {
+      for (const extra of [{}, { fallback: "none" }]) {
+        const body = await json<QueryResponse>(
+          await post(app, f.secret, { q: "mortgage refinancing", ...extra }),
+        );
+        expect(body.match).toBe("none");
+        expect(body.results).toEqual([]);
+      }
+    });
+
+    it("match: fallback — the newest publishable reviews, labelled, score and highlight null", async () => {
+      const body = await json<QueryResponse>(
+        await post(app, f.secret, {
+          q: "mortgage refinancing",
+          fallback: "recent",
+          limit: 10,
+        }),
+      );
+      expect(body.match).toBe("fallback");
+      // Same order and policy as the no-q statement: hidden and one-star
+      // reviews never appear, even as fallback.
+      expect(body.results.map((r) => r.review.id)).toEqual([
+        f.reviews.implant,
+        f.reviews.cleaning,
+        f.reviews.parking,
+      ]);
+      for (const r of body.results) {
+        expect(r.matched).toBe(false);
+        expect(r.score).toBeNull();
+        expect(r.highlight).toBeNull();
+      }
+    });
+
+    it("match: recent — no q, regardless of fallback", async () => {
+      for (const extra of [{}, { fallback: "recent" }]) {
+        const body = await json<QueryResponse>(
+          await post(app, f.secret, { limit: 2, ...extra }),
+        );
+        expect(body.match).toBe("recent");
+        expect(body.results).toHaveLength(2);
+        expect(body.results.every((r) => !r.matched && r.score === null)).toBe(
+          true,
+        );
+      }
+    });
+
+    it("never mixes: a partial page is not topped up", async () => {
+      // "implant tooth" matches exactly one review; limit 5 leaves room.
+      const body = await json<QueryResponse>(
+        await post(app, f.secret, {
+          q: "implant tooth",
+          fallback: "recent",
+          limit: 5,
+        }),
+      );
+      expect(body.match).toBe("query");
+      expect(body.results).toHaveLength(1);
+    });
+
+    it("fallback rows respect the request's filters and min_rating", async () => {
+      const body = await json<QueryResponse>(
+        await post(app, f.secret, {
+          q: "mortgage refinancing",
+          fallback: "recent",
+          filters: { source: ["yelp"], min_rating: 4 },
+        }),
+      );
+      expect(body.match).toBe("fallback");
+      expect(body.results.map((r) => r.review.id)).toEqual([
+        f.reviews.cleaning,
+      ]);
+      const strict = await json<QueryResponse>(
+        await post(app, f.secret, {
+          q: "mortgage refinancing",
+          fallback: "recent",
+          filters: { min_rating: 5, since: "2026-02-15" },
+        }),
+      );
+      expect(strict.results.map((r) => r.review.id)).toEqual([
+        f.reviews.implant,
+      ]);
+    });
+
+    it("GET ?fallback=recent, and the cache keeps fallback values apart (and the verdict on a HIT)", async () => {
+      const auth = { Authorization: `Bearer ${f.secret}` };
+      const none = await get(app, "q=mortgage+refinancing&limit=2", auth);
+      expect((await json<QueryResponse>(none)).match).toBe("none");
+      const recent = await get(
+        app,
+        "q=mortgage+refinancing&limit=2&fallback=recent",
+        auth,
+      );
+      const recentBody = await json<QueryResponse>(recent);
+      expect(recentBody.match).toBe("fallback");
+      expect(recentBody.results).toHaveLength(2);
+      // Second identical request is a HIT and still says fallback.
+      const hit = await get(
+        app,
+        "q=mortgage+refinancing&limit=2&fallback=recent",
+        auth,
+      );
+      expect(hit.headers.get("x-cache")).toBe("HIT");
+      const hitBody = await json<QueryResponse>(hit);
+      expect(hitBody.cached).toBe(true);
+      expect(hitBody.match).toBe("fallback");
+      expect(hitBody.results).toEqual(recentBody.results);
+      // And the no-fallback variant was not overwritten.
+      const noneAgain = await get(app, "q=mortgage+refinancing&limit=2", auth);
+      expect((await json<QueryResponse>(noneAgain)).match).toBe("none");
+      const bad = await get(app, "q=x&fallback=sometimes", auth);
+      expect(bad.status).toBe(422);
+    });
+  });
+
   describe("filters and policy", () => {
     it("filters.min_rating raises the floor above the project policy", async () => {
       const body = await json<QueryResponse>(
@@ -891,12 +1017,14 @@ describe("/v1/query", () => {
         key_kind: "secret",
         key_environment: "live",
         mode: "excerpts",
+        fallback: "none",
         has_q: true,
         q_length: "implant tooth".length,
         limit: 3,
         min_rating: 4,
         similarity_floor: 0.55,
         returned: 1,
+        match: "query",
         cached: "BYPASS",
         took_ms: expect.any(Number),
         embedding_ms: expect.any(Number),

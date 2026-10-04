@@ -170,7 +170,10 @@ export default function OnboardingSnippet({
                   suggests a <span className="font-mono">data-query</span> from
                   your most common topic; set{" "}
                   <span className="font-mono">data-query="…"</span> yourself to
-                  match a page's topic any time.
+                  match a page's topic any time. Add{" "}
+                  <span className="font-mono">data-fallback="recent"</span> next
+                  to it and a page never renders empty: when nothing matches,
+                  your newest reviews show instead, labelled as a fallback.
                 </>
               )}
             </p>

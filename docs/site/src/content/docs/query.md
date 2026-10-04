@@ -1,6 +1,6 @@
 ---
 title: Relevance and the floor
-description: What score measures, why an empty result beats an irrelevant one, how to highlight the matching sentence inside the untouched review, how min_rating, the similarity floor, and the sentiment gate interact, and how to tune the floor from query.completed logs.
+description: What score measures, why an empty result beats an irrelevant one, how to highlight the matching sentence inside the untouched review, how to fall back to recent reviews without lying about it, how min_rating, the similarity floor, and the sentiment gate interact, and how to tune the floor from query.completed logs.
 ---
 
 ## Relevance
@@ -37,6 +37,29 @@ Three nodes, no `innerHTML`: a review can contain `<script>` and it stays text. 
 A testimonials block that shows a review about parking on the implants page does more damage than an empty block: the visitor learns that the quotes are decoration. So ProofQL never pads. Candidates whose `score` is below the project's **similarity floor** (`similarity_floor`, default `0.55`) are dropped inside the search statement, and when nothing clears it the response is `results: []` with a `200`. The snippet renders nothing on an empty result and leaves whatever the element already contained.
 
 The same rule holds under failure. If the embedding service is unavailable the endpoint answers `503 embedding_unavailable` rather than falling back to a keyword-only search, because a keyword hit with no vector proximity is exactly the irrelevant result the floor exists to drop. Full-text-only hits are dropped for the same reason when a `q` is present.
+
+## Honest fallback
+
+Sometimes an empty block is still the wrong answer: a contractor's roofing page before the first roofing review has arrived. The temptation is to show five-star reviews about something else under the roofing heading, and that is the one thing ProofQL will not do silently. Ask for a fallback and the API gives you recent reviews **and tells you that is what they are**:
+
+```json
+{ "q": "roofing", "fallback": "recent", "limit": 3 }
+```
+
+- `fallback` is `"none"` (default; `results: []` when nothing clears the floor) or `"recent"`: when nothing clears the floor, the newest publishable reviews under the same policy and filters come back instead. GET: `?fallback=recent`.
+- `match` on every response is the verdict: `"query"` (real matches), `"fallback"` (the newest reviews, because nothing matched and you asked), `"none"` (nothing matched, `results` empty), or `"recent"` (no `q` was sent). Every result also carries `matched`, `true` only for a real match; fallback rows have `score: null` and `highlight: null`.
+- A response is all matches or all fallback, never a mix. Only an empty result falls back; a page with two real matches is not topped up with three recent reviews, because a mixed list has no honest label.
+
+The point of the label is the heading. Your UI reads `match` and changes "What patients say about insurance" to "What patients say about working with us": never tricking the visitor, never rendering a broken empty box.
+
+```js
+const { results, match } = await (await fetch(url)).json();
+heading.textContent = match === "fallback"
+  ? "What patients say about working with us"
+  : "What patients say about insurance";
+```
+
+The snippet does this with [`data-fallback="recent"`](/snippet#honest-fallback) and the two heading attributes, and marks its container `data-pq-match="fallback"` so your CSS can restyle it. `query.completed` logs `fallback` and `match`, so the fallback rate is a number you can watch while [tuning the floor](#tuning-the-floor).
 
 ## Three gates, one statement
 

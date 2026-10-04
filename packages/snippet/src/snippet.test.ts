@@ -56,6 +56,29 @@ describe("renderElement", () => {
     expect(debugSpy).not.toHaveBeenCalled();
   });
 
+  it("passes data-fallback through and swaps the heading on a fallback response (#86)", async () => {
+    const fetchStub = stubFetch({
+      body: fixtureResponse({ match: "fallback" }),
+    });
+    vi.stubGlobal("fetch", fetchStub);
+    const el = host({
+      "data-query": "roofing",
+      "data-fallback": "recent",
+      "data-heading": "What patients say about roofing",
+      "data-fallback-heading": "What patients say about working with us",
+    });
+
+    await renderElement(el, config);
+
+    expect(fetchStub.calls[0]).toContain("&fallback=recent");
+    expect(el.getAttribute("data-pq-match")).toBe("fallback");
+    expect(el.classList.contains("pq-fallback")).toBe(true);
+    expect(el.querySelector(".pq-heading")?.textContent).toBe(
+      "What patients say about working with us",
+    );
+    expect(el.querySelectorAll(".pq-item")).toHaveLength(3);
+  });
+
   const untouched = async (name: string, el: HTMLElement) => {
     const before = el.outerHTML;
     await expect(renderElement(el, config)).resolves.toBeUndefined();

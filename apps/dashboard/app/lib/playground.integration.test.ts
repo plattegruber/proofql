@@ -67,6 +67,44 @@ describe("runPlayground", () => {
     expect(above).toEqual(plain.map(toPlaygroundResult));
   });
 
+  it("fallback: recent answers an empty page with the newest reviews, labelled, and never tops up a partial one (#86)", async () => {
+    const p = await project(t.db);
+    const hit = await indexed(p.id, IMPLANT);
+    const parking = await indexed(p.id, PARKING);
+
+    const run = (search: string) =>
+      runPlayground(t.db, new FakeEmbeddingProvider(), {
+        projectId: p.id,
+        project: { minRating: 4, similarityFloor: 0.55 },
+        request: parsePlaygroundParams(new URLSearchParams(search)).request,
+      });
+
+    const none = await run("q=mortgage+refinancing");
+    if (!none.ok) throw new Error(none.error);
+    expect(none.match).toBe("none");
+    expect(none.fallback).toBeNull();
+
+    const fallback = await run("q=mortgage+refinancing&fallback=recent");
+    if (!fallback.ok) throw new Error(fallback.error);
+    expect(fallback.match).toBe("fallback");
+    expect(fallback.fallback?.map((r) => r.reviewId).sort()).toEqual(
+      [hit.id, parking.id].sort(),
+    );
+    expect(fallback.fallback?.every((r) => r.similarity === null)).toBe(true);
+    // The debug candidates are still reported alongside.
+    expect(fallback.results.every((r) => r.belowFloor)).toBe(true);
+
+    const query = await run("q=painless+implant&fallback=recent");
+    if (!query.ok) throw new Error(query.error);
+    expect(query.match).toBe("query");
+    expect(query.fallback).toBeNull();
+
+    const recent = await run("fallback=recent");
+    if (!recent.ok) throw new Error(recent.error);
+    expect(recent.match).toBe("recent");
+    expect(recent.fallback).toBeNull();
+  });
+
   it("tightens min_rating with the override, never loosens it", async () => {
     const p = await project(t.db);
     await indexed(p.id, IMPLANT, 4);

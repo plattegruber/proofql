@@ -37,6 +37,7 @@ describe("POST body shape", () => {
       limit: DEFAULT_LIMIT,
       mode: "excerpts",
       include: [],
+      fallback: "none",
       filters: {},
     });
   });
@@ -47,6 +48,7 @@ describe("POST body shape", () => {
       limit: 3,
       mode: "reviews",
       include: ["text"],
+      fallback: "recent",
       filters: {
         min_rating: 5,
         source: ["google", "yelp"],
@@ -59,6 +61,7 @@ describe("POST body shape", () => {
       limit: 3,
       mode: "reviews",
       include: ["text"],
+      fallback: "recent",
       filters: {
         min_rating: 5,
         source: ["google", "yelp"],
@@ -80,6 +83,14 @@ describe("POST body shape", () => {
     expect(
       issuesOf(() => parseQueryRequest({ include: "html" })).paths,
     ).toEqual(["include.0"]);
+  });
+
+  it("accepts fallback none|recent and 422s anything else", () => {
+    expect(parseQueryRequest({ fallback: "recent" }).fallback).toBe("recent");
+    expect(parseQueryRequest({ fallback: "none" }).fallback).toBe("none");
+    expect(
+      issuesOf(() => parseQueryRequest({ fallback: "random" })).paths,
+    ).toEqual(["fallback"]);
   });
 
   it("folds the scope doc's flat `metadata.<key>` filter spelling into `metadata`", () => {
@@ -182,13 +193,14 @@ describe("GET query-param mapping", () => {
   it("maps every documented parameter onto the body shape", () => {
     expect(
       fromGet(
-        "q=dental+implants&limit=3&mode=reviews&include=text&min_rating=5&source=google&source=yelp&since=2025-01-01&metadata.location=north&key=pq_pk_live_x",
+        "q=dental+implants&limit=3&mode=reviews&include=text&fallback=recent&min_rating=5&source=google&source=yelp&since=2025-01-01&metadata.location=north&key=pq_pk_live_x",
       ),
     ).toEqual({
       q: "dental implants",
       limit: 3,
       mode: "reviews",
       include: ["text"],
+      fallback: "recent",
       filters: {
         min_rating: 5,
         source: ["google", "yelp"],
@@ -217,6 +229,7 @@ describe("GET query-param mapping", () => {
       limit: DEFAULT_LIMIT,
       mode: "excerpts",
       include: [],
+      fallback: "none",
       filters: {},
     });
   });
@@ -226,6 +239,7 @@ describe("GET query-param mapping", () => {
       limit: DEFAULT_LIMIT,
       mode: "excerpts",
       include: [],
+      fallback: "none",
       filters: {},
     });
     expect(issuesOf(() => fromGet("limt=3")).paths).toEqual(["limt"]);
@@ -242,6 +256,9 @@ describe("GET query-param mapping", () => {
   });
 
   it("422s a scalar parameter given twice", () => {
+    expect(
+      issuesOf(() => fromGet("fallback=recent&fallback=none")).paths,
+    ).toEqual(["fallback"]);
     expect(issuesOf(() => fromGet("q=a&q=b"))).toEqual({
       status: 422,
       code: "validation_failed",

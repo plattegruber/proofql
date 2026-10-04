@@ -285,6 +285,24 @@ function QueryForm({
             aria-invalid={fieldErrors.since ? true : undefined}
           />
         </Label>
+        <label className="col-span-2 flex items-start gap-2 font-sans text-small text-ink-900">
+          <input
+            type="checkbox"
+            name="fallback"
+            value="recent"
+            defaultChecked={request.fallback === "recent"}
+            className="mt-0.5 size-4 accent-accent-600"
+          />
+          <span>
+            <span className="font-mono">fallback: recent</span>
+            <span className="block text-label text-gray-500">
+              When nothing clears the floor, answer with the newest reviews
+              instead — labelled{" "}
+              <span className="font-mono">match: "fallback"</span>, never mixed
+              with real matches.
+            </span>
+          </span>
+        </label>
       </div>
 
       <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
@@ -380,6 +398,7 @@ function Results({
           )}
           <Stat label="search" value={`${outcome.searchMs} ms`} />
           <Stat label="cached" value="no · direct" />
+          <Stat label="match" value={outcome.match} />
           <Stat label="min_rating" value={outcome.policy.minRating} />
           <Stat
             label="floor"
@@ -388,12 +407,54 @@ function Results({
         </dl>
       </header>
 
-      {above.length === 0 && (
+      {above.length === 0 && outcome.fallback === null && (
         <p className="m-0 border border-dashed border-gray-300 bg-surface-card p-5 text-small text-gray-600">
-          {hasQuery
-            ? "Nothing clears the floor. The api would return an empty list and the snippet would render nothing — empty beats irrelevant."
-            : "No publishable reviews match. Hidden reviews, ratings under the minimum, and unindexed reviews never appear here."}
+          {hasQuery ? (
+            <>
+              Nothing clears the floor. The api would return an empty list and
+              the snippet would render nothing — empty beats irrelevant. Turn on{" "}
+              <span className="font-mono">fallback: recent</span> to answer with
+              the newest reviews instead, labelled{" "}
+              <span className="font-mono">match: "fallback"</span>.
+            </>
+          ) : (
+            "No publishable reviews match. Hidden reviews, ratings under the minimum, and unindexed reviews never appear here."
+          )}
         </p>
+      )}
+      {outcome.fallback !== null && (
+        <section
+          aria-label="Fallback results"
+          data-fallback-results
+          className="flex flex-col gap-3"
+        >
+          <p className="m-0 border border-dashed border-gray-300 bg-surface-card p-5 text-small text-gray-600">
+            Nothing clears the floor. Because{" "}
+            <span className="font-mono">fallback: recent</span> is on, the api
+            would return these newest publishable reviews with{" "}
+            <span className="font-mono">match: "fallback"</span> and every
+            result <span className="font-mono">matched: false</span>; the
+            snippet would swap to{" "}
+            <span className="font-mono">data-fallback-heading</span> and mark
+            its container <span className="font-mono">pq-fallback</span>.
+          </p>
+          {outcome.fallback.length === 0 ? (
+            <p className="m-0 text-label text-gray-500">
+              No publishable reviews to fall back to.
+            </p>
+          ) : (
+            outcome.fallback.map((r, i) => (
+              <ResultCard
+                key={r.chunkId}
+                result={r}
+                rank={i + 1}
+                floor={outcome.policy.similarityFloor}
+                reviewHref={reviewHref(r.reviewId)}
+                fallback
+              />
+            ))
+          )}
+        </section>
       )}
       {above.map((r, i) => (
         <ResultCard

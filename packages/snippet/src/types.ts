@@ -29,13 +29,20 @@ export interface QueryResult {
   score: number | null;
   excerpt: string;
   excerpt_id: string;
+  /** False on a fallback row and without `q`; absent from older builds. */
+  matched?: boolean;
   /** Null without `q` or for a whole-review match; absent from older builds. */
   highlight?: QueryHighlight | null;
   review: QueryReview;
 }
 
+/** What `results` is (#86): matches, a labelled fallback, nothing, or newest. */
+export type QueryMatch = "query" | "fallback" | "none" | "recent";
+
 export interface QueryResponse {
   results: QueryResult[];
+  /** Absent from older builds; treated as `query`. */
+  match?: QueryMatch;
   took_ms: number;
   cached: boolean;
   /** Whether the snippet must render the "Reviews by ProofQL" badge. */
@@ -50,6 +57,10 @@ export interface RenderOptions {
   mode: QueryMode;
   /** `data-highlight="true"`: the whole review with the span in `<mark>`. */
   highlight?: boolean;
+  /** `data-heading`: a `<p class="pq-heading">` above the list. */
+  heading?: string;
+  /** `data-fallback-heading`: used instead of `heading` on `match: fallback`. */
+  fallbackHeading?: string;
 }
 
 declare global {

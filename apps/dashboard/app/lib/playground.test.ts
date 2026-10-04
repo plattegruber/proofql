@@ -21,6 +21,7 @@ describe("parsePlaygroundParams", () => {
       q: undefined,
       mode: "excerpts",
       limit: 5,
+      fallback: "none",
       minRating: undefined,
       source: undefined,
       since: undefined,
@@ -32,7 +33,7 @@ describe("parsePlaygroundParams", () => {
   it("reads every field, trims, and folds metadata pairs", () => {
     const { request, fieldErrors } = parsePlaygroundParams(
       new URLSearchParams(
-        "env=test&q=+parking+&mode=reviews&limit=20&min_rating=5&source=google&since=2025-01-01&mk=location&mv=north&mk=&mv=&mk=tier&mv=vip",
+        "env=test&q=+parking+&mode=reviews&limit=20&fallback=recent&min_rating=5&source=google&since=2025-01-01&mk=location&mv=north&mk=&mv=&mk=tier&mv=vip",
       ),
     );
     expect(fieldErrors).toEqual({});
@@ -41,6 +42,7 @@ describe("parsePlaygroundParams", () => {
       q: "parking",
       mode: "reviews",
       limit: 20,
+      fallback: "recent",
       minRating: 5,
       source: "google",
       sinceRaw: "2025-01-01",
@@ -52,10 +54,11 @@ describe("parsePlaygroundParams", () => {
   it("reports one error per bad field and falls back to the default", () => {
     const { request, fieldErrors } = parsePlaygroundParams(
       new URLSearchParams(
-        `q=${"x".repeat(501)}&mode=both&limit=0&min_rating=6&since=soon&mk=&mv=orphan`,
+        `q=${"x".repeat(501)}&mode=both&limit=0&fallback=always&min_rating=6&since=soon&mk=&mv=orphan`,
       ),
     );
     expect(Object.keys(fieldErrors).sort()).toEqual([
+      "fallback",
       "limit",
       "metadata",
       "min_rating",
@@ -75,6 +78,26 @@ describe("parsePlaygroundParams", () => {
     );
     expect(parseSince("2025-13-01")).toBeNull();
     expect(parseSince("Jan 1")).toBeNull();
+  });
+});
+
+describe("fallback (#86)", () => {
+  it("rides in the body and the snippet only when recent", () => {
+    const { request } = parsePlaygroundParams(
+      new URLSearchParams("q=roofing&fallback=recent"),
+    );
+    expect(queryBody(request)).toEqual({
+      q: "roofing",
+      limit: 5,
+      mode: "excerpts",
+      fallback: "recent",
+    });
+    expect(snippetFor(request)).toContain('data-fallback="recent"');
+    const { request: none } = parsePlaygroundParams(
+      new URLSearchParams("q=roofing"),
+    );
+    expect(queryBody(none)).not.toHaveProperty("fallback");
+    expect(snippetFor(none)).not.toContain("data-fallback");
   });
 });
 

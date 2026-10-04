@@ -17,7 +17,7 @@ import { buildQueryUrl, readElementQuery } from "./query.js";
 import { renderInto } from "./render.js";
 import { ensureStyles } from "./styles.js";
 import { findTemplate, renderTemplate } from "./template.js";
-import type { QueryResponse, QueryResult } from "./types.js";
+import type { QueryResponse, QueryResult, RenderOptions } from "./types.js";
 
 export const SELECTOR = "[data-proofql]";
 /** Set while an element is being fetched and after it has rendered. */
@@ -97,10 +97,14 @@ export async function renderElement(
       el.removeAttribute(RENDERED_ATTR);
       return;
     }
-    const options = {
+    const options: RenderOptions = {
       mode: query.mode ?? "excerpts",
       highlight: query.highlight,
     };
+    const heading = el.getAttribute("data-heading")?.trim();
+    const fallbackHeading = el.getAttribute("data-fallback-heading")?.trim();
+    if (heading) options.heading = heading;
+    if (fallbackHeading) options.fallbackHeading = fallbackHeading;
     ensureStyles(el.ownerDocument);
     const template = findTemplate(el);
     if (template !== null) renderTemplate(el, template, response, options);

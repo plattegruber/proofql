@@ -84,7 +84,7 @@ wire) and bind it in `handleQueueBatch`.
 
 | Event | Level | Fields beyond the request bindings | When |
 |---|---|---|---|
-| `query.completed` | info | `project_id`, `key_environment`, `key_kind`, `mode`, `has_q`, `q_length`, `limit`, `min_rating`, `similarity_floor`, `returned`, `cached`, `took_ms`, `embedding_ms`, `search_ms` | Exactly once per answered `/v1/query`, hit or miss. See [Tuning the floor](#tuning-the-similarity-floor). |
+| `query.completed` | info | `project_id`, `key_environment`, `key_kind`, `mode`, `fallback`, `has_q`, `q_length`, `limit`, `min_rating`, `similarity_floor`, `returned`, `match`, `cached`, `took_ms`, `embedding_ms`, `search_ms` | Exactly once per answered `/v1/query`, hit or miss. See [Tuning the floor](#tuning-the-similarity-floor). |
 | `query.rejected` | warn (error for 5xx) | `code`, `status`, and `project_id`, `key_environment`, `key_kind` when auth had run | Any `ApiError` on `/v1/query`: 401/403 auth and CORS, 422 validation, 429 rate limit or quota, 503 `embedding_unavailable`. |
 | `query.embedding_failed` | error | `project_id`, `key_environment`, `key_kind`, `q_length`, `embedding_ms`, `error` | Workers AI failed or is unbound; the response is 503 and there is deliberately no full-text fallback. Followed by a `query.rejected` with `code: embedding_unavailable`. |
 | `query.cache_error` | warn | `project_id`, `key_environment`, `op` (`get` \| `put`), `error` | A KV read or write threw. The request is served as a miss; the cache can slow the endpoint down, never take it down. |
@@ -106,6 +106,11 @@ wire) and bind it in `handleQueueBatch`.
   reviews and `similarity_floor` played no part.
 - `min_rating` is the **effective** floor: `max(project.min_rating,
   filters.min_rating)`.
+- `fallback` is the request's option (`none` | `recent`) and `match` the
+  response's verdict (`query` | `fallback` | `none` | `recent`, #86). A
+  `match = fallback` line is a query nothing cleared the floor for that was
+  answered with the newest reviews instead — count it with `returned = 0`
+  when measuring the empty rate below, since to the floor it was empty.
 - `returned` is the length of `results`. There is no `candidates` count: the
   search statement returns only the top `limit` rows after the floor, and
   the number that cleared the floor before `LIMIT` would need a window

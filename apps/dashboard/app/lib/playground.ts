@@ -29,12 +29,17 @@ export const Q_MAX_LENGTH = 500;
 /** The one-tag embed's script origin (scope.md §3 "Snippet"). */
 export const SNIPPET_SRC = "https://cdn.proofql.com/v1.js";
 
+export const PLAYGROUND_FALLBACKS = ["none", "recent"] as const;
+export type PlaygroundFallback = (typeof PLAYGROUND_FALLBACKS)[number];
+
 export interface PlaygroundRequest {
   environment: Environment;
   /** Trimmed; undefined is no-query mode (the newest publishable reviews). */
   q: string | undefined;
   mode: PlaygroundMode;
   limit: number;
+  /** The api's `fallback` (#86): `recent` answers an empty result with the newest reviews, labelled. */
+  fallback: PlaygroundFallback;
   /** Tightens the project's `min_rating` for this query; never loosens it. */
   minRating: number | undefined;
   source: string | undefined;
@@ -80,6 +85,15 @@ export function parsePlaygroundParams(
     ? (modeRaw as PlaygroundMode)
     : "excerpts";
   if (mode !== modeRaw) fieldErrors.mode = "Choose excerpts or reviews.";
+
+  // A checkbox: present as `fallback=recent`, absent otherwise.
+  const fallbackRaw = searchParams.get("fallback") ?? "none";
+  const fallback: PlaygroundFallback = (
+    PLAYGROUND_FALLBACKS as readonly string[]
+  ).includes(fallbackRaw)
+    ? (fallbackRaw as PlaygroundFallback)
+    : "none";
+  if (fallback !== fallbackRaw) fieldErrors.fallback = "Choose none or recent.";
 
   let limit = DEFAULT_LIMIT;
   const limitRaw = blankToUndefined(searchParams.get("limit"));
@@ -143,6 +157,7 @@ export function parsePlaygroundParams(
       q,
       mode,
       limit,
+      fallback,
       minRating,
       source,
       since,
@@ -178,6 +193,7 @@ export function queryBody(request: PlaygroundRequest): Record<string, unknown> {
   if (request.q !== undefined) body.q = request.q;
   body.limit = request.limit;
   body.mode = request.mode;
+  if (request.fallback !== "none") body.fallback = request.fallback;
   if (Object.keys(filters).length > 0) body.filters = filters;
   return body;
 }
@@ -235,6 +251,9 @@ export function snippetFor(
   if (request.q !== undefined) attrs.push(`data-query="${attr(request.q)}"`);
   attrs.push(`data-limit="${request.limit}"`);
   if (request.mode !== "excerpts") attrs.push(`data-mode="${request.mode}"`);
+  if (request.fallback !== "none") {
+    attrs.push(`data-fallback="${request.fallback}"`);
+  }
   if (request.minRating !== undefined) {
     attrs.push(`data-min-rating="${request.minRating}"`);
   }

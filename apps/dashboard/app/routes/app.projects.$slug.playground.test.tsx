@@ -53,6 +53,13 @@ function fixture(search: string, results: PlaygroundResult[]): PlaygroundData {
     outcome: {
       ok: true,
       results,
+      match:
+        request.q === undefined
+          ? "recent"
+          : results.some((r) => !r.belowFloor)
+            ? "query"
+            : "none",
+      fallback: null,
       policy: { minRating: 4, similarityFloor: 0.55 },
       tookMs: 17,
       embeddingMs: 3,
@@ -176,7 +183,46 @@ describe("playground route", () => {
       search,
     );
     expect(await screen.findByText(/Nothing clears the floor/)).toBeTruthy();
+    expect(screen.getByText(/Turn on/)).toBeTruthy();
     expect(screen.getByText("0 above · 1 below")).toBeTruthy();
+    expect(screen.getByText("match").nextElementSibling?.textContent).toBe(
+      "none",
+    );
+  });
+
+  it("with fallback: recent on, shows the newest reviews the api would return, labelled (#86)", async () => {
+    const search = "q=mortgage&fallback=recent";
+    const data = fixture(search, [
+      result({ similarity: 0.12, belowFloor: true }),
+    ]);
+    if (data.outcome?.ok) {
+      data.outcome.match = "fallback";
+      data.outcome.fallback = [
+        result({
+          similarity: null,
+          reviewId: "22222222-2222-4222-8222-222222222222",
+          excerpt: "Downtown parking is the only hassle.",
+        }),
+      ];
+    }
+    const { container } = renderPlayground(data, search);
+    expect(await screen.findByText(/Because/)).toBeTruthy();
+    expect(screen.getByText("match").nextElementSibling?.textContent).toBe(
+      "fallback",
+    );
+    const section = container.querySelector("[data-fallback-results]");
+    expect(section?.querySelectorAll("article[data-fallback]")).toHaveLength(1);
+    expect(section?.textContent).toContain("fallback · newest first");
+    expect(section?.textContent).toContain("matched: false");
+    // The below-floor explanation is still there.
+    expect(
+      container.querySelectorAll("article[data-below-floor]"),
+    ).toHaveLength(1);
+    const checkbox = screen.getByRole("checkbox", {
+      name: /fallback: recent/,
+    }) as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    expect(container.textContent).toContain('data-fallback="recent"');
   });
 
   it("without a query shows the recency list and no floor line", async () => {
