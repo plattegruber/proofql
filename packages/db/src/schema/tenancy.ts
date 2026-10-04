@@ -14,7 +14,7 @@
  * cache is purged on change, never consulted for policy.
  */
 
-import { PLAN_NAMES, type Plan } from "@proofql/core";
+import { DEFAULT_SIMILARITY_FLOOR, PLAN_NAMES, type Plan } from "@proofql/core";
 import {
   boolean,
   doublePrecision,
@@ -97,7 +97,7 @@ export const projects = pgTable(
      */
     similarityFloor: doublePrecision("similarity_floor")
       .notNull()
-      .default(0.55),
+      .default(DEFAULT_SIMILARITY_FLOOR),
     /** Derived from the account plan; stored so the query API reads one row. */
     showBadge: boolean("show_badge").notNull().default(true),
     /** Denormalized count of live reviews, for limits and the dashboard. */

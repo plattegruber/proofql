@@ -5,6 +5,7 @@
  *
  * Form data arrives as strings; these schemas own the coercion.
  */
+import { DEFAULT_SIMILARITY_FLOOR } from "@proofql/core";
 import { z } from "zod";
 
 // --- Slugs -----------------------------------------------------------------
@@ -60,7 +61,7 @@ export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 export const MIN_RATING_DEFAULT = 4;
 export const MIN_RATING_OPTIONS = [1, 2, 3, 4, 5] as const;
 
-export const SIMILARITY_FLOOR_DEFAULT = 0.55;
+export const SIMILARITY_FLOOR_DEFAULT = DEFAULT_SIMILARITY_FLOOR;
 export const SIMILARITY_FLOOR_MIN = 0.3;
 export const SIMILARITY_FLOOR_MAX = 0.9;
 export const SIMILARITY_FLOOR_STEP = 0.01;
