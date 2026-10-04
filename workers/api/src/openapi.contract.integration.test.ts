@@ -1285,6 +1285,66 @@ describe("OPTIONS /v1/query", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 503 service_unavailable: the database refuses a connection (#108)
+
+describe("503 service_unavailable on every database-backed operation", () => {
+  /**
+   * An app whose first database touch is SQLSTATE 53300 — what Hyperdrive or
+   * Neon says when there is no connection to give. Every authenticated
+   * operation opens the database in auth, so every one of them answers
+   * the documented 503 with `Retry-After`. Fresh keys, so the auth cache
+   * (a KV hit would need no database) cannot answer for `/v1/query`.
+   */
+  const down = createApp({
+    dbProvider: () => {
+      throw Object.assign(new Error("sorry, too many clients already"), {
+        name: "PostgresError",
+        code: "53300",
+      });
+    },
+    logSink: recordingSink().sink,
+    rateLimiter: { limit: async () => ({ success: true }) },
+  });
+  const ID = "00000000-0000-4000-8000-000000000000";
+
+  it.each([
+    ["post", "/v1/reviews", "secret", "[]"],
+    ["get", "/v1/reviews", "secret", undefined],
+    ["get", "/v1/reviews/{id}", "secret", undefined],
+    ["patch", "/v1/reviews/{id}", "secret", "{}"],
+    ["delete", "/v1/reviews/{id}", "secret", undefined],
+    ["get", "/v1/query", "publishable", undefined],
+    ["post", "/v1/query", "secret", "{}"],
+  ] as const)("%s %s", async (method, path, kind, body) => {
+    const key = (await generateApiKey({ kind, environment: "live" })).plaintext;
+    const url =
+      method === "get" && path === "/v1/query"
+        ? `/v1/query?key=${key}`
+        : path.replace("{id}", ID);
+    const headers: Record<string, string> = {};
+    if (!(method === "get" && path === "/v1/query")) {
+      headers.authorization = `Bearer ${key}`;
+    } else {
+      headers.origin = ORIGIN;
+    }
+    if (body !== undefined) headers["content-type"] = "application/json";
+    const res = await down.request(
+      url,
+      { method: method.toUpperCase(), headers, body },
+      env,
+      fakeCtx().asExecutionContext(),
+    );
+    expect(res.status).toBe(503);
+    expect(res.headers.get("retry-after")).toBe("1");
+    const b = (await conforms(res, method, path)) as {
+      error: { code: string; message: string };
+    };
+    expect(b.error.code).toBe("service_unavailable");
+    expect(b.error.message).not.toMatch(/too many clients/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The spec against itself
 
 describe("the spec", () => {

@@ -22,19 +22,40 @@ export type { Sql };
  *   and break under Hyperdrive's transaction-mode pooling. Off everywhere so
  *   local and production behave identically.
  * - `max: 5` — Hyperdrive pools upstream; a large client-side pool only
- *   hoards pooled backends.
+ *   hoards pooled backends. The api worker passes `max: 1` (#108): nothing
+ *   on its hot path runs two statements concurrently, so a wider pool only
+ *   widens the burst footprint toward Hyperdrive's origin connection limit.
+ * - `connectTimeout` / `idleTimeout` (seconds) map onto postgres-js's
+ *   `connect_timeout` (default 30) and `idle_timeout` (default: never). A
+ *   per-request client that cannot connect should fail fast and surface as
+ *   a retryable error rather than hold the request for half a minute.
  *
  * The raw `sql` client is exposed for hand-written queries (hybrid search
  * is one: vector distance, `ts_rank`, and RRF fusion are easier in SQL than
  * through the query builder).
  */
+export interface CreateDbOptions {
+  /** Pool size; default 5. */
+  max?: number;
+  /** Seconds to wait for a connection before failing; default postgres-js's 30. */
+  connectTimeout?: number;
+  /** Seconds an idle connection is kept; default postgres-js's "forever". */
+  idleTimeout?: number;
+}
+
 export function createDb(
   connectionString: string,
-  opts?: { max?: number },
+  opts?: CreateDbOptions,
 ): { db: Db; sql: Sql } {
   const sql = postgres(connectionString, {
     prepare: false,
     max: opts?.max ?? 5,
+    ...(opts?.connectTimeout === undefined
+      ? {}
+      : { connect_timeout: opts.connectTimeout }),
+    ...(opts?.idleTimeout === undefined
+      ? {}
+      : { idle_timeout: opts.idleTimeout }),
   });
   const db = drizzle(sql, { schema });
   return { db, sql };
