@@ -157,8 +157,8 @@
         ]
       },
       "kv_namespaces": [
-        // <TBD>: id of KV namespace `proofql-cache-preview`.
-        { "binding": "CACHE", "id": "TBD-provision-in-m0" }
+        // KV namespace proofql-cache-preview (created 2026-10-04).
+        { "binding": "CACHE", "id": "8cc94fb4ff7941bb909b5f0628b02d2f" }
       ],
       "hyperdrive": [
         // <TBD>: id of Hyperdrive config `proofql-hyperdrive-preview`.
@@ -200,8 +200,8 @@
         ]
       },
       "kv_namespaces": [
-        // <TBD>: id of KV namespace `proofql-cache-prod`.
-        { "binding": "CACHE", "id": "TBD-provision-in-m0" }
+        // KV namespace proofql-cache-prod (created 2026-10-04).
+        { "binding": "CACHE", "id": "7623c7022e46429fac1819062deaba11" }
       ],
       "hyperdrive": [
         // <TBD>: id of Hyperdrive config `proofql-hyperdrive-prod`.

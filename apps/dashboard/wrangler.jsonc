@@ -115,7 +115,7 @@
       "vars": {
         "ENVIRONMENT": "preview",
         // <TBD>: the proofql-api-preview public origin.
-        "API_URL": "TBD-provision-in-m0",
+        "API_URL": "https://proofql-api-preview.gruberplatte.workers.dev",
         "SNIPPET_SRC": "https://cdn.proofql.com/v1.js",
         // <TBD>: the Google OAuth client id (public; docs/secrets.md,
         // infra/provisioning.md "Google OAuth client"). Not flagged by
@@ -134,8 +134,8 @@
         "CLERK_PUBLISHABLE_KEY": "TBD-provision-in-m0"
       },
       "kv_namespaces": [
-        // <TBD>: id of KV namespace `proofql-cache-preview`.
-        { "binding": "CACHE", "id": "TBD-provision-in-m0" }
+        // KV namespace proofql-cache-preview (created 2026-10-04).
+        { "binding": "CACHE", "id": "8cc94fb4ff7941bb909b5f0628b02d2f" }
       ],
       "r2_buckets": [
         { "binding": "UPLOADS", "bucket_name": "proofql-uploads-preview" }
@@ -165,7 +165,7 @@
       "vars": {
         "ENVIRONMENT": "prod",
         // <TBD>: the proofql-api-prod public origin.
-        "API_URL": "TBD-provision-in-m0",
+        "API_URL": "https://proofql-api-prod.gruberplatte.workers.dev",
         "SNIPPET_SRC": "https://cdn.proofql.com/v1.js",
         // <TBD>: the Google OAuth client id (public; docs/secrets.md,
         // infra/provisioning.md "Google OAuth client"). Not flagged by
@@ -184,8 +184,8 @@
         "CLERK_PUBLISHABLE_KEY": "TBD-provision-in-m0"
       },
       "kv_namespaces": [
-        // <TBD>: id of KV namespace `proofql-cache-prod`.
-        { "binding": "CACHE", "id": "TBD-provision-in-m0" }
+        // KV namespace proofql-cache-prod (created 2026-10-04).
+        { "binding": "CACHE", "id": "7623c7022e46429fac1819062deaba11" }
       ],
       "r2_buckets": [
         { "binding": "UPLOADS", "bucket_name": "proofql-uploads-prod" }
