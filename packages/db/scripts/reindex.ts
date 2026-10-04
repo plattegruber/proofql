@@ -38,12 +38,12 @@
  */
 
 import { fileURLToPath } from "node:url";
-import { parseArgs } from "node:util";
 import { and, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
 
 import { createDb } from "../src/client.js";
 import { type Environment, projects } from "../src/schema/index.js";
 import { reviews } from "../src/schema/reviews.js";
+import { parseScriptArgs } from "./args.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -91,10 +91,8 @@ export function reindexWhere(selection: ReindexSelection): SQL {
 }
 
 async function main(): Promise<void> {
-  const { values } = parseArgs({
-    // `pnpm db:reindex -- --project x` forwards the literal `--`, which
-    // parseArgs would reject as a positional; drop it.
-    args: process.argv.slice(2).filter((a) => a !== "--"),
+  // parseScriptArgs drops the `--` pnpm forwards (#128, `scripts/args.ts`).
+  const { values } = parseScriptArgs({
     options: {
       project: { type: "string" },
       all: { type: "boolean", default: false },

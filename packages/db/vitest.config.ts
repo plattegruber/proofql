@@ -5,6 +5,7 @@ import { configDefaults, defineConfig } from "vitest/config";
 //
 //   - unit:        `**/*.test.ts` minus `**/*.integration.test.ts`
 //                  — no DB, no network, runs anywhere with zero services.
+//                  Covers `src/` and the ops scripts' helpers in `scripts/`.
 //   - integration: only `**/*.integration.test.ts`
 //                  — requires a real Postgres via DATABASE_URL. The harness
 //                  throws (never skips) when DATABASE_URL is unset, so a
@@ -18,7 +19,7 @@ export default defineConfig({
       {
         test: {
           name: "unit",
-          include: ["src/**/*.test.ts"],
+          include: ["src/**/*.test.ts", "scripts/**/*.test.ts"],
           exclude: [...configDefaults.exclude, "**/*.integration.test.ts"],
         },
       },

@@ -44,8 +44,15 @@ needs no database, but it loads the schema, which takes its enum values from
 | `pnpm db:reindex -- --project <slug\|uuid> \| --all [--environment live\|test] [--dry-run]` | Ops (#127): mark reviews for re-indexing after a chunker change. Sets `indexed_at = NULL` and `index_attempts = 0` on the selected (non-hidden) reviews; the pipeline's five-minute sweep (#72) re-enqueues them 500 per tick and `indexReview` replaces each review's chunks, so it is idempotent. Prints the count and the expected time. See "Re-indexing" below. |
 
 Local dev: start Postgres (`docker compose up -d`, #11), then
-`DATABASE_URL=postgres://proofql:proofql@localhost:54322/proofql pnpm db:migrate`.
+`DATABASE_URL=postgres://proofql:proofql@localhost:54323/proofql pnpm db:migrate`.
 Re-running is a no-op.
+
+The `--` in `pnpm db:set-plan -- --account …` is what pnpm needs to pass
+flags through to the script; pnpm 10 also forwards it, and `parseArgs`
+would read it as the end of options (#128), so every script here parses
+through `scripts/args.ts` (`parseScriptArgs`), which drops that one
+leading `--`. The same line works without it, and so does running a script
+directly (`pnpm --filter @proofql/db exec tsx scripts/set-plan.ts --account …`).
 
 ### Conventions
 

@@ -49,6 +49,7 @@ import { reviewChunks } from "../src/schema/reviewChunks.js";
 import { reviews } from "../src/schema/reviews.js";
 import { accounts, projects } from "../src/schema/tenancy.js";
 import { TEMPLATE_DB, withDatabase } from "../test/support.js";
+import { parseScriptArgs } from "./args.js";
 
 const TOPICS = [
   "The implant procedure was painless and quick",
@@ -143,13 +144,14 @@ function stats(samples: number[]): string {
 }
 
 /**
- * Time every scenario against `projectId`, then (with `--explain`) print
+ * Time every scenario against `projectId`, then (with `explain`) print
  * the hybrid plan.
  */
 async function runScenarios(
   db: ReturnType<typeof createDb>["db"],
   sql: ReturnType<typeof createDb>["sql"],
   projectId: string,
+  explain: boolean,
 ): Promise<void> {
   const [counted] = await sql<{ count: string }[]>`
     SELECT count(*)::text AS count FROM review_chunks WHERE project_id = ${projectId}`;
@@ -204,7 +206,7 @@ async function runScenarios(
     );
   }
 
-  if (process.argv.includes("--explain")) {
+  if (explain) {
     // The two statements with their own access paths into `reviews`: the
     // hybrid join (#111) and the recency index scan (#117).
     for (const name of [
@@ -221,18 +223,11 @@ async function runScenarios(
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** `--project <slug|uuid>`: bench the named project in `DATABASE_URL` as it is. */
-function projectSlugArg(): string | undefined {
-  const i = process.argv.indexOf("--project");
-  if (i < 0) return undefined;
-  const slug = process.argv[i + 1];
-  if (!slug || slug.startsWith("--")) {
-    throw new Error("--project requires a project slug");
-  }
-  return slug;
-}
-
-async function benchExisting(databaseUrl: string, slug: string): Promise<void> {
+async function benchExisting(
+  databaseUrl: string,
+  slug: string,
+  explain: boolean,
+): Promise<void> {
   const { db, sql } = createDb(databaseUrl, { max: 1 });
   try {
     const matches = await sql<{ id: string; slug: string }[]>`
@@ -251,7 +246,7 @@ async function benchExisting(databaseUrl: string, slug: string): Promise<void> {
     console.log(
       `project ${found.slug} (${found.id}) in ${new URL(databaseUrl).pathname.slice(1)}`,
     );
-    await runScenarios(db, sql, found.id);
+    await runScenarios(db, sql, found.id, explain);
   } finally {
     await sql.end();
   }
@@ -260,6 +255,7 @@ async function benchExisting(databaseUrl: string, slug: string): Promise<void> {
 async function benchSeeded(
   databaseUrl: string,
   chunkCount: number,
+  explain: boolean,
 ): Promise<void> {
   const benchDb = `bench_search_${process.pid}`;
 
@@ -279,7 +275,7 @@ async function benchSeeded(
     await seedTenant(db, "bench-b", chunkCount);
     await sql`ANALYZE review_chunks`;
     await sql`ANALYZE reviews`;
-    await runScenarios(db, sql, projectId);
+    await runScenarios(db, sql, projectId, explain);
   } finally {
     await sql.end();
     await maintenance.unsafe(
@@ -292,13 +288,30 @@ async function benchSeeded(
 async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is required");
-  const slug = projectSlugArg();
-  if (slug) {
-    await benchExisting(databaseUrl, slug);
+  // `[chunks] [--project <slug|uuid>] [--explain]`; parseScriptArgs drops the
+  // `--` pnpm forwards when run as a package script (#128, `scripts/args.ts`).
+  const { values, positionals } = parseScriptArgs({
+    options: {
+      project: { type: "string" },
+      explain: { type: "boolean", default: false },
+    },
+    allowPositionals: true,
+  });
+  if (values.project !== undefined) {
+    if (values.project === "" || values.project.startsWith("-")) {
+      throw new Error("--project requires a project slug");
+    }
+    await benchExisting(databaseUrl, values.project, values.explain);
     return;
   }
-  const positional = process.argv.slice(2).find((a) => !a.startsWith("--"));
-  await benchSeeded(databaseUrl, Number(positional ?? 5000));
+  const [chunks = "5000"] = positionals;
+  const chunkCount = Number(chunks);
+  if (!Number.isInteger(chunkCount) || chunkCount <= 0) {
+    throw new Error(
+      `chunks must be a positive integer, got ${JSON.stringify(chunks)}`,
+    );
+  }
+  await benchSeeded(databaseUrl, chunkCount, values.explain);
 }
 
 main().catch((error) => {
