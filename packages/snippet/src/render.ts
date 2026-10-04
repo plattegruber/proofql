@@ -5,6 +5,7 @@
  * likes. The structure is the contract #33's stylesheet targets:
  *
  * ```html
+ * <p class="pq-heading">…</p>                        <!-- data-heading / data-fallback-heading only -->
  * <ul class="pq-list" role="list">
  *   <li class="pq-item">
  *     <span class="pq-stars" role="img" aria-label="4 out of 5 stars">
@@ -26,14 +27,49 @@
  * on purpose — Safari drops a `<ul>`'s list semantics under
  * `list-style: none`, which the default stylesheet sets. The badge is a
  * sibling of the list, not a child: a list may only own list items.
+ *
+ * Honest fallback (#86): the host element itself gets
+ * `data-pq-match="<match>"` on every render and the class `pq-fallback`
+ * when the API answered with its newest reviews because nothing matched,
+ * so host CSS can restyle; the heading swaps from `data-heading` to
+ * `data-fallback-heading` on that response ("What patients say about
+ * insurance" → "What patients say about working with us"). Nothing is
+ * rendered for a heading that was not given.
  */
 
 import type {
+  QueryMatch,
   QueryMode,
   QueryResponse,
   QueryResult,
   RenderOptions,
 } from "./types.js";
+
+export const MATCH_ATTR = "data-pq-match";
+export const FALLBACK_CLASS = "pq-fallback";
+
+/** The response's verdict; an older build without `match` is a query answer. */
+export function matchOf(response: QueryResponse): QueryMatch {
+  return response.match ?? "query";
+}
+
+/** Mark the host with the verdict so host CSS can restyle a fallback. */
+export function markMatch(el: Element, match: QueryMatch): void {
+  el.setAttribute(MATCH_ATTR, match);
+  el.classList.toggle(FALLBACK_CLASS, match === "fallback");
+}
+
+/** The heading for this response, or null when the host gave none. */
+export function renderHeading(
+  doc: Document,
+  match: QueryMatch,
+  options: RenderOptions,
+): HTMLElement | null {
+  const text =
+    (match === "fallback" ? options.fallbackHeading : undefined) ??
+    options.heading;
+  return text ? element(doc, "p", "pq-heading", text) : null;
+}
 
 export const BADGE_HREF = "https://proofql.com/?ref=badge";
 export const BADGE_TEXT = "Reviews by ProofQL";
@@ -224,12 +260,16 @@ export function renderInto(
   options: RenderOptions,
 ): void {
   const doc = el.ownerDocument;
+  const match = matchOf(response);
   const list = element(doc, "ul", "pq-list");
   list.setAttribute("role", "list");
   for (const result of response.results) {
     list.appendChild(renderItem(doc, result, options));
   }
   const nodes: Node[] = [list];
+  const heading = renderHeading(doc, match, options);
+  if (heading) nodes.unshift(heading);
   if (response.badge) nodes.push(renderBadge(doc));
+  markMatch(el, match);
   el.replaceChildren(...nodes);
 }

@@ -77,6 +77,17 @@ describe("element attributes → query string", () => {
     expect(readElementQuery(el({})).highlight).toBe(false);
   });
 
+  it('data-fallback="recent" passes fallback=recent; other values are dropped', () => {
+    expect(
+      params({ "data-query": "x", "data-fallback": "recent" }).get("fallback"),
+    ).toBe("recent");
+    for (const value of ["", "none", "yes", "RECENT"]) {
+      expect(params({ "data-fallback": value }).has("fallback"), value).toBe(
+        false,
+      );
+    }
+  });
+
   it("encodes the query text", () => {
     const url = buildQueryUrl(
       API,

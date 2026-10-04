@@ -34,6 +34,9 @@ The key rides in the URL (`?key=pq_pk_…`) rather than a header on purpose: a `
 | `data-limit`       | `3`        | `limit`          | 1 to 20; out-of-range values are clamped. |
 | `data-mode`        | `excerpts` | `mode`           | `excerpts` (the matching slice) or `reviews` (the whole review). |
 | `data-highlight`   | `false`    | `include=text`   | `"true"` renders the whole review with the matching sentence in `<mark class="pq-mark">`; see [Highlighting](#highlighting-the-match). |
+| `data-fallback`    | none       | `fallback`       | `recent`: when nothing matches, the newest reviews render instead, labelled; see [Honest fallback](#honest-fallback). |
+| `data-heading`     | none       | —                | Text for a `<p class="pq-heading">` above the list. |
+| `data-fallback-heading` | none  | —                | Used instead of `data-heading` on a fallback response. |
 | `data-min-rating`  | none       | `min_rating`     | Integer 1 to 5. Tightens the project's policy, never loosens it. |
 | `data-source`      | none       | `source`         | Comma-separated: `google,yelp`. |
 | `data-since`       | none       | `since`          | ISO date (`2025-01-01`) or timestamp. |
@@ -66,6 +69,16 @@ Nothing else is sent. The API rejects unknown parameters, and the snippet adds n
 - A native list with an explicit `role="list"` (Safari drops list semantics under `list-style: none`).
 - The badge appears when the API says `badge: true` (free tier). It sits after the list, not inside it.
 - `data-proofql-rendered` marks an element that has been (or is being) rendered; a rendering never runs twice for the same element.
+
+## Honest fallback
+
+```html
+<div data-proofql data-query="roofing" data-fallback="recent"
+     data-heading="What customers say about roofing"
+     data-fallback-heading="What customers say about working with us"></div>
+```
+
+By default a query nothing matches renders nothing. With `data-fallback="recent"` the API answers with the newest publishable reviews instead and says so (`match: "fallback"`, [Honest fallback](/query#honest-fallback)); the snippet passes that on rather than hiding it. The host element gets `data-pq-match="fallback"` and the class `pq-fallback` so your CSS can restyle it (on every render it carries `data-pq-match` with the verdict: `query`, `fallback`, `none`, or `recent`), and the heading swaps from `data-heading` to `data-fallback-heading`. Both headings are optional: nothing renders for one that is absent, and the one given is used in both cases. A response is all matches or all fallback, never a mix.
 
 ## Highlighting the match
 
@@ -123,6 +136,8 @@ For full control, point `data-template` at a `<template>`. Its content is cloned
 |-----------|------------------|
 | `excerpt` | the excerpt (the whole review in `data-mode="reviews"`) |
 | `text-highlighted` | the whole review with the matching sentence in `<mark class="pq-mark">`; needs the text (`data-highlight="true"` or `data-mode="reviews"`), else the excerpt |
+
+Every top-level element of a clone also gets `data-pq-match` with the response's verdict, the host element gets the same attribute plus `pq-fallback` on a fallback, and the heading attributes work as in the default render.
 | `author`  | the author's name |
 | `source`  | the platform's display name (`Google`, `Yelp`, …); nothing for `custom` |
 | `date`    | a short local date, plus `datetime` when the element is a `<time>` |

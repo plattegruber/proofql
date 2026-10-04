@@ -7,6 +7,7 @@
  * | `data-limit`       | `limit`            | default 3, clamped to 1–20             |
  * | `data-mode`        | `mode`             | `excerpts` (default) or `reviews`      |
  * | `data-highlight`   | `include=text`     | `"true"` asks for the whole text (excerpts mode) so the match can be marked |
+ * | `data-fallback`    | `fallback`         | `recent`: newest reviews, labelled, when nothing matches |
  * | `data-min-rating`  | `min_rating`       | integer 1–5; anything else is dropped  |
  * | `data-source`      | `source`           | comma-separated list, passed through   |
  * | `data-since`       | `since`            | ISO date, passed through               |
@@ -32,6 +33,7 @@ export interface ElementQuery {
   mode?: QueryMode;
   /** Render the whole review with the matched span marked (`./render.ts`). */
   highlight: boolean;
+  fallback?: "recent";
   min_rating?: number;
   source?: string;
   since?: string;
@@ -69,6 +71,8 @@ export function readElementQuery(el: Element): ElementQuery {
   const mode = attr(el, "data-mode");
   if (mode === "excerpts" || mode === "reviews") query.mode = mode;
 
+  if (attr(el, "data-fallback") === "recent") query.fallback = "recent";
+
   const minRating = int(attr(el, "data-min-rating"));
   if (minRating !== undefined && minRating >= 1 && minRating <= 5) {
     query.min_rating = minRating;
@@ -105,6 +109,7 @@ export function buildQueryUrl(
   // `reviews` already carries the text; only excerpts needs to ask for it.
   if (query.highlight && query.mode !== "reviews")
     params.set("include", "text");
+  if (query.fallback !== undefined) params.set("fallback", query.fallback);
   if (query.min_rating !== undefined) {
     params.set("min_rating", String(query.min_rating));
   }

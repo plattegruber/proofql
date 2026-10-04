@@ -155,6 +155,29 @@ describe("renderTemplate", () => {
     expect(slots[1]?.querySelector("mark")).toBeNull();
   });
 
+  it("puts data-pq-match on every clone root, marks the host, and renders the heading (#86)", () => {
+    const template = install(`<figure><b data-pq="author"></b></figure><hr>`);
+    const el = host();
+    renderTemplate(el, template, fixtureResponse({ match: "fallback" }), {
+      mode: "excerpts",
+      heading: "What patients say about insurance",
+      fallbackHeading: "What patients say about working with us",
+    });
+    expect(el.getAttribute("data-pq-match")).toBe("fallback");
+    expect(el.classList.contains("pq-fallback")).toBe(true);
+    expect(el.firstElementChild?.className).toBe("pq-heading");
+    expect(el.firstElementChild?.textContent).toBe(
+      "What patients say about working with us",
+    );
+    const roots = Array.from(el.children).filter((c) =>
+      ["FIGURE", "HR"].includes(c.tagName),
+    );
+    expect(roots).toHaveLength(6);
+    expect(
+      roots.every((r) => r.getAttribute("data-pq-match") === "fallback"),
+    ).toBe(true);
+  });
+
   it("appends the badge unless the project is paid", () => {
     const template = install();
     const free = host();

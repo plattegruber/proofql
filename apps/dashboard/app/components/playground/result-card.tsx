@@ -79,16 +79,20 @@ export function ResultCard({
   rank,
   floor,
   reviewHref,
+  fallback = false,
 }: {
   result: PlaygroundResult;
   rank: number;
   floor: number;
   reviewHref: string;
+  /** A row the api would return as `match: "fallback"` (#86). */
+  fallback?: boolean;
 }) {
   const { review } = result;
   return (
     <article
       data-below-floor={result.belowFloor || undefined}
+      data-fallback={fallback || undefined}
       className={cn(
         "border border-hairline bg-surface-card p-4",
         result.belowFloor && "bg-surface-sunken text-gray-500",
@@ -119,9 +123,10 @@ export function ResultCard({
           </>
         ) : (
           <span className="font-mono text-label text-gray-500">
-            no query · newest first
+            {fallback ? "fallback · newest first" : "no query · newest first"}
           </span>
         )}
+        {fallback && <Badge tone="neutral">matched: false</Badge>}
         {result.belowFloor && (
           <Badge tone="neutral">below floor ({floor.toFixed(2)})</Badge>
         )}
