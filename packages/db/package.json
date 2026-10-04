@@ -30,6 +30,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:set-plan": "tsx scripts/set-plan.ts",
+    "db:reindex": "tsx scripts/reindex.ts",
     "db:studio": "drizzle-kit studio",
     "seed": "pnpm --filter \"@proofql/db^...\" build && tsx src/seed/cli.ts",
     "test": "vitest run --project unit",

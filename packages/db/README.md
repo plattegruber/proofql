@@ -41,6 +41,7 @@ needs no database, but it loads the schema, which takes its enum values from
 | `pnpm db:generate` | Diff `src/schema` against the last snapshot and emit SQL into `migrations/` |
 | `pnpm db:migrate` | Apply pending migrations from `migrations/` to `DATABASE_URL` (`scripts/migrate.ts`, drizzle's migrator; idempotent) |
 | `pnpm db:set-plan -- --account <uuid\|org_…> --plan free\|paid` | Ops (#54): change an account's plan and rewrite its projects' `show_badge` mirror in one transaction (`scripts/set-plan.ts` → `setAccountPlan`). `--sync` instead of `--plan` only repairs the mirror. The only way a plan changes until billing (M3). |
+| `pnpm db:reindex -- --project <slug\|uuid> \| --all [--environment live\|test] [--dry-run]` | Ops (#127): mark reviews for re-indexing after a chunker change. Sets `indexed_at = NULL` and `index_attempts = 0` on the selected (non-hidden) reviews; the pipeline's five-minute sweep (#72) re-enqueues them 500 per tick and `indexReview` replaces each review's chunks, so it is idempotent. Prints the count and the expected time. See "Re-indexing" below. |
 
 Local dev: start Postgres (`docker compose up -d`, #11), then
 `DATABASE_URL=postgres://proofql:proofql@localhost:54322/proofql pnpm db:migrate`.
@@ -100,8 +101,10 @@ What the dataset contains:
   ~10% long multi-topic.
 - **Chunks for every review**: one `full` chunk, plus 2–3 sentence
   `window` chunks overlapping by one for reviews of four or more
-  sentences — 90 full + 30 window chunks in all. Every chunk passes
-  `assertVerbatimChunks` before insert. All chunks are embedded with
+  sentences, plus one `sentence` chunk per sentence for reviews of two or
+  more (#127) — 90 full + 30 window + 236 sentence chunks in all (live:
+  80 / 28 / 218 = 326 chunks over 80 reviews, ~4.1 per review). Every
+  chunk passes `assertVerbatimChunks` before insert. All chunks are embedded with
   `fakeEmbed` from `@proofql/ai`, so a query vector built with the same
   fake lands near the right rows. `indexed_at` is set; `review_count` on
   the project is the live count.
@@ -110,9 +113,9 @@ The seed chunks with **the same chunker as the pipeline**: `chunkReview`
 from `@proofql/core` (`packages/core/src/chunking.ts`, #23/#68), called
 with the review's `language` as the locale exactly as `workers/pipeline`
 calls it. A seeded review's chunks are therefore byte-identical to what
-ingesting that review would produce — same `full`/`window` boundaries,
-same UTF-16 offsets — and `seed.integration.test.ts` asserts that per
-review. There is no chunking logic in `src/seed/`. `chunkReview` rejoins
+ingesting that review would produce — same `full`/`window`/`sentence`
+boundaries, same UTF-16 offsets — and `seed.integration.test.ts` asserts
+that per review. There is no chunking logic in `src/seed/`. `chunkReview` rejoins
 abbreviations and initials that `Intl.Segmenter` would split on (`"Dr."`,
 `"St."`, `"e.g."`, `"J."`; #77), so the chunker's sentence count matches a
 reader's and no window ends in a bare honorific.
@@ -127,13 +130,49 @@ Rules and properties:
   only the API keys change per run.
 - **Guarded.** Refuses a `DATABASE_URL` whose host is not loopback unless
   `--force` is passed (`src/seed/guard.ts`).
-- **`SEED_VERSION`** (`src/seed/constants.ts`, currently 3) is written
-  into the account name — `"ProofQL Demo (seed v3)"` — so any local
+- **`SEED_VERSION`** (`src/seed/constants.ts`, currently 5) is written
+  into the account name — `"ProofQL Demo (seed v5)"` — so any local
   database shows which fixture set it holds. Bump it with **any** change to
   what the seed produces and call the bump out in the PR: integration
   tests and the playground import `DEMO_REVIEW_FIXTURES` from
   `@proofql/db/seed` and treat the corpus as a contract
   (`src/seed/fixtures/reviews.test.ts` pins its shape).
+
+## Re-indexing
+
+Nothing re-indexes a review on its own: a repeat ingest with identical
+text is a no-op by design, and the pipeline only touches a review when a
+`review.index` message names it. So when the chunker changes — #127 added
+`sentence` chunks, and reviews indexed before migration 0008 have only
+`full` and `window` rows, which keeps their highlights window-wide —
+existing projects keep their old chunks until something asks for new ones.
+
+```sh
+DATABASE_URL=… pnpm db:reindex -- --project <slug|uuid> --dry-run   # counts only
+DATABASE_URL=… pnpm db:reindex -- --project <slug|uuid>             # one project
+DATABASE_URL=… pnpm db:reindex -- --all --environment live          # every project, live only
+```
+
+`scripts/reindex.ts` has no queue binding, so it does not enqueue
+anything. It sets `indexed_at = NULL` and `index_attempts = 0` on the
+selected reviews (hidden ones excluded; the pipeline skips them anyway) and
+leaves the rest to the pipeline's five-minute re-enqueue sweep
+(`workers/pipeline/src/sweep.ts`, #72), which picks up reviews with a null
+`indexed_at` older than five minutes, oldest `updated_at` first, 500 per
+tick. `indexReview` deletes and re-inserts a review's chunks in one
+transaction and the embedding stage sets `indexed_at` again, so the whole
+operation is idempotent: running it twice costs a second round of
+embeddings and nothing else. The script prints how many reviews it marked
+and how long the sweep will take (`ceil(n / 500) × 5` minutes).
+
+While it runs: the old chunks keep serving search until the moment a
+review is re-chunked; its new rows then carry NULL embeddings for the
+second or so the Workers AI call takes, during which that one review is
+absent from results. `GET /v1/reviews` reports `status: "indexing"` for a
+marked review until its `indexed_at` is set again, and the project's query
+cache generation is bumped when it is. Nothing is deleted. A slug is
+unique per account, not globally; the script refuses an ambiguous slug and
+asks for the project id.
 
 ## Vector search: no HNSW, on purpose
 

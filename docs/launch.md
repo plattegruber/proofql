@@ -351,3 +351,15 @@ After 48 hours with no rollback: tick the last box, close #51, and update
 #52 (M3 exit reached).
 
 - [ ] 48 hours of the table above with nothing red.
+
+## 15. Day-two operations
+
+Things that are not part of Go but will come up in the first weeks. Each is
+a documented ops command run by you against the prod branch
+(`DATABASE_URL=<prod DIRECT string>`); none needs a deploy.
+
+| Task | Command | Notes |
+|---|---|---|
+| **Upgrade an account to paid** | `pnpm db:set-plan -- --account <org_…> --plan paid` | §7; `packages/db/README.md` "Migration workflow". |
+| **Re-index a project's reviews after a chunker change** | `pnpm db:reindex -- --project <slug\|uuid> --dry-run`, then without `--dry-run`; `--all --environment live` for every project | #127 added `sentence` chunks (migration 0008); reviews indexed before it keep `full` + `window` chunks only, so their highlights stay window-wide until re-indexed. The script marks reviews (`indexed_at = NULL`, `index_attempts = 0`) and the pipeline's five-minute sweep re-enqueues them 500 per tick, so a 5,000-review project takes about 50 minutes and one Workers AI embedding batch per review; search keeps serving the old chunks until each review is replaced. Watch `review.indexed` lines with `sentences > 0` (`wrangler tail proofql-pipeline-prod --search review.indexed`). Details: `packages/db/README.md` "Re-indexing". |
+| **Check a tenant's search cost** | `pnpm --filter @proofql/db exec tsx scripts/bench-search.ts --project <slug\|uuid>` against a branch of prod | `docs/performance.md` §2: ~2.5–3 ms per 1,000 chunks; `search_ms` p50 above ~50 ms for one `project_id` is the trigger for a per-tenant partial HNSW index. |
