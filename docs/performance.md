@@ -294,6 +294,57 @@ Still to do after #111: re-run `pnpm load:run cold` on a quiet machine and
 refresh the §1 `cold` row; the expectation is `search_ms` p50 around
 5–8 ms for 2k-chunk tenants.
 
+### Sentence chunks (#127): chunks per review, and where the 20 ms line lands
+
+#127 made the chunker emit one `sentence` chunk per sentence for every
+review of two or more sentences, on top of the `full` chunk and the
+3-sentence `window`s, so a highlight can narrow to the one sentence that
+answered. The exact scan is linear in *chunks*, so the question is how many
+chunks a review now is. Measured on the demo corpus (seed v5, 2026-10-04;
+`pnpm seed` then `bench-search.ts --project de300000-…-000000000002`, the
+demo project's id — the slug is shared with the dashboard's local stub):
+
+| Demo corpus (80 live reviews; ~60 % one to two sentences, ~30 % three to five, ~10 % long) | Before #127 | After #127 |
+|---|---|---|
+| Chunks | 80 full + 28 window = **108** | 80 full + 28 window + 218 sentence = **326** |
+| Chunks per review | **1.35** | **4.08** (3.0×) |
+| Texts embedded per review (Workers AI inputs) | 1.35 | 4.08 |
+| Workers AI *calls* per review | 1 | 1 — `embedChunks` sends a review's chunks in batches of 50 (`EMBEDDING_BATCH_SIZE`), so a review needs ~49 sentences before it costs a second call |
+| Hybrid search, 326-chunk tenant in the 90k-chunk load table | — | 4.6 ms median, p95 8.3 ms (contended host) |
+| Hybrid search, `load-01` (2,000 fixed chunks), same run | 6.3–7.4 ms (#111/#117 rows above) | 6.7 ms median, p95 8.9 ms — unchanged, as it must be: no statement changed |
+
+The load seed is unaffected by #127 — it writes two fixed chunks per review
+(`full` + a first-sentence `window`), not `chunkReview`'s output — so its
+tenants still have 2,000 and 50,000 chunks and the per-1,000-chunk cost is
+what the tables above say. The conversion to reviews changed:
+
+| At the 20 ms line (~8,500 chunks, hybrid, after #111) | Chunks per review | Implied reviews per tenant |
+|---|---|---|
+| Load seed's fixed shape (the figure the earlier sections quote) | 2.0 | ~4,250 |
+| Demo corpus, before #127 | 1.35 | ~6,300 |
+| **Demo corpus, after #127** | **4.08** | **~2,100** |
+
+So on the demo mix the 20 ms `search_ms` target now holds to roughly
+**2,100 reviews**, and a maxed-out free tenant (5,000 reviews ≈ 20,400
+chunks) lands around **50–60 ms** by the 2.5–3 ms per 1,000 chunks slope,
+not the 15–20 ms recommendation 2 quotes — which is also where the partial
+HNSW trigger (`search_ms` p50 above ~50 ms, 15,000–20,000 chunks) now sits:
+**~3,700–4,900 reviews** rather than 7,500–10,000. The 20 ms line does not
+clear the free cap for a corpus shaped like the demo's. Two caveats before
+acting on that: the demo corpus is written to exercise the chunker (a tenth
+of it is long multi-topic reviews), and real Google corpora skew shorter
+(a large share are one sentence, which stays a single `full` chunk), so
+the real ratio is likely between 1.35 and 4.08 — read it off
+`review.indexed` lines (`chunks` per review) once real tenants are
+indexing. If a real tenant does approach the line, the knobs are, in order:
+drop the `window` chunks where sentence chunks already cover them (windows
+are now partly redundant; `sentenceChunks`/`minSentencesForWindows` in
+`chunkReview` make this a one-line policy change plus a re-index), then the
+per-tenant partial HNSW index of recommendation 2. Existing projects keep
+their pre-#127 chunks until re-indexed (`pnpm db:reindex`,
+`packages/db/README.md` "Re-indexing"), so the ratio only changes for a
+tenant when that runs.
+
 ### Large tenant on the load database
 
 Warm `EXPLAIN (ANALYZE, BUFFERS)` for the 50,000-chunk tenant: **147 ms**,
@@ -358,10 +409,13 @@ connection) waits for a staging measurement. Not fixed here.
    occurred_at DESC NULLS LAST, id)` index, 8.2 → 1.0 ms.
 2. **Per-tenant partial HNSW index: not yet, and not at 50k.** The exact
    scan is ~2.5–3 ms per 1,000 chunks. With #111 in, the 20 ms `search_ms`
-   target holds to roughly 8,500 chunks (~4,000 reviews); the free cap
-   (5,000 reviews ≈ 10,000 chunks) lands around 15–20 ms; a paid tenant at
-   50,000 chunks is ~120 ms and at 100,000 reviews (the paid cap, ~200,000
-   chunks) would be ~500 ms. The trigger for a partial index
+   target holds to roughly 8,500 chunks — ~4,000 reviews at the load seed's
+   two chunks per review, but only **~2,100 reviews at the ~4 chunks per
+   review the #127 sentence chunker produces on the demo corpus** (§2
+   "Sentence chunks"); the free cap (5,000 reviews) is ~10,000 chunks and
+   15–20 ms at two per review, ~20,000 chunks and 50–60 ms at four; a paid
+   tenant at 50,000 chunks is ~120 ms and at 100,000 reviews (the paid cap,
+   200,000–400,000 chunks) would be 0.5–1 s. The trigger for a partial index
    (`CREATE INDEX … USING hnsw (embedding halfvec_cosine_ops) WHERE
    project_id = …`) should therefore be a **`search_ms` p50 above ~50 ms
    for one `project_id`** in the `query.completed` logs, which with the
