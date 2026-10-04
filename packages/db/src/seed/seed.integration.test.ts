@@ -51,6 +51,10 @@ const EXPECTED_WINDOWS = DEMO_REVIEW_FIXTURES.reduce(
   (n, f) => n + expectedChunks(f).filter((c) => c.kind === "window").length,
   0,
 );
+const EXPECTED_SENTENCES = DEMO_REVIEW_FIXTURES.reduce(
+  (n, f) => n + expectedChunks(f).filter((c) => c.kind === "sentence").length,
+  0,
+);
 
 async function one(query: Promise<{ n: number }[]>): Promise<number> {
   const [row] = await query;
@@ -120,11 +124,13 @@ describe("runSeed", () => {
       projects: 1,
       keys: 4,
       reviews: DEMO_REVIEW_FIXTURES.length,
-      chunks: first.chunks.full + first.chunks.window,
+      chunks: first.chunks.full + first.chunks.window + first.chunks.sentence,
     });
     expect(first.chunks.full).toBe(DEMO_REVIEW_FIXTURES.length);
     expect(first.chunks.window).toBe(EXPECTED_WINDOWS);
-    expect(first.chunks.window).toBe(30); // seed v3 — pinned in fixtures/reviews.test.ts
+    expect(first.chunks.sentence).toBe(EXPECTED_SENTENCES);
+    // Seed v5 — pinned in fixtures/reviews.test.ts.
+    expect(first.chunks).toEqual({ full: 90, window: 30, sentence: 236 });
 
     const [acct] = await t.db
       .select()
@@ -258,7 +264,7 @@ describe("runSeed", () => {
     expect(unratedNegative).toBe(2);
   });
 
-  it("writes only verbatim chunks, one full per review plus windows for long ones", async () => {
+  it("writes only verbatim chunks: one full per review, windows for long ones, sentences for multi-sentence ones", async () => {
     const rows = await t.db
       .select({
         kind: reviewChunks.kind,
@@ -274,7 +280,9 @@ describe("runSeed", () => {
       .innerJoin(reviews, eq(reviewChunks.reviewId, reviews.id))
       .where(eq(reviewChunks.projectId, DEMO_PROJECT_ID));
 
-    expect(rows.length).toBe(second.chunks.full + second.chunks.window);
+    expect(rows.length).toBe(
+      second.chunks.full + second.chunks.window + second.chunks.sentence,
+    );
     for (const row of rows) {
       expect(isVerbatimSlice({ text: row.reviewText }, row)).toBe(true);
       expect(row.environment).toBe(row.reviewEnvironment);
@@ -297,6 +305,16 @@ describe("runSeed", () => {
     expect(new Set(windows.map((w) => w.reviewId)).size).toBe(11);
     for (const w of windows) {
       expect(w.text.length).toBeLessThan(w.reviewText.length);
+    }
+
+    // Sentence chunks (#127): one per sentence on every multi-sentence
+    // review, never the whole text, never ending in a bare honorific.
+    const sentences = rows.filter((r) => r.kind === "sentence");
+    expect(sentences.length).toBe(EXPECTED_SENTENCES);
+    expect(new Set(sentences.map((s) => s.reviewId)).size).toBe(87);
+    for (const s of sentences) {
+      expect(s.text.length).toBeLessThan(s.reviewText.length);
+      expect(s.text).not.toMatch(/\bDr\.$/);
     }
   });
 
@@ -330,12 +348,11 @@ describe("runSeed", () => {
       });
       byReview.set(key, list);
     }
+    const rank = { full: 0, window: 1, sentence: 2 } as Record<string, number>;
     const inOrder = (a: { kind: string; startOffset: number }, b: typeof a) =>
       a.kind === b.kind
         ? a.startOffset - b.startOffset
-        : a.kind === "full"
-          ? -1
-          : 1;
+        : (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9);
 
     expect(byReview.size).toBe(DEMO_REVIEW_FIXTURES.length);
     for (const fixture of DEMO_REVIEW_FIXTURES) {
@@ -353,7 +370,7 @@ describe("runSeed", () => {
     // One concrete case, spelled out: g09 is a seven-sentence Google review
     // ("Dr. Patel talked me through…" is one sentence since #77), so it
     // carries three windows of three sentences stepping by two after its
-    // full chunk.
+    // full chunk, then one sentence chunk per sentence (#127).
     const g09 = DEMO_REVIEW_FIXTURES.find((f) => f.key === "g09");
     expect(g09).toBeDefined();
     if (!g09) return;
@@ -361,7 +378,13 @@ describe("runSeed", () => {
       [...(byReview.get(`live:${demoExternalId(g09)}`) ?? [])]
         .sort(inOrder)
         .map((c) => c.kind),
-    ).toEqual(["full", "window", "window", "window"]);
+    ).toEqual([
+      "full",
+      "window",
+      "window",
+      "window",
+      ...Array.from({ length: 7 }, () => "sentence"),
+    ]);
   });
 
   it("embeds every chunk with a 1024-dim unit vector", async () => {

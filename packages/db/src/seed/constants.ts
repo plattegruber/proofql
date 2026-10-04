@@ -33,8 +33,14 @@
  * v4 (#35): same reviews; `http://localhost:8800` (the local cdn worker,
  * which serves the hosted demo page at `/demo/`) added to the project's
  * allowed origins.
+ *
+ * v5 (#127): same reviews; `chunkReview` now also emits one `sentence`
+ * chunk per sentence for reviews of two or more sentences, so highlights
+ * are sentence-precise: 90 full + 30 window + 236 sentence chunks (live:
+ * 80 / 28 / 218; test: 10 / 2 / 18), sentence chunks on 87 of the 90
+ * reviews (the other three are single sentences).
  */
-export const SEED_VERSION = 4;
+export const SEED_VERSION = 5;
 
 /**
  * Natural key of the demo account. The wipe step finds any previous seed
