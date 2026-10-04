@@ -6,7 +6,7 @@
  */
 
 import { type Logger, recordingSink } from "@proofql/core";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { describe, expect, it } from "vitest";
 
 import { fakeCtx, testEnv } from "../test/helpers.js";
@@ -21,9 +21,7 @@ const P2 = "22222222-2222-4222-8222-222222222222";
  * Drive `record` through a real Hono context so `c.env`, `c.get("log")` and
  * `waitUntil` behave as in the app; the route body is the test's callback.
  */
-async function drive(
-  body: (c: Parameters<Parameters<Hono<AppEnv>["get"]>[1]>[0]) => void,
-) {
+async function drive(body: (c: Context<AppEnv>) => void) {
   const out = recordingSink();
   const app = new Hono<AppEnv>();
   app.use(requestContext({ sink: out.sink }));

@@ -1330,7 +1330,11 @@ describe("503 service_unavailable on every database-backed operation", () => {
     if (body !== undefined) headers["content-type"] = "application/json";
     const res = await down.request(
       url,
-      { method: method.toUpperCase(), headers, body },
+      {
+        method: method.toUpperCase(),
+        headers,
+        ...(body === undefined ? {} : { body }),
+      },
       env,
       fakeCtx().asExecutionContext(),
     );
