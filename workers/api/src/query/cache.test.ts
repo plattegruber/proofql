@@ -99,6 +99,7 @@ describe("cacheKey", () => {
       limit: 5,
       mode: "excerpts",
       include: [],
+      fallback: "none",
       filters: {},
     });
     expect(explicit).toBe(implicit);
@@ -114,6 +115,7 @@ describe("cacheKey", () => {
       keyFor({ q: "implants", limit: 6 }),
       keyFor({ q: "implants", mode: "reviews" }),
       keyFor({ q: "implants", include: ["text"] }),
+      keyFor({ q: "implants", fallback: "recent" }),
       keyFor({ q: "implants", filters: { min_rating: 5 } }),
       keyFor({ q: "implants", filters: { source: ["google"] } }),
       keyFor({ q: "implants", filters: { since: "2025-01-01" } }),
@@ -155,6 +157,7 @@ describe("cacheKey", () => {
       limit: 5,
       mode: "excerpts",
       include: [],
+      fallback: "none",
       filters: {
         min_rating: null,
         source: ["google", "yelp"],
@@ -184,6 +187,7 @@ describe("putCached / getCached", () => {
   const results: QueryResponseResult[] = [
     {
       score: 0.8,
+      matched: true,
       excerpt: "My implant feels like my own tooth.",
       excerpt_id: "33333333-3333-4333-8333-333333333333",
       highlight: null,
@@ -200,20 +204,23 @@ describe("putCached / getCached", () => {
     },
   ];
 
-  it("round-trips results and metadata with the default TTL", async () => {
+  const body = { results, match: "query" as const };
+
+  it("round-trips the body and metadata with the default TTL", async () => {
     let clock = Date.UTC(2026, 9, 1);
     const kv = fakeKv({ now: () => clock });
     const storedAt = new Date(clock);
 
-    await putCached(kv, "q:k", results, { generation: 7, now: storedAt });
+    await putCached(kv, "q:k", body, { generation: 7, now: storedAt });
 
     expect(kv.store.get("q:k")).toEqual({
-      value: JSON.stringify(results),
+      value: JSON.stringify(body),
       metadata: { generation: 7, storedAt: storedAt.toISOString() },
       expiresAt: clock + CACHE_TTL_SECONDS * 1000,
     });
     expect(await getCached(kv, "q:k")).toEqual({
       results,
+      match: "query",
       metadata: { generation: 7, storedAt: storedAt.toISOString() },
     });
     // Deep-equal and byte-equal: the stored JSON is the results verbatim.
@@ -230,26 +237,38 @@ describe("putCached / getCached", () => {
   it("honours an explicit TTL", async () => {
     let clock = 1_000_000;
     const kv = fakeKv({ now: () => clock });
-    await putCached(kv, "q:k", [], { generation: 1, ttlSeconds: 60 });
+    await putCached(
+      kv,
+      "q:k",
+      { results: [], match: "none" },
+      { generation: 1, ttlSeconds: 60 },
+    );
     clock += 59_000;
     expect(await getCached(kv, "q:k")).toEqual({
       results: [],
+      match: "none",
       metadata: { generation: 1, storedAt: expect.any(String) },
     });
     clock += 1_000;
     expect(await getCached(kv, "q:k")).toBeNull();
   });
 
-  it("misses on an absent key and on anything that is not a results array", async () => {
+  it("misses on an absent key and on anything that is not { results, match }", async () => {
     const kv = fakeKv();
     expect(await getCached(kv, "q:absent")).toBeNull();
     await kv.put("q:garbage", "{not json");
     expect(await getCached(kv, "q:garbage")).toBeNull();
-    await kv.put("q:object", JSON.stringify({ results: [] }));
-    expect(await getCached(kv, "q:object")).toBeNull();
-    await kv.put("q:nometa", JSON.stringify([]));
+    // The pre-#86 bare-array shape has no verdict: a miss, never served.
+    await kv.put("q:legacy", JSON.stringify([]));
+    expect(await getCached(kv, "q:legacy")).toBeNull();
+    await kv.put("q:noverdict", JSON.stringify({ results: [] }));
+    expect(await getCached(kv, "q:noverdict")).toBeNull();
+    await kv.put("q:badverdict", JSON.stringify({ results: [], match: "x" }));
+    expect(await getCached(kv, "q:badverdict")).toBeNull();
+    await kv.put("q:nometa", JSON.stringify({ results: [], match: "recent" }));
     expect(await getCached(kv, "q:nometa")).toEqual({
       results: [],
+      match: "recent",
       metadata: null,
     });
   });

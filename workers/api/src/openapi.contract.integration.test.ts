@@ -1010,6 +1010,52 @@ describe("GET /v1/query (the snippet's path)", () => {
     expect(fullBody.results[0]?.review).not.toHaveProperty("text");
   });
 
+  it("200: match is query | none | fallback | recent, and fallback rows are labelled (#86)", async () => {
+    const auth = { key: f.secret, headers: { "cache-control": "no-cache" } };
+    type Body = {
+      match: string;
+      results: { matched: boolean; score: number | null; highlight: unknown }[];
+    };
+    const query = (await conforms(
+      await call(`${PATH}?q=implant+tooth&fallback=recent`, auth),
+      "get",
+      PATH,
+    )) as Body;
+    expect(query.match).toBe("query");
+    expect(query.results.every((r) => r.matched)).toBe(true);
+
+    const none = (await conforms(
+      await call(`${PATH}?q=mortgage+refinancing`, auth),
+      "get",
+      PATH,
+    )) as Body;
+    expect(none.match).toBe("none");
+    expect(none.results).toEqual([]);
+
+    const fallback = (await conforms(
+      await call(
+        `${PATH}?q=mortgage+refinancing&fallback=recent&limit=2`,
+        auth,
+      ),
+      "get",
+      PATH,
+    )) as Body;
+    expect(fallback.match).toBe("fallback");
+    expect(fallback.results).toHaveLength(2);
+    expect(
+      fallback.results.every(
+        (r) => !r.matched && r.score === null && r.highlight === null,
+      ),
+    ).toBe(true);
+
+    const recent = (await conforms(
+      await call(`${PATH}?limit=1&fallback=recent`, auth),
+      "get",
+      PATH,
+    )) as Body;
+    expect(recent.match).toBe("recent");
+  });
+
   it("401: no key, a secret key in the URL, an unknown publishable key", async () => {
     for (const url of [
       `${PATH}?q=implant`,
@@ -1042,6 +1088,7 @@ describe("GET /v1/query (the snippet's path)", () => {
       "q=a&q=b",
       "mode=nope",
       "include=html",
+      "fallback=sometimes",
     ]) {
       const res = await call(`${PATH}?${qs}`, { key: f.secret });
       expect(res.status, qs).toBe(422);
