@@ -4,6 +4,7 @@
  * only where the environment is served over HTTPS.
  */
 
+import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "./app.js";
@@ -12,7 +13,9 @@ import {
   HSTS_VALUE,
   isCacheableQuery,
   NO_STORE,
+  QUERY_CACHE_CONTROL,
   SECURITY_HEADERS,
+  securityHeaders,
 } from "./security-headers.js";
 
 const app = createApp({
@@ -72,6 +75,34 @@ describe("the GET /v1/query exception", () => {
   it("a refused query is no-store like everything else", async () => {
     const res = await app.request("/v1/query?q=x");
     expect(res.status).toBe(401);
+    expect(res.headers.get("Cache-Control")).toBe(NO_STORE);
+  });
+});
+
+describe("Cache-Control on a successful GET /v1/query (#112)", () => {
+  // The real route needs a database; a stub behind the same middleware shows
+  // the policy the middleware applies to its 2xx.
+  const stub = new Hono()
+    .use(securityHeaders)
+    .get("/v1/query", (c) => c.json({ results: [] }))
+    .post("/v1/query", (c) => c.json({ results: [] }))
+    .get("/v1/query/pinned", (c) =>
+      c.json({ results: [] }, 200, { "Cache-Control": "no-store" }),
+    );
+
+  it("is private, max-age=0, must-revalidate", async () => {
+    const res = await stub.request("/v1/query?q=x");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe(QUERY_CACHE_CONTROL);
+  });
+
+  it("leaves a POST no-store", async () => {
+    const res = await stub.request("/v1/query", { method: "POST" });
+    expect(res.headers.get("Cache-Control")).toBe(NO_STORE);
+  });
+
+  it("keeps a policy the route set itself", async () => {
+    const res = await stub.request("/v1/query/pinned");
     expect(res.headers.get("Cache-Control")).toBe(NO_STORE);
   });
 });

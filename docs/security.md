@@ -163,10 +163,11 @@ plan; the runbook is §6.
 
 - **api** (`workers/api/src/security-headers.ts`): `X-Content-Type-Options:
   nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` on
-  everything but a successful `GET /v1/query` (which keeps the cache design
-  above; it is public data for a public key, with `Vary: Origin`), and HSTS
-  in preview and prod. On every response including envelopes, 404s and
-  the preflight.
+  everything but a successful `GET /v1/query`, which is `private,
+  max-age=0, must-revalidate` (#112: the response varies by key, so a shared
+  cache must never hold it; the result cache is server-side, with `Vary:
+  Origin`), and HSTS in preview and prod. On every response including
+  envelopes, 404s and the preflight.
 - **cdn** (`workers/cdn/src/handler.ts`): `nosniff` on everything; the
   snippet files (and only they) get `Access-Control-Allow-Origin: *` and
   `Cross-Origin-Resource-Policy: cross-origin` because embedding is their
@@ -235,6 +236,14 @@ publish a hidden review.
 - `pnpm audit --prod --audit-level=high` runs in CI as a report-only job
   (`.github/workflows/ci.yml` `audit`, `continue-on-error`): a new upstream
   advisory must not block every PR at once; the red mark is the signal.
+  Transitive pins go in the root `pnpm.overrides` (`form-data >= 4.0.6`,
+  GHSA-hmw2-7cc7-3qxx, build-time only under `starlight-openapi`). An
+  advisory with **no patched version** may be listed in
+  `pnpm.auditConfig.ignoreGhsas` only when the package never runs in a
+  deployed worker — today `http-cache-semantics` under `astro`
+  (GHSA-ch52-4w7c-c8xp, a build-time HTTP cache in the docs build; the docs
+  site ships static files). Re-check the list when Dependabot bumps the
+  parent, and drop the entry once a fix exists.
 - Dependabot opens weekly grouped minor/patch PRs for npm and for GitHub
   Actions, majors individually (`.github/dependabot.yml`).
 - Secrets scanning is **GitGuardian** on the GitHub app side, already
@@ -318,9 +327,8 @@ Owner: @plattegruber, when the zone exists; add a line to
 | Auth-failure throttle boxes a shared NAT for ≤60 s after thirty failures | A working integration never produces thirty failures a minute; the alternative (never refusing before auth) leaves enumeration cost uncapped | Accepted; W1 is the coarser twin |
 | Penalty box is per isolate | The binding is the authoritative count; the box only saves the lookup on the isolate that saw the overflow | Accepted |
 | Cloudflare rate limiting bindings are approximate and per colo | Abuse protection, not billing; documented in `rate-limit.ts` | Accepted |
-| `GET /v1/query` 200s carry no `Cache-Control` | Public data for a public key, `Vary: Origin`; HTTP caching policy belongs to the snippet/cache design (#28) | Owner of #28 to decide `private`/`max-age` |
 | Queue schema strips unknown fields and caps no id length | No public producer; consumer re-reads the row | Accepted |
 | No WAF until a custom domain exists | `workers.dev` has none; §7 lists the rules to apply then | @plattegruber |
-| `pnpm audit` is report-only | A blocking audit would stall every PR on an upstream advisory with no fix | Accepted; Dependabot is the fix path |
+| `pnpm audit` is report-only, and ignores `GHSA-ch52-4w7c-c8xp` | A blocking audit would stall every PR on an upstream advisory with no fix; the ignored advisory has no patched version and is build-time only (§4.9) | Accepted; Dependabot is the fix path |
 | Secret-key lookup cost on enumeration is a digest + indexed miss per guess until the throttle engages (30) | Entropy makes success impossible; cost is bounded by the throttle and W1 | Accepted |
 | Review avatars load from any `https:` host (`img-src`) | Source-hosted images; images cannot execute | Accepted |

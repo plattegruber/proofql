@@ -1,0 +1,37 @@
+---
+// Request body ceilings, rendered at build time from @proofql/core's
+// REQUEST_BODY_LIMITS (#112) — the same numbers workers/api enforces in
+// request-guards.ts and the route-level body limits. The rows and their
+// wording are core's `requestBodyLimitRows()`; scripts/check-limits.mjs
+// re-reads the built table by its `id` after every build.
+import { requestBodyLimitRows } from "@proofql/core";
+
+const rows = requestBodyLimitRows();
+---
+
+<table id="request-body-limits">
+  <thead>
+    <tr>
+      <th>Request body</th>
+      <th>Limit</th>
+      <th>Over the limit</th>
+    </tr>
+  </thead>
+  <tbody>
+    {
+      rows.map((row) => (
+        <tr data-limit={row.key}>
+          <td>
+            <code>{row.request}</code>
+          </td>
+          <td>{row.limit}</td>
+          <td>
+            <a href="/errors#payload_too_large">
+              <code>413 payload_too_large</code>
+            </a>
+          </td>
+        </tr>
+      ))
+    }
+  </tbody>
+</table>

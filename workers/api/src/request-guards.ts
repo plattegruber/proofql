@@ -23,16 +23,17 @@
  * are therefore absent on these responses, as the spec says.
  */
 
+import { REQUEST_BODY_LIMITS } from "@proofql/core";
 import { bodyLimit } from "hono/body-limit";
 import { createMiddleware } from "hono/factory";
 
 import type { AppEnv } from "./bindings.js";
 import { ApiError } from "./errors.js";
 
-/** `/v1/query`: a maximal request body is ~2 KiB. */
-export const QUERY_BODY_LIMIT_BYTES = 16 * 1024;
+/** `/v1/query`: a maximal request body is ~2 KiB. From core (#112), so the docs agree. */
+export const QUERY_BODY_LIMIT_BYTES = REQUEST_BODY_LIMITS.query;
 /** Everything else under `/v1`: equals the ingest limit, the largest route. */
-export const DEFAULT_BODY_LIMIT_BYTES = 1024 * 1024;
+export const DEFAULT_BODY_LIMIT_BYTES = REQUEST_BODY_LIMITS.reviews;
 
 /** Methods whose body a route reads. */
 export const BODY_METHODS: ReadonlySet<string> = new Set([

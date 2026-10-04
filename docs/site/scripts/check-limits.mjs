@@ -16,7 +16,10 @@
  *   3. a `#rate-limit-table` whose plan columns do not carry each plan's
  *      secret and publishable limits over `RATE_LIMIT_PERIOD_SECONDS`;
  *   4. a `#badge-rule` item whose `badge: true|false` disagrees with `PLANS`;
- *   5. no link to `PRICING_URL`.
+ *   5. no link to `PRICING_URL`;
+ *   6. a `#request-body-limits` table (#112) whose rows are not exactly core.s
+ *      `requestBodyLimitRows()`, or with a limit cell that does not spell its
+ *      `REQUEST_BODY_LIMITS` number as `formatBytes` does.
  *
  * Imports `@proofql/core` from its dist/ — the docs build itself already
  * needs it, so by the time this runs it exists. A regex over the HTML is
@@ -27,12 +30,15 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  formatBytes,
   PLAN_LABELS,
   PLAN_NAMES,
   PLANS,
   PRICING_URL,
   planTableRows,
   RATE_LIMIT_PERIOD_SECONDS,
+  REQUEST_BODY_LIMITS,
+  requestBodyLimitRows,
 } from "@proofql/core";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -214,6 +220,36 @@ if (!html.includes(`href="${PRICING_URL}"`)) {
   failures.push(`/limits: no link to ${PRICING_URL}`);
 }
 
+// 6. The request-body table is exactly core's rows, each limit spelled as
+// core formats the byte count.
+const bodyTable = elementById(html, "table", "request-body-limits");
+if (bodyTable === null) {
+  failures.push("/limits: no #request-body-limits");
+} else {
+  const [, ...rows] = cells(bodyTable);
+  const built = rows.map(([request, limit]) => [request, limit]);
+  const expected = requestBodyLimitRows().map((r) => [r.request, r.limit]);
+  if (JSON.stringify(built) !== JSON.stringify(expected)) {
+    failures.push(
+      `#request-body-limits rows differ from core requestBodyLimitRows():\n    built: ${JSON.stringify(built)}\n    core:  ${JSON.stringify(expected)}`,
+    );
+  }
+  for (const [key, bytes] of Object.entries(REQUEST_BODY_LIMITS)) {
+    const row = bodyTable.match(
+      new RegExp(`<tr[^>]*\\sdata-limit="${key}"[^>]*>([\\s\\S]*?)</tr>`),
+    );
+    if (row === null) {
+      failures.push(
+        `#request-body-limits: no row for REQUEST_BODY_LIMITS.${key}`,
+      );
+    } else if (!text(row[1] ?? "").includes(formatBytes(bytes))) {
+      failures.push(
+        `#request-body-limits: the ${key} row does not say "${formatBytes(bytes)}"`,
+      );
+    }
+  }
+}
+
 if (failures.length > 0) {
   console.error(
     `check-limits: ${failures.length} problem(s) — rebuild the docs after changing @proofql/core`,
@@ -222,5 +258,5 @@ if (failures.length > 0) {
   process.exit(1);
 }
 console.log(
-  `check-limits: /limits matches @proofql/core PLANS (${PLAN_NAMES.length} plans, ${planTableRows().length} rows, rate limits, badge rule, pricing link) — all good`,
+  `check-limits: /limits matches @proofql/core PLANS (${PLAN_NAMES.length} plans, ${planTableRows().length} rows, rate limits, badge rule, pricing link) and REQUEST_BODY_LIMITS (${requestBodyLimitRows().length} rows) — all good`,
 );

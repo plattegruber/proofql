@@ -8,14 +8,15 @@
  *   - `Referrer-Policy: no-referrer` — the api never links out, and a
  *     `?key=` in a request URL must not leak as a referrer should a
  *     response ever be rendered.
- *   - `Cache-Control: no-store` on everything a route did not already set
- *     a policy for, except a successful `GET /v1/query`. That response is
- *     the snippet's hot path with its own cache design (src/query/cache.ts:
- *     KV behind the worker, `x-cache`, `Vary: Origin`) and carries only
- *     public data for a public key; its HTTP caching policy is left to that
- *     design rather than forced here. Everything else — error envelopes,
- *     ingest and management responses, health — is per-request and must not
- *     be stored by a shared cache.
+ *   - `Cache-Control` on everything a route did not already set a policy
+ *     for. A successful `GET /v1/query` gets `private, max-age=0,
+ *     must-revalidate` (#112): the response varies by key, so a shared cache
+ *     (a CDN, a corporate proxy) must never hold it, while the browser may
+ *     keep it for back/forward and conditional revalidation. The result
+ *     cache proper is server-side (src/query/cache.ts: KV behind the worker,
+ *     `x-cache`, `Vary: Origin`) and unaffected. Everything else — error
+ *     envelopes, `POST /v1/query`, ingest and management responses, health —
+ *     is per-request and gets `no-store`.
  *   - `Strict-Transport-Security` in `preview` and `prod` only. Local
  *     `wrangler dev` is plain HTTP on localhost and must not teach a
  *     browser otherwise.
@@ -32,6 +33,9 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
 
 export const NO_STORE = "no-store";
 
+/** A 2xx `GET /v1/query`: per key, so private; revalidate rather than reuse. */
+export const QUERY_CACHE_CONTROL = "private, max-age=0, must-revalidate";
+
 /** One year, subdomains included; no `preload` until the domain is final. */
 export const HSTS_VALUE = "max-age=31536000; includeSubDomains";
 
@@ -41,7 +45,7 @@ export const HSTS_ENVIRONMENTS: ReadonlySet<string> = new Set([
   "prod",
 ]);
 
-/** A 2xx `GET /v1/query`: the one response left to its own cache policy. */
+/** A 2xx `GET /v1/query`: the one response that is not `no-store`. */
 export function isCacheableQuery(
   method: string,
   path: string,
@@ -61,11 +65,13 @@ export const securityHeaders = createMiddleware<AppEnv>(async (c, next) => {
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
     headers.set(name, value);
   }
-  if (
-    !headers.has("Cache-Control") &&
-    !isCacheableQuery(c.req.method, c.req.path, c.res.status)
-  ) {
-    headers.set("Cache-Control", NO_STORE);
+  if (!headers.has("Cache-Control")) {
+    headers.set(
+      "Cache-Control",
+      isCacheableQuery(c.req.method, c.req.path, c.res.status)
+        ? QUERY_CACHE_CONTROL
+        : NO_STORE,
+    );
   }
   // `c.env` is undefined under `app.request()` with no bindings.
   const environment = (c.env as { ENVIRONMENT?: string } | undefined)

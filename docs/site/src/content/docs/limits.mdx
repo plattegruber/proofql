@@ -7,6 +7,7 @@ import { PRICING_URL } from "@proofql/core";
 import BadgeRule from "../../components/BadgeRule.astro";
 import PlanTable from "../../components/PlanTable.astro";
 import RateLimitTable from "../../components/RateLimitTable.astro";
+import RequestBodyLimitTable from "../../components/RequestBodyLimitTable.astro";
 
 ## Plans
 
@@ -38,11 +39,15 @@ Over the limit the request is a [`429 rate_limited`](/errors#rate_limited) with 
 
 These are not product limits; they exist so a single malformed or hostile request cannot push megabytes into the database. Real reviews are nowhere near them.
 
+Request bodies are capped per route, checked from `Content-Length` and again while the body streams. Like the plan table, this one is rendered at build time from the constants the API enforces (`REQUEST_BODY_LIMITS` in `@proofql/core`). A body with any `Content-Type` other than `application/json` is a [`415 unsupported_media_type`](/errors#unsupported_media_type) before it is read.
+
+<RequestBodyLimitTable />
+
+Everything else is a size on a field:
+
 | | Limit | Over the limit |
 |---|---|---|
 | Reviews per `POST /v1/reviews` | 100 | [`422 validation_failed`](/errors#validation_failed) |
-| `POST /v1/reviews` body | 1 MiB | [`413 payload_too_large`](/errors#payload_too_large) |
-| `PATCH /v1/reviews/{id}` body | 64 KiB | `413 payload_too_large` |
 | Review `text` | 20,000 characters | `422 validation_failed` |
 | `external_id` | 512 characters | `422` |
 | `author_name` | 256 characters | `422` |
