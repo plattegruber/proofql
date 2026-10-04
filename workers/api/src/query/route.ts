@@ -51,7 +51,7 @@
  * is logged and treated as a miss: the cache can slow the endpoint down,
  * never take it down. Together with the auth cache (../auth-cache.ts) and
  * the batched usage write (../usage-buffer.ts), a HIT opens **no**
- * database connection (#108; docs/performance.md §5).
+ * database connection (#108; docs/performance.md §6).
  *
  * ## Logging (#30; docs/observability.md)
  *

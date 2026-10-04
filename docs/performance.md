@@ -397,9 +397,10 @@ In preview/prod the client goes through Hyperdrive, which pools upstream
 and *queues* rather than refusing, so the failure should change shape into
 queueing latency — but Hyperdrive's origin connection limit and Neon's
 compute-size `max_connections` move the ceiling rather than remove it.
-Filed as **#108** with the numbers; the decision (503 + `Retry-After`
-instead of 500, `max: 1`, serving the key lookup without a database
-connection) waits for a staging measurement. Not fixed here.
+Filed as **#108** with the numbers. Measured on preview and fixed in §6:
+behind Hyperdrive the failure is queueing rather than 53300, and the fix
+made cache HITs database-free (KV auth cache, batched usage), set
+`max: 1`, and mapped connection failures to 503.
 
 ## 4. Recommendations
 
@@ -438,8 +439,8 @@ connection) waits for a staging measurement. Not fixed here.
    fails at the same rate as a 0 % one (§3). Serving the key lookup from a
    cache (and batching `last_used_at` / usage) would make a HIT genuinely
    database-free, which is the only change that moves the §3 ceiling
-   without touching Postgres. Tracked in #108.
-5. **Re-run on staging** (#14) and add a column: the two numbers to watch
+   without touching Postgres. Done in #108 (§6).
+5. **Re-run on staging** (#14) and add a column (done on preview, §6): the two numbers to watch
    are the Workers AI share of `took_ms` on misses and whether 53300 ever
    surfaces behind Hyperdrive.
 
@@ -450,7 +451,7 @@ Hyperdrive in front of the Neon preview branch — come from
 [`scripts/demo.sh`](../scripts/demo.sh) (`pnpm demo`, #31), the M1 exit:
 one run, single requests from a laptop, so these are **points, not
 percentiles**; the k6 scenarios of §1 have not been run against preview yet
-(recommendation 5 in §4 still stands). Same script, same morning, against
+(they have since been, in §6). Same script, same morning, against
 the local stack for the pairing.
 
 | | Local (`wrangler dev`, fake embedder) | Preview (Workers AI, KV, Hyperdrive → Neon) |
@@ -532,6 +533,195 @@ Preview (`API_URL=https://proofql-api-preview.…`, `ORIGIN=https://proofql-cdn-
 [8/8] DELETE /v1/reviews/{id} ×6 → 204, GET → 404         PASS   5530 ms  6 deleted, 6 × 404
 demo: 8/8 steps passed in 29s against https://proofql-api-preview.gruberplatte.workers.dev — cold query 391 ms, cache HIT 6 ms, ingest→indexed 17.1s
 ```
+
+## 6. Preview load run (2026-10-04, #108)
+
+The re-measurement §3 and §4 deferred: the same k6 scenarios against the
+deployed **preview** api, with Hyperdrive in front of Neon, Workers AI
+embeddings and real KV. Then the fix, then the same runs again.
+
+### Setup
+
+| | |
+|---|---|
+| Api | `https://proofql-api-preview.gruberplatte.workers.dev`. Before: `main` at `baad677` (version `06033110`). After: this branch, deployed by hand with `pnpm --filter @proofql/api exec wrangler deploy --env preview` (version `0e594245`, unchanged for the whole after-run). Automated preview deploys are on, so the next merge to `main` replaces it. |
+| Database | Neon project `hidden-haze-63906501`, branch `preview`: `max_connections` 112. Hyperdrive config `ec18323e…` → the Neon **pooler** endpoint with `origin_connection_limit: 20`, query caching on. Connections were sampled on the **direct** endpoint. |
+| Data | `org_load_proofql` on the paid plan: 20 projects × 300 reviews (12,000 chunks), no large tenant, 40 publishable keys per project. Seeded in 16 s and deleted afterwards (the cascade from `accounts`). |
+| Load | k6 v2.3.0 from a laptop over the public internet, `constant-arrival-rate`, 60 s per step, publishable keys in `?key=` plus `Origin`. |
+| Watching | `wrangler tail --env preview --format json` for the whole run (sampled by Cloudflare at this volume, so its counts are a lower bound), and `load/scripts/pg-sample.ts` polling `pg_stat_activity` every 500 ms. |
+
+**The load-seeded chunks carry fake embeddings,** and on preview `q` is
+embedded by Workers AI, so every query returned `results: []` /
+`match: "none"`. The path is still the real one: auth, KV, `bge-m3`, Hyperdrive,
+the exact scan over the tenant's 600 chunks, policy and serialization.
+That is what these latency and connection numbers measure. It is not a
+relevance test. The commands are in [`load/README.md`](../load/README.md)
+"Against preview". Another agent's demo traffic was running at the same
+time (tens of requests).
+
+### Before: `main`
+
+End to end as k6 sees it. Every number includes the ~100 ms laptop →
+Cloudflare round trip, so the 50 ms warm target from #50 cannot be read
+off this table. Compare the rows with each other, and read `took_ms` for
+the server's own share.
+
+| Scenario | Target | Achieved | p50 | p95 | p99 | 5xx | `x-cache` HIT | `took_ms` p50/p95 | Neon backends peak (active) | xact committed |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `warm` | 100 /s | 100 /s | 112 ms | 151 ms | 234 ms | 0 | 100 % | 4 / 7 | 23 (15) | 12,185 |
+| `cold` | 50 /s | 50 /s | 509 ms | 827 ms | 987 ms | 0 | 0 % | 392 / 709 | 22 (14) | 12,316 |
+| `mixed` | 100 /s | 100 /s | 120 ms | 568 ms | 795 ms | 0 | 80 % | 4 / 441 | 23 (14) | 14,461 |
+| `multi` | 100 /s | 100 /s | 125 ms | 635 ms | 881 ms | 22 (0.36 %) | 80 % | — | 24 (17) | 16,616 |
+| ramp `warm` | 50 /s | 50 /s | 110 ms | 130 ms | 190 ms | 0 | 100 % | 4 / 7 | 23 (9) | 6,244 |
+| ramp `warm` | 100 /s | 100 /s | 112 ms | 151 ms | 220 ms | 0 | 100 % | 4 / 7 | 23 (16) | 12,211 |
+| ramp `warm` | 150 /s | 150 /s | 125 ms | 216 ms | 278 ms | 0 | 100 % | 4 / 7 | 23 (18) | 18,300 |
+| ramp `warm` | **200 /s** | **~180 /s** | **1.66 s** | **2.87 s** | 2.99 s | 0 | 100 % | 4 / 7 | 23 (18) | 23,644 |
+| ramp `warm` | 300 /s | ~175 /s | 6.14 s | 8.15 s | 8.98 s | 0 | 100 % | 4 / 7 | 23 (19) | 26,075 |
+| `cold` | 100 /s | ~60 /s | 3.61 s | 5.09 s | 5.37 s | 0 | 0 % | 2,475 / 3,531 | 24 (18) | 21,740 |
+| `cold` | 150 /s | ~80 /s | 6.89 s | 7.55 s | 7.80 s | 37 | 0 % | 4,667 / 5,186 | 24 (20) | 22,229 |
+
+What it shows:
+
+- **Behind Hyperdrive, 53300 never appeared.** The tail held zero
+  `request.failed` lines and no `too many clients` anywhere. As predicted
+  in §3, the failure changed shape from refusal to **queueing**. Neon's
+  backend count sat at 22–24, which is Hyperdrive's 20 origin connections
+  plus the sampler and the dashboard, far below `max_connections` (112).
+  Hyperdrive's `origin_connection_limit` is the ceiling, not Neon.
+- **The warm knee is between 150 and 200 /s.** At 200 /s throughput levels
+  off at ~180 /s and every extra request waits: p50 goes from 125 ms to
+  1.7 s, k6 drops 479 iterations at 200 and 5,666 at 300, and `took_ms`
+  stays at 4 ms because the time is spent queued for a connection before
+  the handler runs. That ceiling is arithmetic. A HIT held a pooled
+  connection for its key lookup, the `last_used_at` refresh and the usage
+  upsert (~2 transactions, `xact` ≈ 2 per request in the table), and 20
+  connections at ~110 ms of hold time each come to ~180 requests/s. **The
+  query cache did nothing for that number.** That is §4.4 confirmed on
+  the real stack.
+- **The miss knee is between 50 and 100 /s,** for the same reason plus the
+  embedding call: at 100 /s only ~60 /s completed and `took_ms` rose
+  to 2.5 s.
+- The 5xx in `multi` (22) and `cold` 150 (37) were not in the sampled
+  tail. The after-run shows what a miss storm produces at that rate
+  (Workers AI 3021, below), which is the likely cause. Six `exceededCpu`
+  outcomes were also logged during the 300 /s step.
+
+### The decision
+
+Option (a) from #108, plus (b) as the safety net. (c), reusing a client
+across requests in one isolate, was not needed: Hyperdrive never refused
+a connection, so connection *count* was never the problem. Connection
+*hold time per request* was.
+
+1. **Cache HITs are database-free.** The resolved auth context (project,
+   environment, kind, plan, allowed origins, policy) is stored in KV for
+   60 s under the key's SHA-256 hash (`workers/api/src/auth-cache.ts`).
+   It is tagged with the project's cache generation and trusted only
+   while that generation is current. The generation read is the one the
+   query cache already made, now shared, so the HIT path adds one KV read
+   (the auth entry) and no database round trip. The dashboard now bumps
+   the generation on key revocation and on allowlist edits, as policy
+   edits already did. **Revocation window:** a revoked key can keep
+   authenticating on `/v1/query` until KV propagates the bump or the
+   entry expires: about a minute, at most two. This is acceptable because
+   the cache is used only on `/v1/query` and its preflight, so a stale
+   key can *read publishable reviews*, which the customer publishes to
+   every visitor anyway. Write routes resolve the key from Postgres on
+   every request, so a revoked secret key cannot write for one second
+   longer than before (`docs/security.md` §4.2, §6). Plan changes lag the
+   same minute (the badge flips on the next lookup).
+2. **The `usage` write is batched** (`workers/api/src/usage-buffer.ts`).
+   Each isolate accumulates per `(project, month)` and writes every 5 s in
+   one multi-row `INSERT … ON CONFLICT DO UPDATE SET queries =
+   usage.queries + excluded.queries`, on a client of its own. Counts can
+   lag one window, and an evicted isolate loses at most one window. A
+   failed flush logs `usage.flush_failed` with the totals and is not
+   retried. `last_used_at` is refreshed only on a database lookup, which
+   under steady traffic is once a minute, the same cadence as before.
+3. **On a MISS: `max: 1`, `connectTimeout: 10`, `idleTimeout: 5`**
+   (`API_DB_OPTIONS`), and a connection failure becomes **503
+   `service_unavailable` with `Retry-After: 1`** instead of 500. That
+   covers SQLSTATE 53300, 53400, 57P03 and the 08xxx class, plus
+   postgres-js `CONNECT_TIMEOUT` and the socket codes. It is in
+   `errors.ts`, in the spec on every database-backed operation, and in
+   the contract test.
+
+### After: this branch
+
+| Scenario | Target | Achieved | p50 | p95 | p99 | 5xx | `x-cache` HIT | `took_ms` p50/p95 | Neon backends peak (active) | xact committed |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `warm` | 100 /s | 100 /s | **27 ms** | **38 ms** | 125 ms | 0 | 100 % | 2 / 3 | 21 (7) | **336** |
+| `cold` | 50 /s | 50 /s | 427 ms | 744 ms | 910 ms | 0 (1 timeout) | 0 % | 389 / 706 | 21 (9) | 6,371 |
+| `mixed` | 100 /s | 100 /s | 29 ms | 477 ms | 719 ms | 0 | 80 % | 2 / 439 | 19 (6) | 2,780 |
+| `multi` | 100 /s | 100 /s | 30 ms | 520 ms | 767 ms | 0 | 80 % | 2 / 448 | 20 (11) | 5,009 |
+| ramp `warm` | 50 /s | 50 /s | 28 ms | 39 ms | 187 ms | 0 | 100 % | 2 / 3 | 20 (4) | 458 |
+| ramp `warm` | 100 /s | 100 /s | 28 ms | 40 ms | 123 ms | 0 | 100 % | 2 / 4 | 20 (11) | 453 |
+| ramp `warm` | 150 /s | 150 /s | 29 ms | 41 ms | 111 ms | 0 | 100 % | 2 / 4 | 20 (4) | 504 |
+| ramp `warm` | 200 /s | 200 /s | 29 ms | 42 ms | 95 ms | 0 | 100 % | 2 / 4 | 20 (10) | 521 |
+| ramp `warm` | **300 /s** | **300 /s** | **30 ms** | **43 ms** | 94 ms | 0 | 100 % | 2 / 4 | 20 (13) | 599 |
+| `cold` | 100 /s | ~100 /s | 522 ms | 952 ms | 1.18 s | 0 | 0 % | 485 / 919 | 22 (15) | 12,340 |
+| `cold` | 150 /s | ~150 /s | 505 ms | 1.06 s | 1.33 s | **2,649 (30 %)** | 0 % | 582 / 1,090 | 23 (19) | 15,867 |
+
+(The `xact` column includes the dashboard's and the other agent's traffic,
+a few hundred a minute. Most of the after-run `warm` numbers are that
+background.)
+
+- **No warm knee up to 300 /s,** the highest step tried. Before the change
+  it was between 150 and 200 /s. The `warm` p95 went from 151 ms to 38 ms
+  at 100 /s, and from 2.87 s to 42 ms at 200 /s. With the ~100 ms network
+  round trip removed from the old numbers, what is left is the database
+  connection a HIT no longer opens. The warm p95 is now inside the 50 ms
+  target from #50 even measured from a laptop.
+- **Database work for a HIT went from ~2 transactions to ~0.** At
+  100 /s warm, xact committed per minute fell from 12,185 to 336, and
+  most of the 336 is background traffic plus one usage flush per isolate
+  per 5 s. `sessions_opened` on Neon was 0 throughout. Hyperdrive keeps
+  its warm pool, which is why the backend *count* stays around 20 while
+  *active* backends fall.
+- **The miss path's ceiling is now Workers AI, not the database.** `cold`
+  at 100 /s now completes at ~100 /s (it was ~60 /s) with `took_ms` p50
+  485 ms (it was 2.5 s), because HITs and auth no longer occupy the 20
+  pooled connections. At 150 /s, 30 % of requests failed with 503
+  `embedding_unavailable`. Every sampled failure was `3021: rate limiting:
+  inference request per min rate reached`, which is Workers AI's
+  per-minute limit for `bge-m3` on this account. That is the documented,
+  retryable 503 and not a database fault. A real tenant mix is overwhelmingly
+  HITs (§4.3), so ~6,000 unique queries a minute is a long way off. It is
+  still the number to raise with Cloudflare before launch.
+- **Connection peak:** 23–24 Neon backends before and 19–23 after, both
+  capped by Hyperdrive's 20 origin connections. Active backends during
+  the warm ramp went from 9–19 to 4–13. Neither run came near
+  `max_connections` (112). No 53300, and no 503 `service_unavailable` was
+  served during the runs.
+
+### What the run cost: the free-plan daily limits
+
+About two hours after the after-run, preview's `/v1/query` began failing for every
+caller (including the demo project):
+
+- `auth.cache_error` / `query.cache_error`: **`KV get() limit exceeded
+  for the day`**. Workers Free allows 100,000 KV reads a day, and the
+  runs (~110,000 requests, 2–3 KV reads each) spent it.
+- `request.failed`, 500: **`PostgresError: Usage limit for account
+  exceeded, usage renews at 2026-10-05 00:00:00 UTC`**, which is the
+  free-plan Hyperdrive daily query allowance.
+
+Both reset at 00:00 UTC. The lessons:
+
+- On the free plan these **daily** allowances are preview's real
+  ceiling, two orders of magnitude below any per-second number above.
+  Load runs against preview should be budgeted (this whole suite is
+  about one day's KV reads) or run on a paid account or a separate
+  environment. `load/README.md` says so.
+- The auth cache trades database queries for KV reads: a HIT went from
+  2 KV reads + ~2 queries to 3 KV reads + ~0 queries, and the auth entry
+  is written once a minute per key. On the paid plans, where KV reads
+  are ~$0.50 per million, that is the right trade. On free it moves the
+  daily ceiling from Hyperdrive to KV.
+- The Hyperdrive usage-limit error has no SQLSTATE in the
+  `service_unavailable` set, so it surfaced as 500 `internal`. Mapping it
+  to 503 with a long `Retry-After` is a small follow-up. It needs a
+  stable code or message to match, and none is documented.
 
 ## Appendix: raw k6 output
 

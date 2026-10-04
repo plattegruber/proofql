@@ -74,6 +74,11 @@ async function main(): Promise<void> {
     console.log(
       `db:set-plan: "${found.name}" ${result.previousPlan} → ${result.plan}; show_badge refreshed on ${result.projectsSynced} project(s).`,
     );
+    // The api caches the resolved key — plan included — in KV for 60 s on
+    // /v1/query (workers/api/src/auth-cache.ts, #108).
+    console.log(
+      "db:set-plan: /v1/query picks the new plan up within a minute (cached auth context); other routes at once.",
+    );
   } finally {
     await sql.end();
   }

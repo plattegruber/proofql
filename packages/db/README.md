@@ -316,7 +316,7 @@ connections:
   rather than refusing, so a wide client-side pool only hoards pooled
   backends and a long connect timeout only turns a queue into a hung
   request. The api also avoids opening a client at all when KV can answer
-  (auth cache + query cache); see `docs/performance.md` §5.
+  (auth cache + query cache); see `docs/performance.md` §6.
 - **`prepare: false`, everywhere.** Named prepared statements bind to one
   pooled backend and break under transaction-mode pooling. Off in Node too,
   so local and production behave identically.

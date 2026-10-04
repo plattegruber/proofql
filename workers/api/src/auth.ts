@@ -51,7 +51,7 @@
  * a policy or allowlist change (each bumps the generation) or the TTL ends
  * it. A request answered from the auth cache *and* the query cache opens no
  * database connection at all, which is what moved the query path's ceiling
- * off `max_connections` (docs/performance.md §5). The generation read is
+ * off Hyperdrive's origin connection pool (docs/performance.md §6). The generation read is
  * shared with the query cache through `c.get("projectGeneration")`. Write
  * routes never use it: a revoked secret key cannot write for one second
  * longer than before. The `last_used_at` refresh runs only on a database
