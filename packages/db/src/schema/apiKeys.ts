@@ -16,6 +16,7 @@
  * "unknown key".
  */
 
+import { API_KEY_KINDS, type ApiKeyKind } from "@proofql/core";
 import {
   index,
   pgEnum,
@@ -28,8 +29,7 @@ import {
 import { environmentEnum, id } from "./shared.js";
 import { projects } from "./tenancy.js";
 
-export const API_KEY_KINDS = ["secret", "publishable"] as const;
-export type ApiKeyKind = (typeof API_KEY_KINDS)[number];
+export { API_KEY_KINDS, type ApiKeyKind };
 export const apiKeyKindEnum = pgEnum("api_key_kind", API_KEY_KINDS);
 
 export const apiKeys = pgTable(
