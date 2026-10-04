@@ -18,6 +18,7 @@ import {
   MemoryKv,
   type RecordingSink,
   type ReviewIndexMessage,
+  segmentSentences,
 } from "@proofql/core";
 import { assertVerbatimSlice, schema } from "@proofql/db";
 import { project, review, setupTestDb } from "@proofql/db/test";
@@ -114,7 +115,8 @@ describe("indexReview via the queue handler", () => {
   it("rated review → chunks written, sentiment from the rating", async () => {
     const r = await review(t.db, {
       rating: 2,
-      text: "Short and sour. Would not return.",
+      // One sentence: the full chunk alone, no sentence chunk to duplicate it.
+      text: "Short and sour, would not return.",
     });
     const ctx = context();
     const msg = queued(messageFor(r));
@@ -155,6 +157,7 @@ describe("indexReview via the queue handler", () => {
       project_id: r.projectId,
       chunks: 1,
       windows: 0,
+      sentences: 0,
       embedded: 1,
       embedding_ms: expect.any(Number),
       newly_indexed: true,
@@ -190,7 +193,7 @@ describe("indexReview via the queue handler", () => {
     expect(after.sentimentSource).toBe("model");
   });
 
-  it("long review → window chunks exist, every chunk is a verbatim slice with a vector", async () => {
+  it("long review → window and sentence chunks exist, every chunk is a verbatim slice with a vector", async () => {
     const r = await review(t.db, { text: LONG_TEXT, language: "en" });
     const ctx = context();
 
@@ -200,13 +203,28 @@ describe("indexReview via the queue handler", () => {
     const chunks = await chunksOf(r.id);
     const full = chunks.filter((c) => c.kind === "full");
     const windows = chunks.filter((c) => c.kind === "window");
+    const sentences = chunks.filter((c) => c.kind === "sentence");
     expect(full).toHaveLength(1);
     expect(windows.length).toBeGreaterThanOrEqual(2);
+    // Seven sentences → seven sentence chunks (#127), each a real sentence.
+    expect(sentences).toHaveLength(7);
+    expect(sentences.map((c) => c.text)).toEqual(
+      segmentSentences(LONG_TEXT, "en").map((s) =>
+        LONG_TEXT.slice(s.start, s.end),
+      ),
+    );
+    expect(chunks).toHaveLength(1 + windows.length + sentences.length);
     expect(outcome).toMatchObject({
       chunks: chunks.length,
       windows: windows.length,
+      sentences: sentences.length,
       embedded: chunks.length,
       newlyIndexed: true,
+    });
+    expect(ctx.out.only("review.indexed")).toMatchObject({
+      chunks: chunks.length,
+      windows: windows.length,
+      sentences: 7,
     });
     for (const c of chunks) {
       expect(() => assertVerbatimSlice(r, c)).not.toThrow();

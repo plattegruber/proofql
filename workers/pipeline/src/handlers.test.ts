@@ -69,6 +69,7 @@ const indexed: IndexOutcome = {
   reviewId: REVIEW_ID,
   chunks: 1,
   windows: 0,
+  sentences: 0,
   embedded: 1,
   newlyIndexed: true,
   sentiment: "positive",

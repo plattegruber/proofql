@@ -7,7 +7,8 @@
  * unrated reviews consult the classifier (`'model'`). No LLM anywhere.
  *
  * Chunks (scope.md §2 "Chunking"): `chunkReview` from `@proofql/core`, one
- * `full` chunk plus sentence windows for longer reviews, every one a
+ * `full` chunk plus sentence windows for longer reviews and one `sentence`
+ * chunk per sentence for reviews of two or more (#127), every one a
  * verbatim slice — asserted twice before the insert (core's invariant on the
  * chunk list, db's `assertVerbatimSlice` per row, the gate the schema
  * documents). Chunk rows are inserted with `embedding` NULL; the embedding
@@ -81,6 +82,8 @@ export type IndexOutcome =
       reviewId: string;
       chunks: number;
       windows: number;
+      /** Single-sentence chunks (#127); 0 for a one-sentence review. */
+      sentences: number;
       /** Chunks embedded by this run (0 when every chunk already had one). */
       embedded: number;
       /** Whether this run flipped `indexed_at` from null to set. */
@@ -170,10 +173,12 @@ export async function indexReview(
   });
 
   const windows = written.filter((c) => c.kind === "window").length;
+  const sentences = written.filter((c) => c.kind === "sentence").length;
   // The one line per review: chunking and embedding figures together.
   log.log("review.indexed", {
     chunks: written.length,
     windows,
+    sentences,
     embedded: embedding.embedded,
     embedding_ms: embedding.embeddingMs,
     newly_indexed: embedding.newlyIndexed,
@@ -185,6 +190,7 @@ export async function indexReview(
     reviewId,
     chunks: written.length,
     windows,
+    sentences,
     embedded: embedding.embedded,
     newlyIndexed: embedding.newlyIndexed,
     sentiment,
