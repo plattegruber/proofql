@@ -41,12 +41,12 @@ afterEach(() => {
 
 describe("axe", () => {
   it("default render with the badge has no violations", async () => {
-    renderInto(page(), fixtureResponse({ badge: true }), "excerpts");
+    renderInto(page(), fixtureResponse({ badge: true }), { mode: "excerpts" });
     expect(await violations()).toEqual([]);
   });
 
   it("default render without the badge has no violations", async () => {
-    renderInto(page(), fixtureResponse({ badge: false }), "reviews");
+    renderInto(page(), fixtureResponse({ badge: false }), { mode: "reviews" });
     expect(await violations()).toEqual([]);
   });
 
@@ -64,7 +64,7 @@ describe("axe", () => {
         </figcaption>
       </figure>`;
     document.body.append(template);
-    renderTemplate(host, template, fixtureResponse(), "excerpts");
+    renderTemplate(host, template, fixtureResponse(), { mode: "excerpts" });
     expect(await violations()).toEqual([]);
   });
 });

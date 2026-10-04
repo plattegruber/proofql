@@ -138,6 +138,37 @@ describe("playground route", () => {
     expect(container.textContent).not.toContain("!");
   });
 
+  it("marks the excerpt inside the whole review on every card, in excerpts mode too (#85)", async () => {
+    const text =
+      "🦷 Two visits so far. Downtown parking is the only hassle. Staff were lovely.";
+    const excerpt = "Downtown parking is the only hassle.";
+    const search = "q=parking&limit=3";
+    const { container } = renderPlayground(
+      fixture(search, [
+        result({
+          similarity: 0.7,
+          excerpt,
+          startOffset: text.indexOf(excerpt),
+          review: { ...result({ similarity: 0.7 }).review, text },
+        }),
+        // A whole-review match: nothing to mark, like the api's highlight: null.
+        result({
+          similarity: 0.61,
+          reviewId: "22222222-2222-4222-8222-222222222222",
+        }),
+      ]),
+      search,
+    );
+    const marks = await screen.findAllByText(excerpt);
+    expect(marks.some((m) => m.tagName === "MARK")).toBe(true);
+    const cards = container.querySelectorAll("article");
+    expect(cards[0]?.querySelector("blockquote")?.textContent).toBe(text);
+    expect(cards[1]?.querySelector("mark")).toBeNull();
+    expect(cards[1]?.querySelector("blockquote")?.textContent).toBe(
+      "Parking behind the building was easy.",
+    );
+  });
+
   it("says so when nothing clears the floor, and still shows what fell under it", async () => {
     const search = "q=mortgage";
     renderPlayground(

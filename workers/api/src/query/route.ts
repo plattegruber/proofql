@@ -55,9 +55,10 @@
  *
  * ```json
  * { "results": [{ "score": 0.83, "excerpt": "…", "excerpt_id": "<chunk uuid>",
+ *                 "highlight": { "start": 41, "end": 97 },   // or null
  *                 "review": { "id", "rating", "author_name", "author_avatar_url",
  *                             "source", "occurred_at", "url", "metadata",
- *                             "text" } }],   // text: mode=reviews only
+ *                             "text" } }],   // text: mode=reviews, or include: ["text"]
  *   "took_ms": 12, "cached": false, "badge": true }
  * ```
  *
@@ -70,7 +71,14 @@
  * branch promoted a row. Without `q` there is no query vector and `score`
  * is `null`. `excerpt` is a verbatim slice of `review.text`; in
  * `mode=excerpts` it is the best-matching chunk, in `mode=reviews` the
- * same best chunk accompanies the whole review as `review.text`. `badge`
+ * same best chunk accompanies the whole review as `review.text`; in either
+ * mode `include: ["text"]` adds `review.text` (#85). `highlight` is where
+ * `excerpt` sits inside `review.text` — `{ start, end }` in UTF-16 code
+ * units, end exclusive, so `review.text.slice(start, end) === excerpt`
+ * holds in every browser (the chunker's verbatim invariant,
+ * packages/core/src/chunking.ts) — or `null` when there is nothing to
+ * mark: without `q`, and when the match is the review's `full` chunk (a
+ * whole-review match highlights nothing). `badge`
  * is `planFor(account.plan).badge` (free tier: true), derived per request
  * from the plan that arrived with the key — never from the cached body and
  * never from the `projects.show_badge` mirror — so it flips on the first
@@ -120,8 +128,14 @@ export interface QueryResponseReview {
   occurred_at: string | null;
   url: string | null;
   metadata: Record<string, string>;
-  /** Whole review text; present in `mode=reviews` only. */
+  /** Whole review text; present in `mode=reviews` or with `include: ["text"]`. */
   text?: string;
+}
+
+/** Where `excerpt` sits in `review.text`: UTF-16 code units, `end` exclusive. */
+export interface QueryHighlight {
+  start: number;
+  end: number;
 }
 
 export interface QueryResponseResult {
@@ -130,6 +144,11 @@ export interface QueryResponseResult {
   excerpt: string;
   /** `review_chunks.id` of the excerpt. */
   excerpt_id: string;
+  /**
+   * `excerpt`'s span within `review.text`, or null when there is nothing
+   * to mark: no `q`, or a match on the whole review (module doc).
+   */
+  highlight: QueryHighlight | null;
   review: QueryResponseReview;
 }
 
@@ -253,7 +272,7 @@ const handleQuery: Handler<AppEnv> = async (c) => {
     mode: request.mode,
   });
   const searchMs = performance.now() - searchStarted;
-  const results = rows.map((r) => toResponseResult(r, request.mode));
+  const results = rows.map((r) => toResponseResult(r, request));
 
   if (cache.key !== null) {
     // After the response: a slow KV write must not add to `took_ms`, and a
@@ -412,9 +431,26 @@ function toSearchFilters(filters: QueryFilters): SearchFilters {
   };
 }
 
+/**
+ * `excerpt`'s offsets in the whole review, or null when a mark would cover
+ * everything or nothing: no-query mode (`similarity` null) and a `full`
+ * chunk match (offset 0, same length as the review).
+ */
+export function highlightFor(
+  r: Pick<SearchResult, "excerpt" | "startOffset" | "similarity"> & {
+    review: Pick<SearchResult["review"], "text">;
+  },
+): QueryHighlight | null {
+  if (r.similarity === null) return null;
+  if (r.startOffset === 0 && r.excerpt.length === r.review.text.length) {
+    return null;
+  }
+  return { start: r.startOffset, end: r.startOffset + r.excerpt.length };
+}
+
 function toResponseResult(
   r: SearchResult,
-  mode: QueryRequest["mode"],
+  request: Pick<QueryRequest, "mode" | "include">,
 ): QueryResponseResult {
   const review: QueryResponseReview = {
     id: r.reviewId,
@@ -426,11 +462,14 @@ function toResponseResult(
     url: r.review.url,
     metadata: r.review.metadata,
   };
-  if (mode === "reviews") review.text = r.review.text;
+  if (request.mode === "reviews" || request.include.includes("text")) {
+    review.text = r.review.text;
+  }
   return {
     score: r.similarity,
     excerpt: r.excerpt,
     excerpt_id: r.chunkId,
+    highlight: highlightFor(r),
     review,
   };
 }

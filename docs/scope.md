@@ -131,6 +131,7 @@ Also: `GET /v1/reviews` (cursor-paginated, `limit` 1–100, filters `source`, `m
   "q": "dental implants",
   "limit": 5,
   "mode": "excerpts",
+  "include": ["text"],
   "filters": { "min_rating": 4, "source": ["google"], "metadata.location": "north", "since": "2025-01-01" }
 }
 ```
@@ -138,12 +139,12 @@ Also: `GET /v1/reviews` (cursor-paginated, `limit` 1–100, filters `source`, `m
 - `q` optional, at most 500 characters. Without it, results are the newest publishable reviews and every `score` is `null`. With it, hybrid search. `limit` is 1–20 (default 5).
 - Keys: `Authorization: Bearer …` for either kind. On `GET /v1/query` **only**, a **publishable** key may instead be passed as `?key=pq_pk_…`, which is what the snippet does: a GET with no custom headers is a CORS simple request, so the browser skips the preflight, and a preflight — when one does happen — cannot carry an `Authorization` header anyway. On `POST /v1/query` a `?key=` is a `401 unauthorized` pointing at the header: a POST already needs a body and can carry one, and a key in a POST URL is surface with no caller. Secret keys are never accepted in the URL on any method. Publishable requests must carry an `Origin` listed in the project's allowed origins (exact scheme + host + port); otherwise 403.
 - `filters.metadata` is an object (`{ "metadata": { "location": "north" } }`); the flat spelling `"metadata.location": "north"` inside `filters` is accepted too and is the GET form (`metadata.location=north`). Unknown fields anywhere are a 422 `validation_failed`, never ignored.
-- `mode` is `excerpts` (default: the matching slice, best for placement) or `reviews` (whole review, deduplicated, scored by its best excerpt, with `review.text` present).
-- Response: `{ "results": [{ "score", "excerpt", "excerpt_id", "review": { … } }], "took_ms", "cached", "badge" }`. `score` is in [0, 1] and is the cosine similarity of the returned excerpt to the query, not the fused rank, so it is comparable across queries. `excerpt` is always a verbatim slice of the review's text. `cached` says whether `results` came from KV (also `x-cache: HIT|MISS|BYPASS`). `badge` mirrors the project's plan: `true` means the snippet must render the "Reviews by ProofQL" badge (free tier).
+- `mode` is `excerpts` (default: the matching slice, best for placement) or `reviews` (whole review, deduplicated, scored by its best excerpt, with `review.text` present). `include` (optional, `["text"]`) adds `review.text` to every result in `excerpts` mode too; GET `include=text`.
+- Response: `{ "results": [{ "score", "excerpt", "excerpt_id", "highlight", "review": { … } }], "took_ms", "cached", "badge" }`. `score` is in [0, 1] and is the cosine similarity of the returned excerpt to the query, not the fused rank, so it is comparable across queries. `excerpt` is always a verbatim slice of the review's text, and `highlight` says where: `{ "start", "end" }` as UTF-16 code-unit offsets into `review.text`, `end` exclusive, so `review.text.slice(start, end) === excerpt` (the digital highlighter, #85 — the review is returned untouched and the developer wraps the span); `null` without `q` and when the match is the whole review. `cached` says whether `results` came from KV (also `x-cache: HIT|MISS|BYPASS`). `badge` mirrors the project's plan: `true` means the snippet must render the "Reviews by ProofQL" badge (free tier).
 - Relevance floor: candidates below the project's threshold (default 0.55 cosine, tunable per project and per environment) are dropped. The endpoint returns `results: []` rather than padding. Full-text-only hits with no vector proximity above the floor are dropped when `q` is present.
 - Policy applied in the same SQL as ranking: `hidden_at IS NULL`, `rating >= project.min_rating` (default 4), and for unrated reviews `sentiment <> 'negative'`. A request's `filters.min_rating` can only tighten the project's policy, never loosen it. "The implant consult was a waste of money" matches `q=implants` hard; the one-star rating on it is why it never renders.
 - If the embedding service is down the response is a `503 embedding_unavailable`, deliberately not a degraded full-text-only answer — that is exactly what the floor exists to prevent. Retry shortly.
-- Rate limited per key (above). Cached in KV keyed on `(project, environment, normalized query, filters, policy)`; purged on ingest, delete, hide, or policy change for that project. `Cache-Control: no-cache` on the request bypasses the lookup and still stores the fresh result.
+- Rate limited per key (above). Cached in KV keyed on `(project, environment, normalized query, mode, include, filters, policy)`; purged on ingest, delete, hide, or policy change for that project. `Cache-Control: no-cache` on the request bypasses the lookup and still stores the fresh result.
 
 ### Snippet
 
@@ -152,7 +153,7 @@ Also: `GET /v1/reviews` (cursor-paginated, `limit` 1–100, filters `source`, `m
 <script async src="https://cdn.proofql.com/v1.js" data-key="pq_pk_live_…"></script>
 ```
 
-A pure client of `GET /v1/query`. Under 5 KB, no dependencies, renders nothing on empty results or error, ships with a default stylesheet that is easy to override and a `data-template` escape hatch. Free-tier projects render a small "Reviews by ProofQL" badge; the API tells the snippet whether to show it. The snippet is the demo and the first thing a developer sees; it must look good out of the box.
+A pure client of `GET /v1/query`. Under 5 KB, no dependencies, renders nothing on empty results or error, ships with a default stylesheet that is easy to override and a `data-template` escape hatch. `data-highlight="true"` renders the whole review with the API's `highlight` span in `<mark class="pq-mark">` (DOM-built, never `innerHTML`). Free-tier projects render a small "Reviews by ProofQL" badge; the API tells the snippet whether to show it. The snippet is the demo and the first thing a developer sees; it must look good out of the box.
 
 ## 4. Data model
 

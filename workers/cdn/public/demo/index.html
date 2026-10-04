@@ -23,7 +23,11 @@
     allowed origins. Full recipe: workers/cdn/README.md.
 
     Four sections carry the snippet: three queries (implants, kids, parking)
-    and one `data-mode="reviews"`. The local seed embeds with a bag-of-words
+    and one `data-mode="reviews"`. The implants section turns on
+    `data-highlight="true"` (#85): the whole review, with the sentences that
+    matched the query marked — so its query is phrased to land on a window
+    of a long seeded review rather than on a short whole review, which
+    would have nothing to mark. The local seed embeds with a bag-of-words
     fake, so each query is phrased to share vocabulary with a seeded review
     and still clear the relevance floor; against real embeddings the same
     phrasings — or any natural ones — work.
@@ -234,7 +238,7 @@
       </div>
       <div>
         <p class="reviews-label">What patients say about implants</p>
-        <div data-proofql data-query="implant surgery with Dr. Patel" data-limit="3">
+        <div data-proofql data-query="implants with Dr. Patel: the 3D scan showed where each post would go" data-limit="3" data-highlight="true">
           <p class="reviews-fallback">Read more reviews on <a href="#reviews">our reviews page</a>.</p>
         </div>
       </div>

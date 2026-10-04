@@ -15,14 +15,22 @@ export interface QueryReview {
   occurred_at: string | null;
   url: string | null;
   metadata: Record<string, string>;
-  /** Whole review text; present in `mode=reviews` only. */
+  /** Whole review text; present in `mode=reviews` or with `include=text`. */
   text?: string;
+}
+
+/** Where `excerpt` sits in `review.text`: UTF-16 offsets, `end` exclusive. */
+export interface QueryHighlight {
+  start: number;
+  end: number;
 }
 
 export interface QueryResult {
   score: number | null;
   excerpt: string;
   excerpt_id: string;
+  /** Null without `q` or for a whole-review match; absent from older builds. */
+  highlight?: QueryHighlight | null;
   review: QueryReview;
 }
 
@@ -36,6 +44,13 @@ export interface QueryResponse {
 
 /** What one `[data-proofql]` element asked for (`./query.ts`). */
 export type QueryMode = "excerpts" | "reviews";
+
+/** How one element renders its results (`./render.ts`, `./template.ts`). */
+export interface RenderOptions {
+  mode: QueryMode;
+  /** `data-highlight="true"`: the whole review with the span in `<mark>`. */
+  highlight?: boolean;
+}
 
 declare global {
   /** Injected by esbuild `define` at build time (scripts/build.mjs). */

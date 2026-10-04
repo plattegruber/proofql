@@ -14,7 +14,7 @@
  * - No animation beyond a hairline colour transition, off under reduced motion.
  *
  * Custom properties: --pq-font, --pq-font-mono, --pq-color, --pq-muted,
- * --pq-accent, --pq-border, --pq-radius (0), --pq-gap.
+ * --pq-accent, --pq-border, --pq-radius (0), --pq-gap, --pq-mark.
  */
 
 .pq-list,
@@ -61,6 +61,38 @@
   padding: 0;
   quotes: none;
   text-wrap: pretty;
+}
+
+/*
+ * data-highlight: the matched span inside the whole review. A warm,
+ * translucent tint of the accent (the rgba line is the fallback where
+ * color-mix is unknown); the text keeps the host's ink, so contrast is
+ * the host's contrast. Forced-colors mode gets the system's own marker.
+ */
+.pq-mark {
+  background: var(--pq-mark, rgba(0, 145, 90, 0.18));
+  color: inherit;
+  padding: 0.05em 0.15em;
+  margin: -0.05em -0.15em;
+  border-radius: var(--pq-radius, 0);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+@supports (background: color-mix(in srgb, red 50%, transparent)) {
+  .pq-mark {
+    background: var(
+      --pq-mark,
+      color-mix(in srgb, var(--pq-accent, #00915a) 18%, transparent)
+    );
+  }
+}
+
+@media (forced-colors: active) {
+  .pq-mark {
+    background: Mark;
+    color: MarkText;
+  }
 }
 
 .pq-meta {

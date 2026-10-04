@@ -18,6 +18,7 @@
  * | marker    | gets                                                    |
  * |-----------|---------------------------------------------------------|
  * | `excerpt` | the excerpt (whole review in `mode=reviews`)            |
+ * | `text-highlighted` | the whole review with the matched span in `<mark class="pq-mark">`; needs the text (`data-highlight="true"` or `mode=reviews`), else the excerpt |
  * | `author`  | `author_name`                                           |
  * | `source`  | the display name ("Google"); nothing for `custom`       |
  * | `date`    | a short local date; `datetime` too on a `<time>`        |
@@ -37,8 +38,9 @@ import {
   safeHref,
   sourceName,
   starCount,
+  textNodes,
 } from "./render.js";
-import type { QueryMode, QueryResponse, QueryResult } from "./types.js";
+import type { QueryResponse, QueryResult, RenderOptions } from "./types.js";
 
 export const TEMPLATE_ATTR = "data-template";
 
@@ -55,14 +57,26 @@ export function findTemplate(el: Element): HTMLTemplateElement | null {
   return found instanceof HTMLTemplateElement ? found : null;
 }
 
-function fillSlot(slot: Element, result: QueryResult, mode: QueryMode): void {
+function fillSlot(
+  slot: Element,
+  result: QueryResult,
+  options: RenderOptions,
+): void {
   const review = result.review;
   const marker = slot.getAttribute("data-pq");
   let text: string | null = null;
   switch (marker) {
     case "excerpt":
-      text = displayText(result, mode);
+      text = displayText(result, options.mode);
       break;
+    case "text-highlighted":
+      slot.replaceChildren(
+        ...textNodes(slot.ownerDocument, result, {
+          ...options,
+          highlight: true,
+        }),
+      );
+      return;
     case "author":
       text = review.author_name;
       break;
@@ -115,14 +129,14 @@ export function renderTemplate(
   el: Element,
   template: HTMLTemplateElement,
   response: QueryResponse,
-  mode: QueryMode,
+  options: RenderOptions,
 ): void {
   const doc = el.ownerDocument;
   const nodes: Node[] = [];
   for (const result of response.results) {
     const clone = doc.importNode(template.content, true);
     for (const slot of Array.from(clone.querySelectorAll("[data-pq]"))) {
-      fillSlot(slot, result, mode);
+      fillSlot(slot, result, options);
     }
     nodes.push(clone);
   }

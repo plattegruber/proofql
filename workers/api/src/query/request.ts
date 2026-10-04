@@ -4,10 +4,15 @@
  * `QueryRequest`. Pure zod; unit-tested with no database.
  *
  * ```json
- * { "q": "dental implants", "limit": 5, "mode": "excerpts",
+ * { "q": "dental implants", "limit": 5, "mode": "excerpts", "include": ["text"],
  *   "filters": { "min_rating": 4, "source": ["google"],
  *                "since": "2025-01-01", "metadata": { "location": "north" } } }
  * ```
+ *
+ * `include` names optional response fields: `text` adds `review.text` to
+ * every result in `mode=excerpts` (it is always present in `mode=reviews`),
+ * so a caller can render the whole review with the `highlight` span marked
+ * without switching modes (#85).
  *
  * `filters` also accepts the scope document's flat spelling,
  * `"metadata.location": "north"`, which is folded into `metadata`.
@@ -20,6 +25,7 @@
  * | `q`                | `q`                             |
  * | `limit`            | `limit`                         |
  * | `mode`             | `mode`                          |
+ * | `include` (repeat or comma-separated) | `include`    |
  * | `min_rating`       | `filters.min_rating`            |
  * | `source` (repeat or comma-separated) | `filters.source` |
  * | `since`            | `filters.since`                 |
@@ -42,6 +48,8 @@ export const Q_MAX_LENGTH = 500;
 
 const SOURCE_MAX = 64;
 const SOURCES_MAX = 20;
+/** Bound on a repeated `include` list before de-duplication. */
+const INCLUDES_MAX = 8;
 
 /** `YYYY-MM-DD` or a full ISO 8601 timestamp, as `Date`. */
 const isoDate = z
@@ -85,6 +93,19 @@ const filtersSchema = z.strictObject({
 export const QUERY_MODES = ["excerpts", "reviews"] as const;
 export type QueryMode = (typeof QUERY_MODES)[number];
 
+/** Optional response fields a request may ask for (`include`). */
+export const QUERY_INCLUDES = ["text"] as const;
+export type QueryInclude = (typeof QUERY_INCLUDES)[number];
+
+/** `"text"` → `["text"]`; the GET mapper already produces a list. */
+const includeList = z.preprocess(
+  (v) => (typeof v === "string" ? [v] : v),
+  z
+    .array(z.enum(QUERY_INCLUDES))
+    .max(INCLUDES_MAX)
+    .transform((v) => [...new Set(v)]),
+);
+
 export const queryRequestSchema = z.strictObject({
   q: z
     .string()
@@ -94,6 +115,7 @@ export const queryRequestSchema = z.strictObject({
     .optional(),
   limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).default(DEFAULT_LIMIT),
   mode: z.enum(QUERY_MODES).default("excerpts"),
+  include: includeList.default([]),
   filters: z.preprocess(foldMetadataKeys, filtersSchema).default({}),
 });
 
@@ -162,6 +184,7 @@ const GET_PARAMS = new Set([
   "q",
   "limit",
   "mode",
+  "include",
   "min_rating",
   "source",
   "since",
@@ -194,15 +217,16 @@ export function queryParamsToRequest(params: URLSearchParams): unknown {
       body[name] = value; // unknown → the strict schema names it
       continue;
     }
-    if (name === "source") {
-      const list = (filters.source ?? []) as unknown[];
+    if (name === "source" || name === "include") {
+      const target = name === "source" ? filters : body;
+      const list = (target[name] ?? []) as unknown[];
       list.push(
         ...value
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
       );
-      filters.source = list;
+      target[name] = list;
       continue;
     }
     if (seen.has(name)) {

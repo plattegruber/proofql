@@ -36,6 +36,7 @@ describe("POST body shape", () => {
     expect(parseQueryRequest({})).toEqual({
       limit: DEFAULT_LIMIT,
       mode: "excerpts",
+      include: [],
       filters: {},
     });
   });
@@ -45,6 +46,7 @@ describe("POST body shape", () => {
       q: "  dental implants ",
       limit: 3,
       mode: "reviews",
+      include: ["text"],
       filters: {
         min_rating: 5,
         source: ["google", "yelp"],
@@ -56,6 +58,7 @@ describe("POST body shape", () => {
       q: "dental implants",
       limit: 3,
       mode: "reviews",
+      include: ["text"],
       filters: {
         min_rating: 5,
         source: ["google", "yelp"],
@@ -63,6 +66,20 @@ describe("POST body shape", () => {
         metadata: { location: "north" },
       },
     });
+  });
+
+  it("accepts include as a list or a single string, de-duplicated, and 422s unknown fields", () => {
+    expect(parseQueryRequest({ include: "text" }).include).toEqual(["text"]);
+    expect(parseQueryRequest({ include: ["text", "text"] }).include).toEqual([
+      "text",
+    ]);
+    expect(parseQueryRequest({ include: [] }).include).toEqual([]);
+    expect(
+      issuesOf(() => parseQueryRequest({ include: ["html"] })).paths,
+    ).toEqual(["include.0"]);
+    expect(
+      issuesOf(() => parseQueryRequest({ include: "html" })).paths,
+    ).toEqual(["include.0"]);
   });
 
   it("folds the scope doc's flat `metadata.<key>` filter spelling into `metadata`", () => {
@@ -165,12 +182,13 @@ describe("GET query-param mapping", () => {
   it("maps every documented parameter onto the body shape", () => {
     expect(
       fromGet(
-        "q=dental+implants&limit=3&mode=reviews&min_rating=5&source=google&source=yelp&since=2025-01-01&metadata.location=north&key=pq_pk_live_x",
+        "q=dental+implants&limit=3&mode=reviews&include=text&min_rating=5&source=google&source=yelp&since=2025-01-01&metadata.location=north&key=pq_pk_live_x",
       ),
     ).toEqual({
       q: "dental implants",
       limit: 3,
       mode: "reviews",
+      include: ["text"],
       filters: {
         min_rating: 5,
         source: ["google", "yelp"],
@@ -186,10 +204,19 @@ describe("GET query-param mapping", () => {
     ).toEqual(["google", "yelp", "facebook"]);
   });
 
+  it("accepts include repeated or comma-separated, and 422s an unknown value", () => {
+    expect(fromGet("include=text").include).toEqual(["text"]);
+    expect(fromGet("include=text,text&include=text").include).toEqual(["text"]);
+    expect(issuesOf(() => fromGet("include=html")).paths).toEqual([
+      "include.0",
+    ]);
+  });
+
   it("applies defaults with no parameters at all", () => {
     expect(fromGet("")).toEqual({
       limit: DEFAULT_LIMIT,
       mode: "excerpts",
+      include: [],
       filters: {},
     });
   });
@@ -198,6 +225,7 @@ describe("GET query-param mapping", () => {
     expect(fromGet("key=pq_pk_live_x")).toEqual({
       limit: DEFAULT_LIMIT,
       mode: "excerpts",
+      include: [],
       filters: {},
     });
     expect(issuesOf(() => fromGet("limt=3")).paths).toEqual(["limt"]);

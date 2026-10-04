@@ -66,7 +66,7 @@ describe("renderTemplate", () => {
   it("clones the template per result and fills every slot as text", () => {
     const template = install();
     const el = host();
-    renderTemplate(el, template, fixtureResponse(), "excerpts");
+    renderTemplate(el, template, fixtureResponse(), { mode: "excerpts" });
 
     const cards = el.querySelectorAll(":scope > .card");
     expect(cards).toHaveLength(3);
@@ -99,7 +99,7 @@ describe("renderTemplate", () => {
   it("removes slots the review cannot fill and never emits unsafe hrefs", () => {
     const template = install();
     const el = host();
-    renderTemplate(el, template, fixtureResponse(), "excerpts");
+    renderTemplate(el, template, fixtureResponse(), { mode: "excerpts" });
     const cards = el.querySelectorAll(":scope > .card");
 
     const second = cards[1] as HTMLElement; // custom, no author/date, javascript: url
@@ -119,7 +119,7 @@ describe("renderTemplate", () => {
   it("puts the URL in text form on a non-link slot", () => {
     const template = install(`<p><span data-pq="url"></span></p>`);
     const el = host();
-    renderTemplate(el, template, fixtureResponse(), "excerpts");
+    renderTemplate(el, template, fixtureResponse(), { mode: "excerpts" });
     expect(el.querySelector("[data-pq=url]")?.textContent).toBe(
       "https://maps.google.com/?cid=123",
     );
@@ -128,29 +128,44 @@ describe("renderTemplate", () => {
   it("uses the whole review in reviews mode", () => {
     const template = install();
     const el = host();
-    renderTemplate(el, template, fixtureResponse(), "reviews");
+    renderTemplate(el, template, fixtureResponse(), { mode: "reviews" });
     expect(el.querySelector("[data-pq=excerpt]")?.textContent).toMatch(
       /^Full review text/,
     );
   });
 
+  it('fills data-pq="text-highlighted" with the whole review and the span marked, or the excerpt without text', () => {
+    const template = install(`
+      <figure><p data-pq="text-highlighted">placeholder</p></figure>`);
+    const el = host();
+    renderTemplate(el, template, fixtureResponse(), { mode: "excerpts" });
+    const slots = el.querySelectorAll("[data-pq=text-highlighted]");
+    expect(slots).toHaveLength(3);
+    const first = slots[0] as HTMLElement;
+    expect(first.childNodes).toHaveLength(3);
+    expect(first.querySelector("mark.pq-mark")?.textContent).toMatch(
+      /^Dr\. Patel explained/,
+    );
+    expect(first.textContent).toMatch(/^Full review text/);
+    expect(first.querySelector("script")).toBeNull();
+    // r2 has no text in the response: the excerpt, unmarked.
+    expect(slots[1]?.textContent).toBe(
+      "Quick, painless, and the front desk was lovely.",
+    );
+    expect(slots[1]?.querySelector("mark")).toBeNull();
+  });
+
   it("appends the badge unless the project is paid", () => {
     const template = install();
     const free = host();
-    renderTemplate(
-      free,
-      template,
-      fixtureResponse({ badge: true }),
-      "excerpts",
-    );
+    renderTemplate(free, template, fixtureResponse({ badge: true }), {
+      mode: "excerpts",
+    });
     expect(free.lastElementChild?.className).toBe("pq-badge");
     const paid = host();
-    renderTemplate(
-      paid,
-      template,
-      fixtureResponse({ badge: false }),
-      "excerpts",
-    );
+    renderTemplate(paid, template, fixtureResponse({ badge: false }), {
+      mode: "excerpts",
+    });
     expect(paid.querySelector(".pq-badge")).toBeNull();
   });
 });

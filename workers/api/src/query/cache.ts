@@ -122,6 +122,7 @@ export function cacheIdentity(input: CacheKeyInput): Record<string, unknown> {
     q: request.q === undefined ? null : normalizeQ(request.q),
     limit: request.limit,
     mode: request.mode,
+    include: [...request.include].sort(),
     filters: {
       min_rating: filters.min_rating ?? null,
       // `IN (...)` is order-insensitive, so the list's order is not identity.

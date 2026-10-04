@@ -342,6 +342,8 @@ interface Fixture {
   secretTest: string;
   /** Ids of indexed, publishable reviews. */
   implant: string;
+  /** A longer review with a `window` chunk (#85 highlight). */
+  whitening: string;
   /** A project at its monthly query quota. */
   quotaSecret: string;
   /** A project at its review cap. */
@@ -352,6 +354,10 @@ let f: Fixture;
 const IMPLANT = "My implant feels like my own tooth.";
 const CLEANING = "Painless cleaning, very gentle hygienist.";
 const PARKING = "Parking behind the building was easy.";
+/** Emoji before the matching sentence: UTF-16 offsets differ from code points. */
+const WHITENING =
+  "😀 Love this place!! The whitening results were amazing. Booking online was easy.";
+const WHITENING_WINDOW = "The whitening results were amazing.";
 
 function embed(text: string): number[] {
   const [vector] = fakeEmbed([text]);
@@ -414,6 +420,18 @@ beforeAll(async () => {
     rating: 5,
     occurredAt: new Date("2026-01-01T00:00:00Z"),
   });
+  const whitening = await indexed(t.db, p.id, WHITENING, {
+    rating: 5,
+    source: "google",
+    occurredAt: new Date("2025-12-01T00:00:00Z"),
+  });
+  await chunk(t.db, {
+    reviewId: whitening,
+    kind: "window",
+    text: WHITENING_WINDOW,
+    startOffset: WHITENING.indexOf(WHITENING_WINDOW),
+    embedding: embed(WHITENING_WINDOW),
+  });
   // An unrated review with no model sentiment yet, and a dateless one, so
   // the nullable columns of ReviewResource are exercised by the list.
   await review(t.db, {
@@ -441,6 +459,7 @@ beforeAll(async () => {
     publishable: (await issueKey(t.db, p.id, "publishable")).plaintext,
     secretTest: (await issueKey(t.db, p.id, "secret", "test")).plaintext,
     implant,
+    whitening,
     quotaSecret: (await issueKey(t.db, quotaProject.id, "secret")).plaintext,
     cappedSecret: (await issueKey(t.db, capped.id, "secret")).plaintext,
   };
@@ -954,6 +973,43 @@ describe("GET /v1/query (the snippet's path)", () => {
     );
   });
 
+  it("200: highlight is the excerpt's UTF-16 span in review.text; null for a whole-review match (#85)", async () => {
+    const res = await call(
+      `${PATH}?key=${f.publishable}&q=whitening+results&include=text&limit=3`,
+      { headers: { origin: ORIGIN, "cache-control": "no-cache" } },
+    );
+    expect(res.status).toBe(200);
+    const body = (await conforms(res, "get", PATH)) as {
+      results: {
+        excerpt: string;
+        highlight: { start: number; end: number } | null;
+        review: { id: string; text?: string };
+      }[];
+    };
+    expect(body.results.map((r) => r.review.id)).toEqual([f.whitening]);
+    const [top] = body.results;
+    const start = WHITENING.indexOf(WHITENING_WINDOW);
+    expect(top?.excerpt).toBe(WHITENING_WINDOW);
+    expect(top?.highlight).toEqual({
+      start,
+      end: start + WHITENING_WINDOW.length,
+    });
+    // The verbatim invariant, end to end, with an emoji ahead of the span.
+    expect(
+      top?.review.text?.slice(start, start + WHITENING_WINDOW.length),
+    ).toBe(WHITENING_WINDOW);
+
+    const full = await call(`${PATH}?q=implant+tooth&limit=3`, {
+      key: f.secret,
+      headers: { "cache-control": "no-cache" },
+    });
+    const fullBody = (await conforms(full, "get", PATH)) as {
+      results: { highlight: unknown; review: { text?: string } }[];
+    };
+    expect(fullBody.results[0]?.highlight).toBeNull();
+    expect(fullBody.results[0]?.review).not.toHaveProperty("text");
+  });
+
   it("401: no key, a secret key in the URL, an unknown publishable key", async () => {
     for (const url of [
       `${PATH}?q=implant`,
@@ -985,6 +1041,7 @@ describe("GET /v1/query (the snippet's path)", () => {
       "q=%20",
       "q=a&q=b",
       "mode=nope",
+      "include=html",
     ]) {
       const res = await call(`${PATH}?${qs}`, { key: f.secret });
       expect(res.status, qs).toBe(422);

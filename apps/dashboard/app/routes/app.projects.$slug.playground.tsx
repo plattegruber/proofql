@@ -401,7 +401,6 @@ function Results({
           result={r}
           rank={i + 1}
           floor={outcome.policy.similarityFloor}
-          mode={request.mode}
           reviewHref={reviewHref(r.reviewId)}
         />
       ))}
@@ -424,7 +423,6 @@ function Results({
                 result={r}
                 rank={above.length + i + 1}
                 floor={outcome.policy.similarityFloor}
-                mode={request.mode}
                 reviewHref={reviewHref(r.reviewId)}
               />
             ))

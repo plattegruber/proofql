@@ -6,6 +6,7 @@
  * | `data-query`       | `q`                | omitted when blank: newest reviews     |
  * | `data-limit`       | `limit`            | default 3, clamped to 1–20             |
  * | `data-mode`        | `mode`             | `excerpts` (default) or `reviews`      |
+ * | `data-highlight`   | `include=text`     | `"true"` asks for the whole text (excerpts mode) so the match can be marked |
  * | `data-min-rating`  | `min_rating`       | integer 1–5; anything else is dropped  |
  * | `data-source`      | `source`           | comma-separated list, passed through   |
  * | `data-since`       | `since`            | ISO date, passed through               |
@@ -29,6 +30,8 @@ export interface ElementQuery {
   q?: string;
   limit: number;
   mode?: QueryMode;
+  /** Render the whole review with the matched span marked (`./render.ts`). */
+  highlight: boolean;
   min_rating?: number;
   source?: string;
   since?: string;
@@ -49,7 +52,11 @@ function int(value: string | undefined): number | undefined {
 
 /** Read what one `[data-proofql]` element asks for. */
 export function readElementQuery(el: Element): ElementQuery {
-  const query: ElementQuery = { limit: DEFAULT_LIMIT, metadata: {} };
+  const query: ElementQuery = {
+    limit: DEFAULT_LIMIT,
+    highlight: attr(el, "data-highlight") === "true",
+    metadata: {},
+  };
 
   const q = attr(el, "data-query");
   if (q !== undefined) query.q = q;
@@ -95,6 +102,9 @@ export function buildQueryUrl(
   if (query.q !== undefined) params.set("q", query.q);
   params.set("limit", String(query.limit));
   if (query.mode !== undefined) params.set("mode", query.mode);
+  // `reviews` already carries the text; only excerpts needs to ask for it.
+  if (query.highlight && query.mode !== "reviews")
+    params.set("include", "text");
   if (query.min_rating !== undefined) {
     params.set("min_rating", String(query.min_rating));
   }

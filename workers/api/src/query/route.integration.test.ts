@@ -88,6 +88,33 @@ async function indexed(
   return r.id;
 }
 
+/**
+ * A longer review: its `full` chunk plus an embedded `window` chunk for
+ * every substring in `windows`, each at its UTF-16 offset — what the
+ * pipeline's chunker produces (`chunkReview` in @proofql/core).
+ */
+async function indexedWindows(
+  db: Db,
+  projectId: string,
+  text: string,
+  windows: string[],
+  overrides: Parameters<typeof review>[1] = {},
+): Promise<string> {
+  const id = await indexed(db, projectId, text, overrides);
+  for (const w of windows) {
+    const startOffset = text.indexOf(w);
+    if (startOffset < 0) throw new Error(`window not in review: ${w}`);
+    await chunk(db, {
+      reviewId: id,
+      kind: "window",
+      text: w,
+      startOffset,
+      embedding: embed(w),
+    });
+  }
+  return id;
+}
+
 const makeKey = (
   db: Db,
   projectId: string,
@@ -301,6 +328,136 @@ describe("/v1/query", () => {
       expect(asGet.results.map((r) => r.review.id)).toEqual([
         f.reviews.implant,
       ]);
+    });
+  });
+
+  describe("highlight (#85): where the excerpt sits in the whole review", () => {
+    // Emoji (a surrogate pair), a symbol, and CJK before the matching
+    // sentence: the UTF-16 offset differs from both the code-point and the
+    // byte offset, so a wrong unit would fail the slice assertion.
+    const LONG =
+      "🦷✨ 歯医者さん, five stars. The front desk was warm. My implant feels like my own tooth. Parking was fine too.";
+    const WINDOW = "My implant feels like my own tooth.";
+    const START = LONG.indexOf(WINDOW);
+    let h: Fixture & { long: string };
+
+    beforeAll(async () => {
+      const base = await fixture(t.db);
+      const long = await indexedWindows(t.db, base.project.id, LONG, [WINDOW], {
+        rating: 5,
+        occurredAt: new Date("2026-04-01T00:00:00Z"),
+      });
+      h = { ...base, long };
+      // Sanity: the fixture is only meaningful if the units disagree.
+      expect([...LONG.slice(0, START)].length).not.toBe(START);
+      expect(new TextEncoder().encode(LONG.slice(0, START)).length).not.toBe(
+        START,
+      );
+    });
+
+    /** `review.text.slice(start, end) === excerpt` for every result. */
+    function expectVerbatim(body: QueryResponse): void {
+      for (const r of body.results) {
+        const text = r.review.text;
+        expect(text, r.excerpt_id).toBeTypeOf("string");
+        if (r.highlight === null) {
+          expect(r.excerpt).toBe(text);
+        } else {
+          expect(r.highlight.end - r.highlight.start).toBe(r.excerpt.length);
+          expect(text?.slice(r.highlight.start, r.highlight.end)).toBe(
+            r.excerpt,
+          );
+        }
+      }
+    }
+
+    it("excerpts: a window match carries its UTF-16 span; a whole-review match is null; include=text adds the text", async () => {
+      const body = await json<QueryResponse>(
+        await post(app, h.secret, {
+          q: "implant tooth",
+          include: ["text"],
+          limit: 5,
+        }),
+      );
+      const ids = body.results.map((r) => r.review.id);
+      expect(ids).toEqual(expect.arrayContaining([h.long, h.reviews.implant]));
+
+      const long = body.results.find((r) => r.review.id === h.long);
+      expect(long?.excerpt).toBe(WINDOW);
+      expect(long?.highlight).toEqual({
+        start: START,
+        end: START + WINDOW.length,
+      });
+      expect(long?.review.text).toBe(LONG);
+
+      const full = body.results.find((r) => r.review.id === h.reviews.implant);
+      expect(full?.excerpt).toBe(IMPLANT);
+      expect(full?.highlight).toBeNull();
+      expect(full?.review.text).toBe(IMPLANT);
+      expectVerbatim(body);
+    });
+
+    it("excerpts without include: highlight is present, text is not", async () => {
+      const body = await json<QueryResponse>(
+        await post(app, h.secret, { q: "implant tooth", limit: 5 }),
+      );
+      const long = body.results.find((r) => r.review.id === h.long);
+      expect(long?.highlight).toEqual({
+        start: START,
+        end: START + WINDOW.length,
+      });
+      expect(long?.review).not.toHaveProperty("text");
+    });
+
+    it("reviews: the same span against the text that is always present", async () => {
+      const body = await json<QueryResponse>(
+        await post(app, h.secret, {
+          q: "implant tooth",
+          mode: "reviews",
+          limit: 5,
+        }),
+      );
+      const long = body.results.find((r) => r.review.id === h.long);
+      expect(long?.review.text).toBe(LONG);
+      expect(long?.highlight).toEqual({
+        start: START,
+        end: START + WINDOW.length,
+      });
+      expectVerbatim(body);
+    });
+
+    it("no q: highlight is null on every result, text on request", async () => {
+      const body = await json<QueryResponse>(
+        await post(app, h.secret, { include: ["text"], limit: 10 }),
+      );
+      expect(body.results[0]?.review.id).toBe(h.long); // newest
+      expect(body.results.every((r) => r.highlight === null)).toBe(true);
+      expect(body.results.every((r) => r.score === null)).toBe(true);
+      expectVerbatim(body);
+    });
+
+    it("GET: include=text, and the cache keeps include variants apart", async () => {
+      const auth = { Authorization: `Bearer ${h.secret}` };
+      const withText = await json<QueryResponse>(
+        await get(app, "q=implant+tooth&include=text&limit=5", auth),
+      );
+      expect(
+        withText.results.every((r) => typeof r.review.text === "string"),
+      ).toBe(true);
+      // The same query without `include` must not be served the stored
+      // `include=text` body: `include` is part of the cache key.
+      const without = await json<QueryResponse>(
+        await get(app, "q=implant+tooth&limit=5", auth),
+      );
+      expect(without.results.length).toBe(withText.results.length);
+      expect(without.results.every((r) => r.review.text === undefined)).toBe(
+        true,
+      );
+      const bad = await get(app, "q=implant&include=html", auth);
+      expect(bad.status).toBe(422);
+      expect((await json<ErrorEnvelope>(bad)).error.details?.[0]?.path).toBe(
+        "include.0",
+      );
     });
   });
 

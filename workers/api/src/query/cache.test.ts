@@ -98,9 +98,14 @@ describe("cacheKey", () => {
       q: "implants",
       limit: 5,
       mode: "excerpts",
+      include: [],
       filters: {},
     });
     expect(explicit).toBe(implicit);
+    // `include` is a set: order and repeats are not identity.
+    expect(await keyFor({ q: "implants", include: ["text", "text"] })).toBe(
+      await keyFor({ q: "implants", include: "text" }),
+    );
   });
 
   it("changes with anything the search depends on", async () => {
@@ -108,6 +113,7 @@ describe("cacheKey", () => {
     const variants = await Promise.all([
       keyFor({ q: "implants", limit: 6 }),
       keyFor({ q: "implants", mode: "reviews" }),
+      keyFor({ q: "implants", include: ["text"] }),
       keyFor({ q: "implants", filters: { min_rating: 5 } }),
       keyFor({ q: "implants", filters: { source: ["google"] } }),
       keyFor({ q: "implants", filters: { since: "2025-01-01" } }),
@@ -148,6 +154,7 @@ describe("cacheKey", () => {
       q: "implants",
       limit: 5,
       mode: "excerpts",
+      include: [],
       filters: {
         min_rating: null,
         source: ["google", "yelp"],
@@ -179,6 +186,7 @@ describe("putCached / getCached", () => {
       score: 0.8,
       excerpt: "My implant feels like my own tooth.",
       excerpt_id: "33333333-3333-4333-8333-333333333333",
+      highlight: null,
       review: {
         id: "44444444-4444-4444-8444-444444444444",
         rating: 5,
