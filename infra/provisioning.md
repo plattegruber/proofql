@@ -427,6 +427,17 @@ pnpm --filter @proofql/api exec wrangler queues list                            
 pnpm --filter @proofql/api exec wrangler tail proofql-api-preview --format pretty   # ctrl-c after a request
 ```
 
+Once the demo project is seeded on the preview branch ("Demo project on
+preview", below), the end-to-end check is the demo script against the
+deployment — ingest, index, the three queries, cache, hide, delete, every
+step asserted:
+
+```sh
+API_URL=https://proofql-api-preview.$WORKERS_SUBDOMAIN.workers.dev \
+ORIGIN=https://proofql-cdn-preview.$WORKERS_SUBDOMAIN.workers.dev \
+PQ_SECRET_KEY=pq_sk_live_… PQ_PUBLISHABLE_KEY=pq_pk_live_… pnpm demo   # demo: 8/8 steps passed
+```
+
 A `1101` error page or a 500 on `/health` with a Hyperdrive message means
 the Hyperdrive id or the Neon string is wrong: `wrangler hyperdrive get
 <id>` shows the target host.
@@ -673,3 +684,7 @@ https://proofql-cdn-preview.<subdomain>.workers.dev/demo/?key=pq_pk_live_…&api
 A publishable key is public by design (it ships in page source and is
 scoped by origin), so the link can be committed. `&api=` is dropped once the
 api lives at `https://api.proofql.com`, the snippet's default.
+
+Keep the seed's live secret key somewhere private as well: it is what
+`pnpm demo` (step 11's end-to-end check, `scripts/demo.sh`) ingests and
+deletes with. Reseeding mints new keys and invalidates both.

@@ -268,8 +268,8 @@ and the "Contact" sections of the legal pages.
 ## 12. Smoke test on prod
 
 **Owner.** Two passes, both against `api.proofql.com` / `app.proofql.com`
-after §1–§11. (`scripts/demo.sh`, #31, packages the curl pass for local and
-staging; until it lands, this is the sequence.)
+after §1–§11: the browser walkthrough below, and the curl pass, which is
+[`scripts/demo.sh`](../scripts/demo.sh) (#31) pointed at prod.
 
 **Browser walkthrough** (the M2 exit, now on prod):
 
@@ -280,24 +280,23 @@ staging; until it lands, this is the sequence.)
 5. [ ] Step 4: copy the snippet; the preview iframe renders results; Finish lands on the Playground.
 6. [ ] Paste the snippet into a plain HTML file with the project's origin allowed (Keys → allowed origins; `file://` cannot be allowed, so serve it with `python3 -m http.server 8000` and allow `http://localhost:8000`) and see reviews render. Stopwatch from step 1 to here: the target is under five minutes (`onboarding.completed` logs `elapsed_ms`).
 
-**curl pass** (with the secret and publishable keys from step 2):
+**curl pass** (with the secret and publishable keys from step 2, and an
+origin you added under Keys → allowed origins):
 
 ```sh
-API=https://api.proofql.com; SK=pq_sk_live_…; PK=pq_pk_live_…
-curl -fsS $API/health
-curl -fsS $API/v1/reviews -H "Authorization: Bearer $SK" -H "Content-Type: application/json" -d '[
-  {"external_id":"smoke-1","source":"other","rating":5,"text":"Parking right outside the door and the implant consult was painless.","author_name":"Smoke Test","occurred_at":"2026-01-10T10:00:00Z"},
-  {"external_id":"smoke-2","source":"other","rating":5,"text":"They explained every cost up front; no surprises on the bill.","author_name":"Smoke Test","occurred_at":"2026-01-11T10:00:00Z"},
-  {"external_id":"smoke-3","source":"other","rating":2,"text":"Waited forty minutes past my appointment.","author_name":"Smoke Test","occurred_at":"2026-01-12T10:00:00Z"}]'
-sleep 10   # indexing
-curl -fsS "$API/v1/query" -H "Authorization: Bearer $SK" -H "Content-Type: application/json" -d '{"q":"is parking easy","limit":3}'          # smoke-1
-curl -fsS "$API/v1/query?key=$PK&q=pricing+transparency&limit=3" -H "Origin: http://localhost:8000"                                        # smoke-2, CORS header present
-curl -fsS "$API/v1/query" -H "Authorization: Bearer $SK" -H "Content-Type: application/json" -d '{"q":"quantum chromodynamics","limit":3}'   # "results": []  (empty beats irrelevant)
-curl -s -o /dev/null -w '%{http_code}\n' "$API/v1/query" -H "Authorization: Bearer pq_sk_live_wrong" -d '{}'                                 # 401
-curl -fsS -X DELETE "$API/v1/reviews/<id of smoke-3>" -H "Authorization: Bearer $SK"                                                        # clean up, or delete the project
+API_URL=https://api.proofql.com ORIGIN=https://<an allowed origin> \
+PQ_SECRET_KEY=pq_sk_live_… PQ_PUBLISHABLE_KEY=pq_pk_live_… pnpm demo
 ```
 
-- [ ] Every line answers as commented; `x-request-id` is on every response; the 2-star review never appears (policy `min_rating` 4).
+The script ingests six throwaway reviews (`external_id` `demo-<epoch>-n`),
+waits for them to index, runs the three queries (a match, the policy gate's
+`match: "none"`, a labelled `fallback=recent`), checks the cache HIT, the
+highlight offsets, hide, and finally deletes the six — also on any failure
+— so it leaves the project as it found it. Every step prints PASS/FAIL with
+its timing and the last line carries the three numbers to record.
+
+- [ ] `demo: 8/8 steps passed`; the 2-star review never appears (policy `min_rating` 4, asserted by the script); a wrong key is a `401`: `curl -s -o /dev/null -w '%{http_code}\n' "$API_URL/v1/query" -H "Authorization: Bearer pq_sk_live_wrong" -d '{}'`.
+- [ ] Record the summary line's cold `took_ms`, HIT `took_ms`, and ingest→indexed seconds next to the preview numbers in `docs/performance.md` §5.
 - [ ] Optional, recommended (#108): `pnpm load:run warm` against prod or preview with `RATE` stepped 100 → 300 for 60 s; no 53300 in `wrangler tail --status error`; record the numbers in `docs/performance.md`.
 
 ## 13. Go
