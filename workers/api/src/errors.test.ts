@@ -32,6 +32,25 @@ function harness() {
   app.get("/boom", () => {
     throw new Error("secret stack trace material");
   });
+  // Drizzle wraps the driver's error: the SQLSTATE is on `cause`.
+  app.get("/too-many-clients", () => {
+    throw new Error("Failed query: select ...", {
+      cause: Object.assign(new Error("sorry, too many clients already"), {
+        name: "PostgresError",
+        code: "53300",
+      }),
+    });
+  });
+  app.get("/connect-timeout", () => {
+    throw Object.assign(new Error("write CONNECT_TIMEOUT"), {
+      code: "CONNECT_TIMEOUT",
+    });
+  });
+  app.get("/syntax-error", () => {
+    throw new Error("Failed query", {
+      cause: Object.assign(new Error("syntax error"), { code: "42601" }),
+    });
+  });
   return Object.assign(app, { out });
 }
 
@@ -90,6 +109,43 @@ describe("error envelope", () => {
       error: { name: "Error", message: "secret stack trace material" },
       stack: expect.stringContaining("secret stack trace material"),
     });
+  });
+
+  it("maps a database connection failure to 503 service_unavailable with Retry-After", async () => {
+    const app = harness();
+    for (const path of ["/too-many-clients", "/connect-timeout"]) {
+      const res = await app.request(path);
+      expect(res.status).toBe(503);
+      expect(res.headers.get("Retry-After")).toBe("1");
+      const body = (await res.json()) as {
+        error: { code: string; message: string; request_id: string };
+      };
+      expect(body.error.code).toBe("service_unavailable");
+      expect(body.error.message).not.toMatch(/too many clients|CONNECT/);
+      expect(body.error.message).toContain(body.error.request_id);
+    }
+    // One db.unavailable (warn, with the code) and one request.rejected
+    // (error, 503) per request; never a request.failed.
+    const unavailable = app.out.find("db.unavailable");
+    expect(unavailable.map((l) => l.code)).toEqual([
+      "53300",
+      "CONNECT_TIMEOUT",
+    ]);
+    expect(unavailable.every((l) => l.level === "warn")).toBe(true);
+    expect(
+      app.out
+        .find("request.rejected")
+        .filter((l) => l.code === "service_unavailable"),
+    ).toHaveLength(2);
+    expect(app.out.find("request.failed")).toEqual([]);
+  });
+
+  it("leaves other database errors as 500 internal", async () => {
+    const app = harness();
+    const res = await app.request("/syntax-error");
+    expect(res.status).toBe(500);
+    expect(res.headers.get("Retry-After")).toBeNull();
+    expect(app.out.find("request.failed")).toHaveLength(1);
   });
 
   it("logs one <route>.rejected line per ApiError, with code and status", async () => {

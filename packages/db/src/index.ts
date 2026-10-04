@@ -9,7 +9,12 @@ export {
   VerbatimSliceError,
   type VerbatimSliceReview,
 } from "./chunks.js";
-export { createDb, type Db, type Sql } from "./client.js";
+export {
+  type CreateDbOptions,
+  createDb,
+  type Db,
+  type Sql,
+} from "./client.js";
 export {
   dedupeLastWins,
   type IngestedReview,

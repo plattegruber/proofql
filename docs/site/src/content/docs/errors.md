@@ -79,6 +79,12 @@ Every non-2xx response from the API is one envelope:
 
 **Fix:** retry shortly, with backoff. The snippet renders nothing and tries again on the next page load. Queries without `q` are unaffected.
 
+## service_unavailable
+
+**503.** The API could not reach its database just then (the connection pool was full or the database was briefly unreachable). The response carries `Retry-After`. Cached answers keep working, since a cache hit does not touch the database.
+
+**Fix:** retry after the `Retry-After` seconds, with backoff. The snippet renders nothing and tries again on the next page load. Nothing was written: a failed `POST /v1/reviews` can be resent as is, because ingest upserts by `external_id`.
+
 ## internal
 
 **500.** Something failed inside the API. The envelope carries the `request_id` and nothing about the cause.

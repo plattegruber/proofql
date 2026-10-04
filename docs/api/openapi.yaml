@@ -247,6 +247,8 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
 
     get:
       tags: [Reviews]
@@ -318,6 +320,8 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
 
   /v1/reviews/{id}:
     parameters:
@@ -350,6 +354,8 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
 
     patch:
       tags: [Reviews]
@@ -403,6 +409,8 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
 
     delete:
       tags: [Reviews]
@@ -431,6 +439,8 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
 
   /v1/query:
     get:
@@ -493,7 +503,7 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
         "503":
-          $ref: "#/components/responses/EmbeddingUnavailable"
+          $ref: "#/components/responses/QueryUnavailable"
 
     post:
       tags: [Query]
@@ -644,7 +654,7 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
         "503":
-          $ref: "#/components/responses/EmbeddingUnavailable"
+          $ref: "#/components/responses/QueryUnavailable"
 
     options:
       tags: [Query]
@@ -1248,21 +1258,56 @@ components:
           schema:
             $ref: "#/components/schemas/QueryRateLimitedError"
 
-    EmbeddingUnavailable:
-      description: "`embedding_unavailable`: `q` could not be embedded. Retryable; never a degraded full-text-only answer."
+    ServiceUnavailable:
+      description: |
+        `service_unavailable`: the database refused or timed out a connection
+        (a connection storm, a paused compute). Nothing about the request was
+        wrong; retry after `Retry-After` seconds (1). The message carries the
+        request id and nothing about the cause.
       headers:
         x-request-id:
           $ref: "#/components/headers/XRequestId"
-        RateLimit-Policy:
-          $ref: "#/components/headers/RateLimitPolicy"
-        RateLimit-Limit:
-          $ref: "#/components/headers/RateLimitLimit"
-        Vary:
-          $ref: "#/components/headers/Vary"
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/EmbeddingUnavailableError"
+            $ref: "#/components/schemas/ServiceUnavailableError"
+
+    QueryUnavailable:
+      description: |
+        Retryable, never a degraded answer: `embedding_unavailable` (`q`
+        could not be embedded; no full-text-only fallback) or
+        `service_unavailable` (the database refused or timed out a
+        connection; `Retry-After` is set, 1 second).
+      headers:
+        x-request-id:
+          $ref: "#/components/headers/XRequestId"
+        # The rate-limit and CORS headers are set once the key is known; a
+        # `service_unavailable` raised by the key lookup itself has none.
+        RateLimit-Policy:
+          description: Present on `embedding_unavailable` (the key was resolved); absent when the database was unreachable before auth.
+          schema:
+            type: string
+            pattern: "^[0-9]+;w=[0-9]+$"
+        RateLimit-Limit:
+          description: As `RateLimit-Policy`.
+          schema:
+            type: string
+            pattern: "^[0-9]+$"
+        Retry-After:
+          description: Present on `service_unavailable` only.
+          schema:
+            type: integer
+            minimum: 1
+        Vary:
+          description: "`Origin`, on a response that set a CORS allow-origin."
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/QueryUnavailableError"
 
     InternalError:
       description: "`internal`: something unexpected. The message carries the request id and nothing about the cause."
@@ -1292,7 +1337,7 @@ components:
         `unsupported_media_type` 415, `validation_failed` 422,
         `review_limit_reached` 422, `rate_limited` 429,
         `query_quota_exceeded` 429, `internal` 500, `embedding_unavailable`
-        503.
+        503, `service_unavailable` 503.
       enum:
         - unauthorized
         - forbidden
@@ -1304,6 +1349,7 @@ components:
         - rate_limited
         - embedding_unavailable
         - query_quota_exceeded
+        - service_unavailable
         - internal
 
     ValidationIssue:
@@ -1384,10 +1430,14 @@ components:
       allOf:
         - $ref: "#/components/schemas/ErrorEnvelope"
         - $ref: "#/components/schemas/_CodeQueryRateLimited"
-    EmbeddingUnavailableError:
+    ServiceUnavailableError:
       allOf:
         - $ref: "#/components/schemas/ErrorEnvelope"
-        - $ref: "#/components/schemas/_CodeEmbeddingUnavailable"
+        - $ref: "#/components/schemas/_CodeServiceUnavailable"
+    QueryUnavailableError:
+      allOf:
+        - $ref: "#/components/schemas/ErrorEnvelope"
+        - $ref: "#/components/schemas/_CodeQueryUnavailable"
     InternalError:
       allOf:
         - $ref: "#/components/schemas/ErrorEnvelope"
@@ -1458,13 +1508,20 @@ components:
           type: object
           properties:
             code: { enum: [rate_limited, query_quota_exceeded] }
-    _CodeEmbeddingUnavailable:
+    _CodeServiceUnavailable:
       type: object
       properties:
         error:
           type: object
           properties:
-            code: { const: embedding_unavailable }
+            code: { const: service_unavailable }
+    _CodeQueryUnavailable:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { enum: [embedding_unavailable, service_unavailable] }
     _CodeInternal:
       type: object
       properties:

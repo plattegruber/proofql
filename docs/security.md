@@ -115,7 +115,15 @@ rests on).
   normalized request, purged by generation bump on any change
   (`workers/api/src/query/cache.ts`, `packages/core` `bumpProjectGeneration`).
   The cache key carries no API key, so **a cached response carries no
-  key** and revoking a key needs no purge (§6).
+  key**.
+- The resolved key itself is cached in KV for 60 s, on `/v1/query` only,
+  under its SHA-256 hash and tagged with the project's generation
+  (`workers/api/src/auth-cache.ts`, #108), so a request that is also a
+  query-cache hit opens no database connection. The dashboard bumps the
+  generation when a key is revoked or the origin allowlist changes, so the
+  entry is dropped at once in the writing colo; elsewhere it lasts until KV
+  propagates the bump or the TTL ends — about a minute, at most two (§6).
+  Write routes never read it.
 - The WAF rate-limit rule in §7 is the coarser backstop in front of all of
   this, and the only thing that acts before the worker runs.
 
@@ -275,13 +283,21 @@ publish a hidden review.
 someone is spending the project's quota from outside its sites.
 
 1. Dashboard → project → **Keys** → revoke it. Takes effect on the next
-   request: lookup is by hash and a revoked row (`revoked_at`) is unknown.
+   request everywhere but `/v1/query`, where the api may hold the resolved
+   key in KV for up to 60 s (`workers/api/src/auth-cache.ts`, #108): the
+   revoke action bumps the project's cache generation, which ends the
+   entry at once in the colo that sees the bump and within KV propagation
+   (≤ 60 s) elsewhere — so budget **about a minute, at most two**, during
+   which the old key can still *read* the project's publishable reviews
+   (the thing a publishable key publishes to every visitor anyway) and
+   nothing else.
 2. Create a new publishable key, update the snippet tag on the customer's
    pages (`data-key` / `?key=`).
-3. **No cache generation bump is needed.** Cached query responses are keyed
-   by project, environment, generation and request — never by key — and
-   carry no key in their body or headers, so nothing cached is now wrong or
-   newly readable. Bumping would only cost cache misses.
+3. **No manual cache generation bump is needed**; the revoke does one.
+   Cached query responses are keyed by project, environment, generation and
+   request — never by key — and carry no key in their body or headers, so
+   nothing cached was wrong or newly readable; the bump exists for the
+   auth entry above and costs one round of cache misses.
 4. Check `quota.rejected` / `ratelimit.rejected` lines for the project to
    see what the abuse cost; the monthly quota resets on the first.
 
@@ -290,13 +306,14 @@ reviews.
 
 1. Revoke in **Keys** immediately; create the replacement; deploy it to the
    customer's server (the Authorization header). Old key fails on the next
-   request.
+   **write** at once (write routes resolve the key from the database on
+   every request); on `/v1/query` it can still read for the minute above.
 2. Audit: `reviews.rejected` and the `ingest_runs` rows (kind `api`) for
    the project since the suspected time tell you what was written or
    deleted; `GET /v1/reviews` with the new key shows the current state.
    Deleted reviews are re-imported from the source (CSV, push API, Google).
-3. No generation bump needed for the same reason as above. If reviews
-   *were* changed, the routes that changed them already bumped it.
+3. No manual generation bump needed: the revoke does one. If reviews
+   *were* changed, the routes that changed them already bumped it too.
 
 **Clerk signing secret, `SESSION_SECRET`, deploy token, Neon password** —
 [secrets.md](secrets.md) "Incident checklist".

@@ -17,13 +17,17 @@
  *     error, so an over-quota site degrades to an empty widget, never a
  *     broken page.
  *   - `queryQuota` — route-level middleware mounted after auth. Once the
- *     handler has produced a 2xx it bumps the counters after the response
- *     via `waitUntil`, with `INSERT ... ON CONFLICT (project_id, month) DO
- *     UPDATE SET queries = usage.queries + 1` — an atomic increment, never
- *     a read-modify-write, so concurrent requests cannot lose counts. A
+ *     handler has produced a 2xx it hands the request to the app's
+ *     `UsageBuffer` (src/usage-buffer.ts, #108), which accumulates per
+ *     `(project, month)` and writes every few seconds with `recordUsage`:
+ *     `INSERT ... ON CONFLICT (project_id, month) DO UPDATE SET queries =
+ *     usage.queries + excluded.queries` — an atomic increment, never a
+ *     read-modify-write, so concurrent isolates cannot lose counts. A
  *     handler that called `markCacheHit(c)` is counted under `cache_hits`
  *     too, so the hit shows in the dashboard total but not in the enforced
- *     number. Errors (422, 429, 503) are not charged.
+ *     number. Errors (422, 429, 503) are not charged. The buffer is why a
+ *     cache HIT opens no database connection: the write is no longer per
+ *     request, and it rides a client of its own, not the request's.
  *
  * Why the check is a call rather than middleware ahead of the handler: the
  * cache lookup (src/query/cache.ts) must come first, so that a cached
@@ -34,8 +38,10 @@
  * Usage is per project, not per environment or key: a test key shares its
  * project's quota (packages/db/src/schema/usage.ts). The check reads the
  * counter as of the request start, so a burst at the boundary can overshoot
- * by the in-flight requests; the limit is a plan ceiling, not a billing
- * invariant, and the overshoot is bounded by concurrency.
+ * by the in-flight requests plus whatever each isolate's buffer has not
+ * flushed yet (at most one `USAGE_FLUSH_MS` window); the limit is a plan
+ * ceiling, not a billing invariant, and the overshoot is bounded by
+ * concurrency and the flush window.
  */
 
 import {
@@ -50,9 +56,9 @@ import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 
 import type { AppEnv } from "./bindings.js";
-import { waitUntil } from "./db.js";
 import { ApiError } from "./errors.js";
 import { logFor } from "./request-id.js";
+import type { UsageDelta } from "./usage-buffer.js";
 
 /** `YYYY-MM-01` for the UTC month containing `now` — the `usage.month` key. */
 export const monthStart = usageMonthStart;
@@ -105,23 +111,32 @@ export async function readQuota(
   };
 }
 
-/** Atomic `+1` on `queries`, and on `cache_hits` too for a cached answer. */
-export function recordQuery(
+/**
+ * Atomic `+delta` on `queries` and `cache_hits` for every `(project, month)`
+ * in `deltas`, in one statement (the `UsageBuffer`'s writer). `excluded` is
+ * the row that failed to insert, i.e. this batch's delta for that key.
+ */
+export async function recordUsage(
   db: Db,
-  projectId: string,
-  month: string,
-  cacheHit: boolean,
-): Promise<unknown> {
+  deltas: readonly UsageDelta[],
+): Promise<void> {
+  if (deltas.length === 0) return;
   const { usage } = schema;
-  const hit = cacheHit ? 1 : 0;
-  return db
+  await db
     .insert(usage)
-    .values({ projectId, month, queries: 1, cacheHits: hit })
+    .values(
+      deltas.map((d) => ({
+        projectId: d.projectId,
+        month: d.month,
+        queries: d.queries,
+        cacheHits: d.cacheHits,
+      })),
+    )
     .onConflictDoUpdate({
       target: [usage.projectId, usage.month],
       set: {
-        queries: sql`${usage.queries} + 1`,
-        cacheHits: sql`${usage.cacheHits} + ${hit}`,
+        queries: sql`${usage.queries} + excluded.queries`,
+        cacheHits: sql`${usage.cacheHits} + excluded.cache_hits`,
       },
     });
 }
@@ -175,17 +190,14 @@ export async function enforceQueryQuota(c: Context<AppEnv>): Promise<void> {
 /** `/v1/query` only, after auth: count every answered query afterwards. */
 export const queryQuota = createMiddleware<AppEnv>(async (c, next) => {
   const auth = c.get("auth");
-  const db = c.get("getDb")();
   const month = monthStart();
 
   await next();
 
   // Charge only answered queries: a thrown ApiError never reaches here, and
   // a handler that returned an error envelope itself is not charged either.
+  // No database here: the buffer writes on its own schedule and client.
   if (c.res.ok) {
-    waitUntil(
-      c,
-      recordQuery(db, auth.projectId, month, c.get("cacheHit") === true),
-    );
+    c.get("usage").record(c, auth.projectId, month, c.get("cacheHit") === true);
   }
 });

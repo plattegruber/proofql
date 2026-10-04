@@ -310,8 +310,13 @@ The defaults in `createDb` exist because of how Hyperdrive pools
 connections:
 
 - **Create the client per request in Workers and keep the pool small
-  (`max: 5`).** Hyperdrive pools upstream; a large client-side pool only
-  hoards pooled backends.
+  (`max: 5`; the api uses `max: 1`, `connectTimeout: 10`, `idleTimeout: 5`
+  — `API_DB_OPTIONS` in `workers/api/src/db.ts`, #108).** Hyperdrive pools
+  upstream (20 origin connections on preview) and *queues* above that
+  rather than refusing, so a wide client-side pool only hoards pooled
+  backends and a long connect timeout only turns a queue into a hung
+  request. The api also avoids opening a client at all when KV can answer
+  (auth cache + query cache); see `docs/performance.md` §6.
 - **`prepare: false`, everywhere.** Named prepared statements bind to one
   pooled backend and break under transaction-mode pooling. Off in Node too,
   so local and production behave identically.

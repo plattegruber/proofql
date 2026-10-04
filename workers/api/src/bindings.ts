@@ -16,6 +16,7 @@ import type {
 import type { Db } from "@proofql/db";
 
 import type { RateLimiters } from "./rate-limit.js";
+import type { UsageBuffer } from "./usage-buffer.js";
 
 export interface ApiBindings {
   /** "local" | "preview" | "prod" — from `vars` in wrangler.jsonc. */
@@ -100,6 +101,15 @@ export interface AppVariables {
   getRateLimiters: () => RateLimiters;
   /** Set by `markCacheHit` when the response was served from the KV cache. */
   cacheHit?: boolean;
+  /**
+   * The project's cache generation as read by `requireApiKey` when it
+   * validated or stored the auth-cache entry (src/auth-cache.ts), so the
+   * query cache key (src/query/cache.ts) reuses it instead of reading KV
+   * again. Absent when auth did not read it (write routes, a KV fault).
+   */
+  projectGeneration?: number;
+  /** The app's batched `usage` counters (src/usage-buffer.ts). */
+  usage: UsageBuffer;
 }
 
 /** Hono generic: bindings on `c.env`, variables on `c.var` / `c.get()`. */

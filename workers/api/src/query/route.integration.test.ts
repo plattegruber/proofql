@@ -11,7 +11,12 @@
  */
 
 import { FakeEmbeddingProvider, fakeEmbed } from "@proofql/ai";
-import { chunkReview, generateApiKey, recordingSink } from "@proofql/core";
+import {
+  bumpProjectGeneration,
+  chunkReview,
+  generateApiKey,
+  recordingSink,
+} from "@proofql/core";
 import { type Db, setAccountPlan } from "@proofql/db";
 import {
   type ApiKey,
@@ -25,9 +30,10 @@ import {
 import type { Hono } from "hono";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { issueKey, testEnv } from "../../test/helpers.js";
+import { fakeKv, issueKey, testEnv } from "../../test/helpers.js";
 import { createApp } from "../app.js";
-import type { AppEnv } from "../bindings.js";
+import { AUTH_CACHE_TTL_SECONDS } from "../auth-cache.js";
+import type { ApiBindings, AppEnv } from "../bindings.js";
 import type { ErrorEnvelope } from "../errors.js";
 import type { QueryResponse } from "./route.js";
 
@@ -207,6 +213,7 @@ async function post(
   key: string,
   body: unknown,
   headers: Record<string, string> = {},
+  bindings: ApiBindings = env,
 ): Promise<Response> {
   return app.request(
     "/v1/query",
@@ -219,7 +226,7 @@ async function post(
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     },
-    env,
+    bindings,
   );
 }
 
@@ -711,9 +718,22 @@ describe("/v1/query", () => {
       expect(body.badge).toBe(false);
     });
 
-    it("badge flips on the first request after a plan change, cache HIT or not", async () => {
+    it("badge flips with the plan once the auth-cache entry turns over, cache HIT or not", async () => {
+      // The plan rides in the auth cache (auth-cache.ts, #108), so a plan
+      // change shows within AUTH_CACHE_TTL_SECONDS or on the next generation
+      // bump — never later, and independently of the query cache, whose
+      // entries carry no badge (cache.ts "What is stored").
+      let clock = Date.parse("2026-10-04T12:00:00Z");
+      const kv = fakeKv({ now: () => clock });
+      const bindings = testEnv({ kv });
       const free = await fixture(t.db);
-      const first = await post(app, free.secret, { q: "implant tooth" });
+      const first = await post(
+        app,
+        free.secret,
+        { q: "implant tooth" },
+        {},
+        bindings,
+      );
       expect(first.headers.get("x-cache")).toBe("MISS");
       expect((await json<QueryResponse>(first)).badge).toBe(true);
 
@@ -724,10 +744,27 @@ describe("/v1/query", () => {
       );
       expect(upgraded?.projectsSynced).toBe(1);
 
-      // Same request, served from KV: `results` are the cached bytes, but
-      // `badge` is per request (cache.ts "What is stored"), so no generation
-      // bump is needed for the plan change to show.
-      const hit = await post(app, free.secret, { q: "implant tooth" });
+      // Within the TTL the cached context still says free: the documented lag.
+      const stale = await post(
+        app,
+        free.secret,
+        { q: "implant tooth" },
+        {},
+        bindings,
+      );
+      expect(stale.headers.get("x-cache")).toBe("HIT");
+      expect((await json<QueryResponse>(stale)).badge).toBe(true);
+
+      // Once the auth entry expires the key is looked up again; the query
+      // cache entry (24 h) is still there, so this is a HIT with the new plan.
+      clock += AUTH_CACHE_TTL_SECONDS * 1000;
+      const hit = await post(
+        app,
+        free.secret,
+        { q: "implant tooth" },
+        {},
+        bindings,
+      );
       expect(hit.headers.get("x-cache")).toBe("HIT");
       const hitBody = await json<QueryResponse>(hit);
       expect(hitBody.cached).toBe(true);
@@ -736,10 +773,18 @@ describe("/v1/query", () => {
         free.reviews.implant,
       ]);
 
-      // And back down.
+      // And back down: a generation bump (what the dashboard does on a
+      // policy, key or allowlist change) refreshes the auth entry at once.
       await setAccountPlan(t.db, free.project.accountId, "free");
-      const again = await post(app, free.secret, { q: "implant tooth" });
-      expect(again.headers.get("x-cache")).toBe("HIT");
+      await bumpProjectGeneration(kv, free.project.id);
+      const again = await post(
+        app,
+        free.secret,
+        { q: "implant tooth" },
+        {},
+        bindings,
+      );
+      expect(again.headers.get("x-cache")).toBe("MISS");
       expect((await json<QueryResponse>(again)).badge).toBe(true);
     });
 

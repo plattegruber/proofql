@@ -11,13 +11,21 @@
  * Route code throws `ApiError`; `onError` turns it into the envelope.
  * Anything else that is thrown becomes a 500 `internal` whose body carries
  * the request id and nothing about the cause — stack traces and driver
- * messages never leave the worker.
+ * messages never leave the worker. One exception (#108): a database
+ * connection failure (`isDatabaseUnavailable`, src/db.ts — SQLSTATE 53300
+ * "too many clients", connect timeouts, refused sockets) is a 503
+ * `service_unavailable` with `Retry-After: 1`, because the client can
+ * retry it and nothing about the request was wrong; the snippet already
+ * renders nothing on any non-2xx, and a server-side caller gets the same
+ * contract `embedding_unavailable` has.
  *
  * Logging (docs/observability.md): every `ApiError` is one
  * `<route>.rejected` line (`query.rejected`, `reviews.rejected`, else
  * `request.rejected`) with `code` and `status`, so 4xx rates per route and
  * per code are a filter away; an unhandled error is one `request.failed`
- * line at level error with the cause — the only place it is recorded.
+ * line at level error with the cause — the only place it is recorded. A
+ * connection failure is one `db.unavailable` line (warn, with the code)
+ * followed by the route's `*.rejected` with `code: service_unavailable`.
  */
 
 import { errorFields } from "@proofql/core";
@@ -26,6 +34,7 @@ import { HTTPException } from "hono/http-exception";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 import type { AppEnv } from "./bindings.js";
+import { databaseUnavailableCode } from "./db.js";
 import { logFor } from "./request-id.js";
 
 /** Base of every `doc_url`; placeholder domain until the docs site exists. */
@@ -42,6 +51,7 @@ export const ERROR_CODES = [
   "rate_limited",
   "embedding_unavailable",
   "query_quota_exceeded",
+  "service_unavailable",
   "internal",
 ] as const;
 
@@ -63,8 +73,14 @@ const STATUS_BY_CODE: Record<ErrorCode, ContentfulStatusCode> = {
   // Monthly query quota (src/quota.ts): also 429, but a distinct code so a
   // client can tell "slow down" from "upgrade or wait for the month".
   query_quota_exceeded: 429,
+  // The database refused or timed out a connection (src/db.ts
+  // `isDatabaseUnavailable`): retryable, with `Retry-After`.
+  service_unavailable: 503,
   internal: 500,
 };
+
+/** `Retry-After` on a 503 `service_unavailable`: a connection storm clears in seconds. */
+export const SERVICE_UNAVAILABLE_RETRY_AFTER_SECONDS = 1;
 
 /** One flattened zod issue: `path` is dotted (`"0.rating"`), `""` at the root. */
 export interface ValidationIssue {
@@ -187,6 +203,26 @@ export const onError: ErrorHandler<AppEnv> = (error, c) => {
   }
   if (error instanceof HTTPException) {
     const mapped = fromHttpException(error);
+    logRejected(c, mapped);
+    return errorResponse(c, mapped);
+  }
+  const unavailable = databaseUnavailableCode(error);
+  if (unavailable !== null) {
+    // docs/observability.md `db.unavailable`: the SQLSTATE / driver code is
+    // the diagnosis (53300 = Hyperdrive's origin limit or Neon's
+    // max_connections; CONNECT_TIMEOUT = the pool queue outlasted the
+    // connect timeout). No stack: the cause is a known shape, not a bug.
+    logFor(c).log("db.unavailable", {
+      level: "warn",
+      code: unavailable,
+      error: errorFields(error),
+    });
+    c.header("Retry-After", String(SERVICE_UNAVAILABLE_RETRY_AFTER_SECONDS));
+    const mapped = new ApiError(
+      "service_unavailable",
+      `The database is temporarily unavailable; retry in ${SERVICE_UNAVAILABLE_RETRY_AFTER_SECONDS} second. Quote request id ${c.get("requestId")} if it persists.`,
+      { cause: error },
+    );
     logRejected(c, mapped);
     return errorResponse(c, mapped);
   }
