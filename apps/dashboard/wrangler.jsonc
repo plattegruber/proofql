@@ -116,7 +116,7 @@
         "ENVIRONMENT": "preview",
         // <TBD>: the proofql-api-preview public origin.
         "API_URL": "https://proofql-api-preview.gruberplatte.workers.dev",
-        "SNIPPET_SRC": "https://cdn.proofql.com/v1.js",
+        "SNIPPET_SRC": "https://proofql-cdn-preview.gruberplatte.workers.dev/v1.js",
         // <TBD>: the Google OAuth client id (public; docs/secrets.md,
         // infra/provisioning.md "Google OAuth client"). Not flagged by
         // check-provisioning.mjs on purpose: the connector stays dark —
