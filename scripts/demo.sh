@@ -83,7 +83,7 @@ else:
 }
 
 # hdr <name> — the last response's header value, lowercase-insensitive.
-hdr() { tr -d '\r' <"$HDR_FILE" | awk -v n="$(printf '%s' "$1" | tr 'A-Z' 'a-z')" 'BEGIN{FS=": "} {k=tolower($1); if (k==n) v=substr($0, length($1)+3)} END{print v}'; }
+hdr() { tr -d '\r' <"$HDR_FILE" | awk -v n="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" 'BEGIN{FS=": "} {k=tolower($1); if (k==n) v=substr($0, length($1)+3)} END{print v}'; }
 
 # http <METHOD> <url> [curl args…] — status in HTTP_STATUS, body/headers in files.
 http() {
@@ -112,7 +112,6 @@ STEP=0
 PASSED=0
 STEP_STARTED=0
 RUN_STARTED="$(now_ms)"
-EXIT_STATUS=1
 CLEANED=0
 COLD_TOOK_MS=
 HIT_TOOK_MS=
