@@ -60,12 +60,14 @@
  *   the query (`tsv @@ q`). Skipped when no `queryText` is given.
  * - **Fusion.** Each chunk's raw score is `Σ 1 / (60 + rank)` over the
  *   branches it appears in. Ties at every step break on
- *   `occurred_at DESC NULLS LAST, id`, so the same data always yields the
- *   same order.
+ *   `occurred_at DESC NULLS LAST`, then the narrower chunk (`sentence` <
+ *   `window` < `full`, `breadth` below), then `id`, so the same data
+ *   always yields the same order — and at an exact tie, the tighter quote.
  * - **Collapse.** Both modes return at most one row per review — the
  *   chunk with the best fused score (on an exact RRF tie, e.g. a review's
  *   `full` chunk and one of its windows swapping ranks 1 and 2 across the
- *   branches, the semantically closer chunk wins). The two modes exist so
+ *   branches, the semantically closer chunk wins; at equal similarity too,
+ *   the narrower one). The two modes exist so
  *   the caller's intent is explicit and so an `excerpts` override (several
  *   excerpts from one review, scope.md §8) has a home; today they share
  *   the shape and the API layer decides whether to render `excerpt` or
@@ -336,6 +338,23 @@ const reviewColumns = sql`
   r.text AS review_text`;
 
 /**
+ * How much of its review a chunk covers, as a sort key: `sentence` (0) <
+ * `window` (1) < `full` (2). The tie-break before `id` in every ranking of
+ * the hybrid statement, so that at an equal score the narrower chunk —
+ * the one that quotes exactly what answered — wins, deterministically.
+ *
+ * Without it, ties fell through to `id`, a random uuid. That is not a
+ * corner case: `ts_rank_cd` (normalization 0) scores a chunk by its covers
+ * of the query terms, not its length, so a sentence, both windows
+ * containing it, and the `full` chunk routinely tie exactly in the text
+ * branch. Ordered by uuid, a wider chunk could take text rank 1 with the
+ * sentence pushed to 3, and win the fused score outright despite the
+ * sentence's better similarity — the highlight then quoted two sentences
+ * instead of one, depending on which uuids the rows happened to get.
+ */
+const breadth = sql`CASE c.kind WHEN 'sentence' THEN 0 WHEN 'window' THEN 1 ELSE 2 END`;
+
+/**
  * Hybrid search. `candidates` is `NOT MATERIALIZED` so each branch is
  * planned as its own index scan on `(project_id, environment)` rather than
  * spooling every embedding into a tuplestore once; the vector branch is
@@ -355,7 +374,8 @@ function hybridStatement(
     ? sql`
       SELECT id,
              row_number() OVER (
-               ORDER BY ts_rank_cd(tsv, q) DESC, occurred_at DESC NULLS LAST, id
+               ORDER BY ts_rank_cd(tsv, q) DESC, occurred_at DESC NULLS LAST,
+                        breadth, id
              ) AS rank
       FROM candidates, websearch_to_tsquery('english', ${queryText}) AS q
       WHERE tsv @@ q`
@@ -366,7 +386,7 @@ function hybridStatement(
   return sql`
     WITH candidates AS NOT MATERIALIZED (
       SELECT c.id, c.review_id, c.text, c.start_offset, c.embedding, c.tsv,
-             r.occurred_at
+             r.occurred_at, ${breadth} AS breadth
       FROM review_chunks c
       JOIN reviews r ON r.id = c.review_id AND ${tenant(params)}
       WHERE c.project_id = ${params.projectId}
@@ -374,12 +394,12 @@ function hybridStatement(
         AND ${publishable(params)}
     ),
     vec AS (
-      SELECT id, review_id, text, start_offset, occurred_at, similarity,
+      SELECT id, review_id, text, start_offset, occurred_at, breadth, similarity,
              row_number() OVER (
-               ORDER BY similarity DESC, occurred_at DESC NULLS LAST, id
+               ORDER BY similarity DESC, occurred_at DESC NULLS LAST, breadth, id
              ) AS rank
       FROM (
-        SELECT id, review_id, text, start_offset, occurred_at,
+        SELECT id, review_id, text, start_offset, occurred_at, breadth,
                1 - (embedding <=> ${vector}::halfvec(${sql.raw(String(EMBEDDING_DIMENSIONS))})) AS similarity
         FROM candidates
         WHERE embedding IS NOT NULL
@@ -397,7 +417,8 @@ function hybridStatement(
     ),
     kw AS (${textBranch}),
     fused AS (
-      SELECT v.id, v.review_id, v.text, v.start_offset, v.occurred_at, v.similarity,
+      SELECT v.id, v.review_id, v.text, v.start_offset, v.occurred_at, v.breadth,
+             v.similarity,
              (v.similarity < ${params.policy.similarityFloor}) AS below_floor,
              (COALESCE(1.0 / (${RRF_K} + v.rank), 0)
               + COALESCE(1.0 / (${RRF_K} + kw.rank), 0))::float8 AS rrf
@@ -424,7 +445,7 @@ function defaultTail(params: SearchChunksParams): SQL {
     best AS (
       SELECT DISTINCT ON (review_id) *
       FROM fused
-      ORDER BY review_id, rrf DESC, similarity DESC, id
+      ORDER BY review_id, rrf DESC, similarity DESC, breadth, id
     )
     SELECT ${bestColumns}
     FROM best b
@@ -443,7 +464,7 @@ function debugTail(params: SearchChunksParams): SQL {
     best AS (
       SELECT DISTINCT ON (review_id, below_floor) *
       FROM fused
-      ORDER BY review_id, below_floor, rrf DESC, similarity DESC, id
+      ORDER BY review_id, below_floor, rrf DESC, similarity DESC, breadth, id
     ),
     above AS (
       SELECT * FROM best WHERE NOT below_floor

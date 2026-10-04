@@ -669,6 +669,121 @@ describe("modes: one row per review", () => {
   });
 });
 
+describe("ties prefer the narrower chunk, never a random uuid", () => {
+  const t = setupTestDb();
+
+  // A four-sentence review where only the third sentence is about the
+  // query. `ts_rank_cd` scores covers, not length, so the sentence, both
+  // windows containing it and the full chunk tie *exactly* in the text
+  // branch; before the `breadth` tie-break that tie fell to the chunk ids,
+  // which are random uuids in production. The ids below are chosen
+  // adversarially — every wider chunk sorts before the sentence — so the
+  // old ordering fails here every run instead of ~2 runs in 5.
+  const FOUR =
+    "Parking behind the building was easy. 🙏 The front desk was warm. Whitening made a visible difference for my wedding photos. Our kids love the hygienist.";
+  const SENTENCE = "Whitening made a visible difference for my wedding photos.";
+  const WINDOW_BEFORE = FOUR.slice(0, FOUR.indexOf(" Our kids"));
+  const WINDOW_AFTER = FOUR.slice(FOUR.indexOf(SENTENCE));
+  const Q = "whitening wedding photos";
+
+  const id = (n: number) =>
+    `00000000-0000-4000-8000-${n.toString(16).padStart(12, "0")}`;
+
+  async function chunkAt(
+    reviewId: string,
+    chunkId: string,
+    kind: "full" | "window" | "sentence",
+    text: string,
+    embedding: number[],
+  ): Promise<void> {
+    await chunk(t.db, {
+      id: chunkId,
+      reviewId,
+      kind,
+      text,
+      startOffset: FOUR.indexOf(text),
+      embedding,
+    });
+  }
+
+  async function winner(chunkId: string | undefined) {
+    const [row] = await t.db
+      .select({ kind: reviewChunks.kind, text: reviewChunks.text })
+      .from(reviewChunks)
+      .where(eq(reviewChunks.id, chunkId ?? ""));
+    return row;
+  }
+
+  it.each([
+    "excerpts",
+    "reviews",
+  ] as const)("%s: a text-rank tie cannot hand a wider chunk the win over the sentence that answered", async (mode) => {
+    const p = await project(t.db);
+    const r = await review(t.db, { projectId: p.id, text: FOUR });
+    const base = mode === "excerpts" ? 0x100 : 0x200;
+    // Wider chunks first by id; the sentence last.
+    await chunkAt(
+      r.id,
+      id(base + 1),
+      "window",
+      WINDOW_AFTER,
+      embed(WINDOW_AFTER),
+    );
+    await chunkAt(r.id, id(base + 2), "full", FOUR, embed(FOUR));
+    await chunkAt(
+      r.id,
+      id(base + 3),
+      "window",
+      WINDOW_BEFORE,
+      embed(WINDOW_BEFORE),
+    );
+    await chunkAt(r.id, id(base + 4), "sentence", SENTENCE, embed(SENTENCE));
+
+    // The premise: an exact tie in the text branch.
+    const ranks = await t.db.execute<{ rank: number }>(sql`
+      SELECT DISTINCT ts_rank_cd(tsv, websearch_to_tsquery('english', ${Q}))::float8 AS rank
+      FROM review_chunks WHERE review_id = ${r.id} AND tsv @@ websearch_to_tsquery('english', ${Q})`);
+    expect(ranks).toHaveLength(1);
+
+    const results = await searchChunks(t.db, query(p.id, Q, { mode }));
+    expect(results.map((x) => x.reviewId)).toEqual([r.id]);
+    expect(results[0]?.excerpt).toBe(SENTENCE);
+    expect(results[0]?.startOffset).toBe(FOUR.indexOf(SENTENCE));
+    expect(await winner(results[0]?.chunkId)).toEqual({
+      kind: "sentence",
+      text: SENTENCE,
+    });
+  });
+
+  it("at an equal fused score and equal similarity: sentence over window over full", async () => {
+    const p = await project(t.db);
+    const r = await review(t.db, { projectId: p.id, text: FOUR });
+    // Identical embeddings and an identical text rank: every ranking ties,
+    // and only the tie-break decides. Ids favour the widest chunk.
+    const same = embed(SENTENCE);
+    await chunkAt(r.id, id(0x301), "full", FOUR, same);
+    await chunkAt(r.id, id(0x302), "window", WINDOW_AFTER, same);
+    await chunkAt(r.id, id(0x303), "sentence", SENTENCE, same);
+
+    const all = await searchChunks(t.db, query(p.id, Q));
+    expect(all.map((x) => x.excerpt)).toEqual([SENTENCE]);
+
+    // Without the sentence, the window beats the full chunk.
+    await t.db.delete(reviewChunks).where(eq(reviewChunks.id, id(0x303)));
+    const noSentence = await searchChunks(t.db, query(p.id, Q));
+    expect(noSentence.map((x) => x.excerpt)).toEqual([WINDOW_AFTER]);
+
+    // The debug variant collapses with the same tie-break.
+    const debug = await searchChunks(
+      t.db,
+      query(p.id, Q, { includeBelowFloor: true }),
+    );
+    expect(debug.map((x) => [x.excerpt, x.belowFloor])).toEqual([
+      [WINDOW_AFTER, false],
+    ]);
+  });
+});
+
 describe("offsets are UTF-16 code units (#85 highlight)", () => {
   const t = setupTestDb();
 
