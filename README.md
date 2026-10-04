@@ -55,8 +55,13 @@ The idea comes from [well-regarded](https://github.com/plattegruber/well-regarde
 The hosted demo is a fictional dentist's website — Cedar Ridge Dental, the
 seeded demo project — using the snippet on four sections: implants, kids,
 parking, and a whole-review feed. It is the page `workers/cdn` serves at
-`/demo/`; the hosted URL lands here once the Cloudflare account is
-provisioned (`infra/provisioning.md`, "Demo project on preview").
+`/demo/`.
+
+**Live on preview:** <https://proofql-cdn-preview.gruberplatte.workers.dev/demo/?key=pq_pk_live_rM5yu4VM26YquhLOqLjxbSDWLCdaTPkw&api=https://proofql-api-preview.gruberplatte.workers.dev>
+
+The publishable key in that URL is public by design: it can only query, and
+only from the cdn's origin. The `&api=` parameter goes away once the API
+lives at `api.proofql.com`, the snippet's default.
 
 Run it locally now:
 
