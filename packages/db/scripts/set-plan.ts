@@ -11,13 +11,13 @@
  */
 
 import { fileURLToPath } from "node:url";
-import { parseArgs } from "node:util";
 import { isPlan, PLAN_NAMES } from "@proofql/core";
 import { eq } from "drizzle-orm";
 
 import { createDb } from "../src/client.js";
 import { accounts } from "../src/schema/tenancy.js";
 import { setAccountPlan, syncProjectBadges } from "../src/tenancy/plan.js";
+import { parseScriptArgs } from "./args.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -31,7 +31,8 @@ function usage(message: string): never {
 }
 
 async function main(): Promise<void> {
-  const { values } = parseArgs({
+  // parseScriptArgs drops the `--` pnpm forwards (#128, `scripts/args.ts`).
+  const { values } = parseScriptArgs({
     options: {
       account: { type: "string" },
       plan: { type: "string" },
