@@ -11,6 +11,9 @@
  * `/v1/query`: the counting half is middleware after that route's auth, the
  * refusing half is called by the handler once the KV cache
  * (src/query/cache.ts) has missed, so a cached answer is served at quota.
+ * The counts go through one `UsageBuffer` per app — per isolate in
+ * production — that writes in batches on a client of its own
+ * (src/usage-buffer.ts, #108).
  */
 
 import type { EmbeddingProvider } from "@proofql/ai";
@@ -37,6 +40,7 @@ import {
 } from "./embedder.js";
 import { notFound, onError } from "./errors.js";
 import { queryRoutes } from "./query/route.js";
+import { recordUsage } from "./quota.js";
 import {
   bindingProvider,
   injectedProvider as injectedRateLimiters,
@@ -50,6 +54,11 @@ import { requestContext } from "./request-id.js";
 import { reviewsRoutes } from "./routes/reviews.js";
 import { reviewsCrudRoutes } from "./routes/reviews-crud.js";
 import { securityHeaders } from "./security-headers.js";
+import {
+  USAGE_FLUSH_MS,
+  UsageBuffer,
+  type UsageWriter,
+} from "./usage-buffer.js";
 
 export interface CreateAppOptions {
   /** Tests: use this client instead of opening one from `env.HYPERDRIVE`. */
@@ -68,7 +77,24 @@ export interface CreateAppOptions {
   logSink?: LogSink;
   /** Tests: the per-IP auth-failure limiter (src/auth-throttle.ts). */
   authFailureLimiter?: RateLimiter;
+  /**
+   * How long the usage buffer accumulates before writing (ms). Defaults to
+   * `USAGE_FLUSH_MS`, or 0 when `db` is injected — a test's `ctx.flush()`
+   * must observe the counts without waiting.
+   */
+  usageFlushMs?: number;
+  /** Full control over how the usage buffer writes (defaults to `recordUsage`). */
+  usageWriter?: UsageWriter;
 }
+
+/** The buffer `createApp` built, for tests that assert on flushes. */
+export function usageBufferOf(app: Hono<AppEnv>): UsageBuffer {
+  const buffer = usageBuffers.get(app);
+  if (buffer === undefined) throw new Error("app was not built by createApp");
+  return buffer;
+}
+
+const usageBuffers = new WeakMap<Hono<AppEnv>, UsageBuffer>();
 
 export function createApp(options: CreateAppOptions = {}): Hono<AppEnv> {
   const provider =
@@ -84,7 +110,26 @@ export function createApp(options: CreateAppOptions = {}): Hono<AppEnv> {
       ? injectedRateLimiters(options.rateLimiter)
       : bindingProvider);
 
+  // The flush opens its own client (the request's is closed by then):
+  // through `provider`, so tests write into the injected db and production
+  // opens one `API_DB_OPTIONS` client per flush.
+  const usageWriter: UsageWriter =
+    options.usageWriter ??
+    (async (env, deltas) => {
+      const handle = provider(env);
+      try {
+        await recordUsage(handle.db, deltas);
+      } finally {
+        await handle.close();
+      }
+    });
+  const usage = new UsageBuffer({
+    write: usageWriter,
+    flushMs: options.usageFlushMs ?? (options.db ? 0 : USAGE_FLUSH_MS),
+  });
+
   const app = new Hono<AppEnv>();
+  usageBuffers.set(app, usage);
   app.onError(onError);
   app.notFound(notFound);
   app.use(
@@ -107,6 +152,10 @@ export function createApp(options: CreateAppOptions = {}): Hono<AppEnv> {
   app.use(dbMiddleware(provider));
   app.use(embedderMiddleware(embedder));
   app.use(rateLimitMiddleware(rateLimiters));
+  app.use(async (c, next) => {
+    c.set("usage", usage);
+    await next();
+  });
 
   app.get("/health", (c) => c.json({ ok: true }));
   app.route("/v1/reviews", reviewsRoutes);

@@ -39,7 +39,8 @@
  *
  * Between validation and the quota check the handler looks the request up
  * in KV under a key built from the project, environment, the project's
- * cache generation, and a hash of the normalized request. A hit is served
+ * cache generation (already read by auth when the auth cache was consulted,
+ * `c.get("projectGeneration")`), and a hash of the normalized request. A hit is served
  * as-is with `cached: true`, a fresh `took_ms`, `x-cache: HIT`, and is
  * counted as a free cache hit (`markCacheHit`) — so it is served even when
  * the project is at its monthly quota. A miss pays the quota check
@@ -48,7 +49,9 @@
  * next caller; `x-cache: MISS`. `Cache-Control: no-cache` on the request
  * skips the lookup but still stores (`x-cache: BYPASS`). A failing KV read
  * is logged and treated as a miss: the cache can slow the endpoint down,
- * never take it down.
+ * never take it down. Together with the auth cache (../auth-cache.ts) and
+ * the batched usage write (../usage-buffer.ts), a HIT opens **no**
+ * database connection (#108; docs/performance.md §5).
  *
  * ## Logging (#30; docs/observability.md)
  *
@@ -105,12 +108,12 @@
  * `results` came from KV. (#42: copy this block into OpenAPI.)
  */
 
-import { planFor, readProjectGeneration } from "@proofql/core";
+import { parseApiKey, planFor, readProjectGeneration } from "@proofql/core";
 import type { SearchFilters, SearchResult } from "@proofql/db";
 import { searchChunks } from "@proofql/db";
 import { type Context, type Handler, Hono } from "hono";
 
-import { lookupApiKey, presentedToken, requireQueryKey } from "../auth.js";
+import { presentedToken, requireQueryKey, resolveApiKey } from "../auth.js";
 import type { AppEnv } from "../bindings.js";
 import {
   applyCorsHeaders,
@@ -193,14 +196,19 @@ export const queryRoutes = new Hono<AppEnv>();
 /**
  * CORS preflight: unauthenticated, but echoes only an origin the key's
  * project lists (module doc in ../cors.ts). Secret keys echo any origin,
- * matching the real request's behavior.
+ * matching the real request's behavior. The key is resolved through the
+ * auth cache like the real request (#108), so a preflight storm opens no
+ * database connections either.
  */
 const preflight: Handler<AppEnv> = async (c) => {
   const origin = c.req.header("Origin");
   const presented = presentedToken(c);
   let allow: string | null = null;
-  if (origin !== undefined && presented !== null) {
-    const found = await lookupApiKey(c.get("getDb")(), presented.token);
+  const parsed = presented === null ? null : parseApiKey(presented.token);
+  if (origin !== undefined && presented !== null && parsed !== null) {
+    const found = await resolveApiKey(c, parsed, presented.token, {
+      cache: true,
+    });
     const auth = found?.auth;
     if (
       auth !== undefined &&
@@ -356,7 +364,11 @@ async function lookupCache(
   const kv = c.env.CACHE;
   const fresh = wantsFresh(c.req.header("Cache-Control"));
   try {
-    const generation = await readProjectGeneration(kv, auth.projectId);
+    // Auth read the generation already when it consulted the auth cache;
+    // only a write route or a KV fault leaves it unset.
+    const generation =
+      c.get("projectGeneration") ??
+      (await readProjectGeneration(kv, auth.projectId));
     const key = await cacheKey({
       projectId: auth.projectId,
       environment: auth.environment,

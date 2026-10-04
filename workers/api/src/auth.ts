@@ -42,23 +42,41 @@
  *
  * `last_used_at` is refreshed at most once per key per minute, after the
  * response, via `waitUntil` — a dashboard hint, never on the hot path.
+ *
+ * **Auth cache (#108).** With `{ cache: true }` — `/v1/query` and its
+ * preflight only — step 4 is answered from KV when it can be
+ * (src/auth-cache.ts): the resolved context is stored under the key hash
+ * for 60 s together with the project's cache generation, and an entry is
+ * trusted only while that generation is still current, so a revocation,
+ * a policy or allowlist change (each bumps the generation) or the TTL ends
+ * it. A request answered from the auth cache *and* the query cache opens no
+ * database connection at all, which is what moved the query path's ceiling
+ * off `max_connections` (docs/performance.md §5). The generation read is
+ * shared with the query cache through `c.get("projectGeneration")`. Write
+ * routes never use it: a revoked secret key cannot write for one second
+ * longer than before. The `last_used_at` refresh runs only on a database
+ * lookup, which under steady traffic is once a minute — the same cadence.
  */
 
 import {
   type ApiKeyKind,
   hashApiKey,
   normalizePlan,
+  type ParsedApiKey,
   parseApiKey,
+  readProjectGeneration,
 } from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
 import { and, eq, isNull } from "drizzle-orm";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 
+import { getCachedAuth, putCachedAuth } from "./auth-cache.js";
 import type { AppEnv, AuthContext } from "./bindings.js";
 import { waitUntil } from "./db.js";
 import { ApiError } from "./errors.js";
 import { enforceRateLimit } from "./rate-limit.js";
+import { logFor } from "./request-id.js";
 
 /** How stale `last_used_at` may be before a request refreshes it. */
 export const LAST_USED_REFRESH_MS = 60_000;
@@ -72,6 +90,13 @@ export interface RequireApiKeyOptions {
    * any other method a `?key=` is refused with 401.
    */
   keyParam?: boolean;
+  /**
+   * Resolve the key through the KV auth cache (module doc "Auth cache").
+   * Read-only routes only: a cached entry can outlive a revocation by up to
+   * a minute, which is acceptable for reading publishable reviews and for
+   * nothing else.
+   */
+  cache?: boolean;
 }
 
 const USAGE_HINT = "Send `Authorization: Bearer <api key>`.";
@@ -125,7 +150,15 @@ export async function lookupApiKey(
 ): Promise<LookedUpKey | null> {
   const parsed = parseApiKey(token);
   if (parsed === null) return null;
-  const keyHash = await hashApiKey(token);
+  return lookupApiKeyByHash(db, parsed, await hashApiKey(token));
+}
+
+/** The database half of `lookupApiKey`, for a key already parsed and hashed. */
+async function lookupApiKeyByHash(
+  db: Db,
+  parsed: ParsedApiKey,
+  keyHash: string,
+): Promise<LookedUpKey | null> {
   const { apiKeys, projects, accounts } = schema;
   const [row] = await db
     .select({
@@ -169,6 +202,88 @@ export async function lookupApiKey(
     },
     lastUsedAt: row.lastUsedAt,
   };
+}
+
+/** What `resolveApiKey` found, and where. */
+export interface ResolvedKey extends LookedUpKey {
+  /** `kv` when the auth cache answered; `db` after a lookup. */
+  source: "kv" | "db";
+}
+
+/**
+ * Resolve a well-formed plaintext key: through the auth cache when
+ * `options.cache` is set and the entry is current (module doc "Auth cache"),
+ * else from the database, storing the result for the next request. Null
+ * for an unknown or revoked key. Sets `c.get("projectGeneration")` whenever
+ * the generation was read, so the query cache need not read it again.
+ */
+export async function resolveApiKey(
+  c: Context<AppEnv>,
+  parsed: ParsedApiKey,
+  token: string,
+  options: { cache?: boolean } = {},
+): Promise<ResolvedKey | null> {
+  const keyHash = await hashApiKey(token);
+  const kv = options.cache ? c.env?.CACHE : undefined;
+
+  if (kv !== undefined) {
+    try {
+      const cached = await getCachedAuth(kv, keyHash);
+      if (
+        cached !== null &&
+        cached.auth.kind === parsed.kind &&
+        cached.auth.environment === parsed.environment
+      ) {
+        const generation = await readProjectGeneration(
+          kv,
+          cached.auth.projectId,
+        );
+        if (generation === cached.generation) {
+          c.set("projectGeneration", generation);
+          return {
+            auth: cached.auth,
+            lastUsedAt:
+              cached.lastUsedAt === null ? null : new Date(cached.lastUsedAt),
+            source: "kv",
+          };
+        }
+      }
+    } catch (error) {
+      logAuthCacheError(c, "get", error);
+    }
+  }
+
+  const found = await lookupApiKeyByHash(c.get("getDb")(), parsed, keyHash);
+  if (found === null) return null;
+
+  if (kv !== undefined) {
+    try {
+      const generation = await readProjectGeneration(kv, found.auth.projectId);
+      c.set("projectGeneration", generation);
+      // After the response: the store must not add to the request's time,
+      // and a failed store is a lookup next time, not an error now.
+      waitUntil(
+        c,
+        putCachedAuth(kv, keyHash, {
+          auth: found.auth,
+          lastUsedAt: found.lastUsedAt?.toISOString() ?? null,
+          generation,
+        }).catch((error: unknown) => logAuthCacheError(c, "put", error)),
+      );
+    } catch (error) {
+      logAuthCacheError(c, "get", error);
+    }
+  }
+  return { ...found, source: "db" };
+}
+
+/** A KV fault on the auth cache is a database lookup, not a failure: warn. */
+function logAuthCacheError(
+  c: Context<AppEnv>,
+  op: "get" | "put",
+  error: unknown,
+): void {
+  logFor(c).log("auth.cache_error", { level: "warn", op, error });
 }
 
 /**
@@ -228,8 +343,9 @@ export function requireApiKey(options: RequireApiKeyOptions = {}) {
       );
     }
 
-    const db = c.get("getDb")();
-    const found = await lookupApiKey(db, token);
+    const found = await resolveApiKey(c, parsed, token, {
+      cache: options.cache === true,
+    });
     if (found === null) {
       throw new ApiError("unauthorized", "Unknown or revoked API key.");
     }
@@ -238,12 +354,16 @@ export function requireApiKey(options: RequireApiKeyOptions = {}) {
 
     const now = Date.now();
     if (
-      found.lastUsedAt === null ||
-      now - found.lastUsedAt.getTime() >= LAST_USED_REFRESH_MS
+      found.source === "db" &&
+      (found.lastUsedAt === null ||
+        now - found.lastUsedAt.getTime() >= LAST_USED_REFRESH_MS)
     ) {
+      // Only after a lookup: a cache hit has no connection to ride on, and
+      // under steady traffic a lookup happens once a minute anyway.
       waitUntil(
         c,
-        db
+        c
+          .get("getDb")()
           .update(schema.apiKeys)
           .set({ lastUsedAt: new Date(now) })
           .where(eq(schema.apiKeys.id, found.auth.apiKeyId)),
@@ -260,5 +380,8 @@ export const requireSecretKey = requireApiKey({ kind: "secret" });
 /** Read routes: either kind. */
 export const requireAnyKey = requireApiKey();
 
-/** `/v1/query`: either kind, and on GET a publishable key may ride in `?key=`. */
-export const requireQueryKey = requireApiKey({ keyParam: true });
+/**
+ * `/v1/query`: either kind, on GET a publishable key may ride in `?key=`,
+ * and the key is resolved through the auth cache (module doc).
+ */
+export const requireQueryKey = requireApiKey({ keyParam: true, cache: true });
