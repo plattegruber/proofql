@@ -1,8 +1,9 @@
 # @proofql/api
 
 The public API worker (`proofql-api-<env>`): Hono on Cloudflare Workers,
-Postgres through Hyperdrive, Workers AI for query embeddings, KV for the
-query cache. The contract is [`docs/api/openapi.yaml`](../../docs/api/openapi.yaml);
+Postgres through Hyperdrive, Workers AI for query embeddings, the Workers
+Cache API (custom domains) or KV under a write budget (`*.workers.dev`) for
+the query cache, KV for the cache generations (`src/edge-cache.ts`, #158). The contract is [`docs/api/openapi.yaml`](../../docs/api/openapi.yaml);
 the architecture is [`docs/scope.md`](../../docs/scope.md) §3.
 
 ```sh
@@ -20,7 +21,7 @@ pnpm --filter @proofql/api exec wrangler deploy --dry-run --env preview
 | `src/auth.ts` | Bearer / `?key=` auth. One statement resolves the key with its project's policy **and the account's plan** (`auth.plan`). |
 | `src/rate-limit.ts` | Per-key rate limits, selected by plan and key kind (below). |
 | `src/quota.ts` | The monthly uncached-query quota from the `usage` table; 429 `query_quota_exceeded` with `Retry-After` to month end. |
-| `src/query/` | `/v1/query`: request parsing, the KV cache, the handler. `badge` in the response is `planFor(auth.plan).badge`. |
+| `src/query/` | `/v1/query`: request parsing, the result cache (Cache API or KV), the handler. `badge` in the response is `planFor(auth.plan).badge`. |
 | `src/routes/` | `/v1/reviews` ingest (422 `review_limit_reached` at the plan's cap, nothing written) and CRUD. |
 | `src/errors.ts` | The error envelope and the code → status table. |
 

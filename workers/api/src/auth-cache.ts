@@ -40,7 +40,7 @@
  * The window that leaves: a revoked key keeps authenticating on
  * `/v1/query` until the bump is visible here (KV propagation, up to 60 s,
  * plus the api's 10 s generation memo) or the entry stops being fresh
- * (60 s), whichever is first — about a minute, never more than ~70 s.
+ * (60 s), whichever is first — never more than 60 s after the lookup.
  * When the generation cannot be read at all (KV fault or daily limit) a
  * fresh entry is trusted on its age alone, which is the same 60 s bound.
  * That is acceptable because the cache is used **only on `/v1/query`**

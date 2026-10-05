@@ -14,7 +14,7 @@ rests on).
 
 | Asset | Where | Why it matters |
 |---|---|---|
-| Review text, excerpts, author names, ratings | Postgres (`reviews`, `review_chunks`), KV query cache | A tenant's data. Publishable through `/v1/query` by design *for the tenant's own site*; a hidden or low-rated review must never appear anywhere. |
+| Review text, excerpts, author names, ratings | Postgres (`reviews`, `review_chunks`), query cache (Workers Cache API on a custom domain, KV on `*.workers.dev`) | A tenant's data. Publishable through `/v1/query` by design *for the tenant's own site*; a hidden or low-rated review must never appear anywhere. |
 | Secret keys (`pq_sk_…`) | Hashed in `api_keys.key_hash`; plaintext shown once | Full read/write on one project's reviews. |
 | Publishable keys (`pq_pk_…`) | Same table; plaintext ships in every customer page | **Public by design.** Query-only. The threat is spend, not data. |
 | Clerk sessions and organizations | Clerk; cookies on the dashboard origin | Account takeover ⇒ keys, review management, policy. |
@@ -111,18 +111,30 @@ rests on).
 - Monthly quota of **uncached** queries per project; cached answers are
   served at quota, so a popular page degrades to "slightly stale", never to
   "blank" (`workers/api/src/quota.ts`).
-- Query results cached in KV by project, environment, generation and
+- Query results cached (Workers Cache API on a custom domain, KV on
+  `*.workers.dev`, #158) by project, environment, generation and
   normalized request, purged by generation bump on any change
   (`workers/api/src/query/cache.ts`, `packages/core` `bumpProjectGeneration`).
   The cache key carries no API key, so **a cached response carries no
   key**.
-- The resolved key itself is cached in KV for 60 s, on `/v1/query` only,
-  under its SHA-256 hash and tagged with the project's generation
+- The resolved key itself is cached for 60 s, on `/v1/query` only, in the
+  isolate and (on a custom domain) the Workers Cache API — never KV since
+  #158 — under its SHA-256 hash and tagged with the project's generation
   (`workers/api/src/auth-cache.ts`, #108), so a request that is also a
   query-cache hit opens no database connection. The dashboard bumps the
   generation when a key is revoked or the origin allowlist changes, so the
-  entry is dropped at once in the writing colo; elsewhere it lasts until KV
-  propagates the bump or the TTL ends — about a minute, at most two (§6).
+  entry stops being trusted once the bump is visible: KV propagation
+  (≤ 60 s) plus the api's 10 s generation memo, or the 60 s TTL, whichever
+  is first — **never more than 60 s** after the last lookup, since the
+  TTL bounds it whatever KV does (§6). If the
+  generation cannot be read (KV fault or free-plan daily limit) the entry
+  is trusted on its 60 s age alone. **Stale-if-error:** an entry up to an
+  hour old is used *only* when the database lookup fails as unavailable
+  (connection failure, Hyperdrive's daily limit) and its generation has not
+  moved; a revocation needs the same database and cannot happen during such
+  an outage (the residual case is a revoke whose bump was lost to KV's
+  daily write limit just before Hyperdrive's limit was also reached: the
+  revoked key could then read publishable reviews for up to that hour).
   Write routes never read it.
 - The WAF rate-limit rule in §7 is the coarser backstop in front of all of
   this, and the only thing that acts before the worker runs.
@@ -284,10 +296,14 @@ someone is spending the project's quota from outside its sites.
 
 1. Dashboard → project → **Keys** → revoke it. Takes effect on the next
    request everywhere but `/v1/query`, where the api may hold the resolved
-   key in KV for up to 60 s (`workers/api/src/auth-cache.ts`, #108): the
+   key for up to 60 s (`workers/api/src/auth-cache.ts`, #108, #158): the
    revoke action bumps the project's cache generation, which ends the
-   entry at once in the colo that sees the bump and within KV propagation
-   (≤ 60 s) elsewhere — so budget **about a minute, at most two**, during
+   entry once KV has propagated the bump (≤ 60 s) and the api's 10 s
+   generation memo has turned over, or once the entry's 60 s TTL ends,
+   whichever is first — so budget **at most a minute** (it was "a minute,
+   at most two" with the KV-held entry before #158). (If KV's daily write limit was spent and the bump was
+   lost, the 60 s TTL alone bounds it; the revoke itself still succeeds and
+   logs `kv.limit_exceeded`.) During that window
    which the old key can still *read* the project's publishable reviews
    (the thing a publishable key publishes to every visitor anyway) and
    nothing else.

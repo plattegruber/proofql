@@ -941,9 +941,196 @@ Both reset at 00:00 UTC. The lessons:
   are ~$0.50 per million, that is the right trade. On free it moves the
   daily ceiling from Hyperdrive to KV.
 - The Hyperdrive usage-limit error has no SQLSTATE in the
-  `service_unavailable` set, so it surfaced as 500 `internal`. Mapping it
-  to 503 with a long `Retry-After` is a small follow-up. It needs a
-  stable code or message to match, and none is documented.
+  `service_unavailable` set, so it surfaced as 500 `internal`. Since #142
+  it is a 503 with `Retry-After` until the stated renewal; where it comes
+  from, and everything else about running on the free plan, is §7.
+
+## 7. Running inside the Workers Free plan (2026-10-05, #158)
+
+The owner is staying on the Workers Free plan until the first paying
+customer (#143 deferred). §6 showed what that means: the **daily**
+allowances, not any per-second number, are the ceiling, and on 2026-10-04
+spending one of them took every tenant down. This section counts what each
+user-visible action costs against each allowance, before and after #158,
+and what that implies. **No load was run against preview for it**: the
+counts come from reading the code, and the unit and integration tests pin
+the behaviour (KV bindings that throw the literal limit errors, a database
+that throws Hyperdrive's, a write budget, a Cache API fake).
+
+### Where "Usage limit for account exceeded" came from
+
+**Hyperdrive's Free-plan daily query allowance.** Cloudflare's Hyperdrive
+pricing page (fetched 2026-10-05) lists **"Database queries: 100,000 / day"**
+on the Free plan, with "All limits reset daily at 00:00 UTC. If you exceed
+any one of these limits, further operations of that type will fail with an
+error". "Database queries" means every statement sent through Hyperdrive,
+cached or not, reads and writes alike. The limits page lists only
+connection and size limits, which is why it looked as if there was no
+daily quota.
+
+It was not Neon. Neon's Free plan limits are monthly (100 CU-hours per
+project per month, 5 GB of egress per month, 1 GB of storage per project),
+and running out suspends the compute "until the next billing period". The
+error said `usage renews at 2026-10-05 00:00:00 UTC`, the next UTC midnight,
+which is a daily reset. `neonctl projects get hidden-haze-63906501`
+(2026-10-05) shows the consumption period `2026-10-01 → 2026-11-01`, both
+branches `ready`, and nothing suspended. The message has no SQLSTATE.
+`workers/api/src/db.ts` (`quotaExhaustion`) matches it by text and parses
+the renewal time.
+
+### The allowances
+
+| Allowance (Free plan) | Daily limit | Resets | What fails |
+|---|---|---|---|
+| Workers requests (account-wide, every worker) | 100,000 | 00:00 UTC | Error 1027 for every worker on the account |
+| KV reads | 100,000 | 00:00 UTC | `KV get() limit exceeded for the day.` |
+| KV writes (put, and separately deletes and lists) | **1,000** | 00:00 UTC | `KV put() limit exceeded for the day.` |
+| Hyperdrive queries | 100,000 | 00:00 UTC | `Usage limit for account exceeded, usage renews at …` |
+| Queues operations (write, read, delete each count) | 10,000 | 00:00 UTC | the producer's `send` throws |
+| Workers AI | 10,000 neurons | 00:00 UTC | inference calls fail (`embedding_unavailable` on a MISS). bge-m3 costs 1,075 neurons per M tokens: ~0.02 per query, ~0.3 per indexed review |
+| Static asset requests | unlimited, free | | |
+| Workers Cache API | no daily quota; 50 calls per request | | |
+
+Also: 10 ms CPU per request, and 50 subrequests per request (Cache API
+calls count toward them).
+
+### Inventory per user-visible action
+
+"Before" is `main` at `77c3827`. "After" is this branch. `gen` is the
+project's cache-generation read (`gen:<id>`). "Isolate memo" means a value
+kept in the worker's isolate, so a busy isolate pays it about once per
+interval and an idle one pays it on every request. A HIT or MISS is from
+the result cache. Hyperdrive counts are statements; a transaction counts its
+`BEGIN`/`COMMIT`.
+
+| Action | Worker invocations | KV reads | KV writes | Hyperdrive queries | Queue ops |
+|---|---|---|---|---|---|
+| **Snippet page view, N `[data-proofql]` elements** (snippet load + N queries, each priced below) | before: 1 (cdn, `/v1.js`) + N (api). after: **0** + N | as the N queries | as the N queries | as the N queries | 0 |
+| **Cached query** (HIT) | 1 | before: 3 (auth entry, `gen`, result). after: custom domain **0–1** (`gen`, 10 s isolate memo; auth and result from the isolate and the Cache API). `*.workers.dev` **1–2** (`gen` memo + result) | before: 0, plus 1 auth-entry write per key per minute of traffic. after: **0** | before: 0 + 2 per key per minute (lookup, `last_used_at`). after: 0 + 2 per key per minute **per isolate**. Plus one usage flush per isolate per 5 s of traffic, both times | 0 |
+| **Uncached query** (MISS) | 1 | as HIT | before: **1** (result) + the auth write. after: custom domain **0** (Cache API). `*.workers.dev` **0** on a query's first miss in the isolate, **1** on its second within 24 h, then a HIT | 2 (quota read, search), 3 with `fallback: "recent"` and nothing over the floor, plus the HIT row's auth and flush | 0 |
+| **Ingest** (`POST /v1/reviews`, up to 100 reviews per call) | 1 per call | 0 | 0 (ingest does not bump) | ~8 per call (auth, lock, existing, insert, count, run row, `BEGIN`/`COMMIT`) + 1 per updated review | 1 write per review |
+| **Indexing one review** (queue consumer, batches of ≤ 10) | 1 per batch | before: 1 (`gen` read for the bump). after: **≤ 0.1** (one per project per batch) | before: **1 per review**. after: **1 per project per batch** (≤ 0.1 per review in an import) | ~10 (load, chunk transaction, pending, embeddings per 50 chunks, mark, reset) | 2 (read, delete) |
+| **Dashboard page view** | 1 (document or `.data` request; JS/CSS are static assets) | 0 (flash and onboarding state are cookies) | 0 | ~3–6 (session/account, page data) | 0 |
+| **Dashboard edit that changes results** (hide/unhide, policy, key revoke, allowed-origin edit, project delete) | 1 | 1 | 1 (the bump; unchanged) | the edit's statements | 0 |
+| **Onboarding** (create project + keys, find the business on Google, import its 5 reviews, preview) | ~10 | before: ~7 (Places search + details, 5 bumps). after: ~3 | before: ~7. after: **~3** (Places search, Places details, 1 bump) | ~40 for the dashboard steps + ~50 to index 5 reviews | 15 (5 reviews × 3) |
+| Waitlist submission (pre-launch) | 1 | 1 | 1 (unchanged) | 1 | 0 |
+| Google connect (OAuth) | 2 | 1 | 1 put + 1 delete (unchanged) | a few | 1 write for the first sync |
+| Crons (sweep every 5 min, Google poll every 6 h, Places refresh daily) | ~293 per day | Places refresh: 0 reads (fresh fetch), 1 per bump | 1 Places cache write per refreshed place + 1 bump if it changed | 1 per sweep tick + the polls | as many as they re-enqueue |
+
+The per-isolate rows trade a single global KV entry for state in each
+isolate, and a busy worker runs in several isolates per colo. The auth
+lookup that #108 moved off the database comes back as **two statements per
+key per minute per isolate** instead of per key per minute. At the free
+plan's scale that is small: 10 isolates serving one key all day cost
+~29,000 statements. It is still the largest Hyperdrive line after uncached
+queries, and the stale-if-error rule (below) means it cannot take the HIT
+path down.
+
+### Implied daily ceilings
+
+Each allowance on its own, assuming nothing else uses it. In practice
+they are shared across every tenant and every worker.
+
+| Ceiling | Before | After (`*.workers.dev`, today's preview/prod hostnames) | After (custom domain) |
+|---|---|---|---|
+| Queries/day before **KV reads** run out | ~33,000 (3 reads each, HIT or MISS) | ~50,000–100,000 (1–2 each) | ≥ 100,000 (≤ 1 each). Worker requests run out first |
+| *Distinct* uncached queries/day before **KV writes** run out | < 1,000, minus the auth writes: **one** publishable key with steady traffic all day writes 1,440 auth entries and spends the day's writes alone | unlimited for one-off queries; ~1,000 *repeated* queries (one write each on the second miss) | unlimited (Cache API) |
+| Reviews indexed/day before **KV writes** run out | < 1,000 (one bump each) | ~10,000 (one bump per 10-message batch) | same |
+| Uncached queries/day before **Hyperdrive** runs out | ~40,000 (≈ 2.5 statements each) | ~40,000 | ~40,000 |
+| Reviews indexed/day before **Hyperdrive** runs out | ~10,000 (≈ 10 statements each) | same | same |
+| Reviews indexed/day before **Queues** runs out | **~3,300** (3 ops each) | same | same |
+| Snippet page views/day (3 elements, every load a cold `/v1.js`) before **Workers requests** run out | 25,000 (4 invocations each) | 33,000 (3 each) | 33,000 |
+
+What runs out first, by workload:
+
+- **Snippet traffic**: Workers requests (100,000, one per `[data-proofql]`
+  element). The snippet itself no longer costs one, and KV reads and writes
+  are no longer the first to go.
+- **A large import**: Queues (~3,300 reviews a day), then Hyperdrive and KV
+  writes (~10,000 each).
+- **Many distinct uncached queries**: Hyperdrive (~40,000 a day). On
+  `*.workers.dev`, repeated queries can still spend the 1,000 KV writes,
+  which only stops new results being stored.
+
+### What degrades, and how
+
+| Exhausted | Effect after #158 |
+|---|---|
+| KV reads | `gen` unreadable → result cache skipped for the request (uncachable: a guessed generation could serve purged results). A fresh auth entry is trusted on its age alone (60 s), so auth stays off the database. Places cache → live fetch from Google. Waitlist limiter → in-memory per isolate. OAuth callback → refused with a flash ("try again later"). Every request is still answered. Uncached queries then spend Hyperdrive faster (2–3 statements each), which is the cascade to watch. |
+| KV writes | Results not stored in KV (Cache API unaffected). Generation bumps lost → cached results stay stale **up to their 24 h TTL**. This is the one correctness cost; it is logged (`kv.limit_exceeded`, `site: …generation_bump`). The edit itself always succeeds. Google connect start → 503 "try again later" before the user is sent to Google. |
+| Hyperdrive | MISSes, ingest and the dashboard → 503 `service_unavailable` with `Retry-After` until 00:00 UTC, plus `quota.exhausted` (level error). HITs keep being served: auth from the isolate or Cache API, fresh or as a stale stand-in for up to an hour (`auth.stale_served`); usage counts for the outage window are lost (`usage.flush_failed`). |
+| Workers requests | Cloudflare error 1027 on every worker. The snippet renders nothing on any error, so customer pages show their fallback text. Nothing in code can help. |
+| Queues | `POST /v1/reviews` commits the rows, then `sendBatch` throws → 500; the sweep cron cannot re-enqueue either. Reviews stay unindexed until 00:00 UTC, when the sweep picks them up. Not handled in #158 (follow-up issue). |
+
+Every KV failure is logged at **warn**, once per isolate per minute per
+(event, op), with a `suppressed` count. The events are `kv.limit_exceeded`,
+`kv.read_failed` and `kv.write_failed` (docs/observability.md). A spent
+quota fails every call until midnight, and one line per request would spend
+the log budget on one fact.
+
+### The result-cache write budget: the trade-off
+
+On `*.workers.dev` the Cache API's `put` does nothing (below), so the
+result cache has to be KV, and KV allows 1,000 writes a day. The api writes
+a result to KV only on the **second** MISS for the same key within 24 h
+**in the same isolate** (`MissCounter`, `workers/api/src/edge-cache.ts`).
+The long tail of one-off phrasings, which is most of the distinct queries,
+never costs a write. A query that keeps coming back costs one write and is
+then a HIT everywhere.
+
+What it costs:
+
+- A popular query pays **one extra uncached search per isolate** before
+  it is cached: an embedding call and two Hyperdrive statements.
+- A query repeated only across *different* isolates may never be cached.
+  The count has no shared state, because sharing it would take a KV write.
+- `x-cache: MISS` twice in a row for the same request is now normal on
+  `*.workers.dev`. The OpenAPI description says a repeat is not guaranteed
+  to be a HIT.
+
+On a custom domain none of this applies. Every result goes to the Cache
+API on its first MISS (`Cache-Control: max-age=86400`, the same 24 h TTL),
+keyed `<origin>/__proofql_cache/q/<the canonical key>`. The key keeps the
+generation, so a bump still purges. The Cache API is per data center, so a
+query is a MISS once per colo rather than once globally. That is an
+embedding and two statements per colo, against no KV write at all.
+
+### The Cache API on `*.workers.dev`
+
+Cloudflare's Cache API page (fetched 2026-10-05) says: "Workers deployed to
+custom domains have access to functional `cache` operations", and the same
+of Pages functions on custom or `*.pages.dev` domains. `*.workers.dev` is
+not in that sentence, and the behaviour reported for it (and assumed here,
+not re-measured: no load on preview) is that `cache.put` is accepted and
+dropped and every `match` misses. The api therefore never uses the
+Cache API for a request whose hostname ends in `.workers.dev`
+(`isWorkersDevHost`). That is preview and prod today (`infra/environments.md`).
+Once `api.proofql.com` is routed (scope §7.6), the Cache API path turns on
+by itself, with no deploy flag. Verify it then with two identical
+`/v1/query` requests to the custom domain: the second is `x-cache: HIT`,
+and `wrangler tail` shows no `kv.*` lines and no KV writes for it.
+
+### How this was checked
+
+- Unit: `packages/core/src/kv-guard.test.ts` (literal messages, throttle),
+  `workers/api/src/edge-cache.test.ts` (workers.dev detection, write budget,
+  memo), `auth-cache.test.ts` (isolate and Cache API tiers, never on
+  workers.dev), `errors.test.ts` (#142: the literal Hyperdrive and KV
+  messages → 503, `Retry-After`, `quota.exhausted`),
+  `workers/pipeline/src/handlers.test.ts` (ten reviews → one KV write; KV
+  write limit → still acked), dashboard `waitlist.server.test.ts`,
+  `packages/google/src/places.test.ts`, `workers/cdn/src/build.test.ts`
+  (`_headers` equals the worker's headers).
+- Integration (real Postgres): `workers/api/src/query/free-plan.integration.test.ts`
+  (Cache API path with no KV write, workers.dev path, write budget, KV
+  reads and writes exhausted, review edit with the write limit, Hyperdrive
+  limit: MISS 503 / HIT 200), `auth-cache.integration.test.ts`
+  (stale-if-error, KV read limit), pipeline `index-review` and
+  `places-refresh`, dashboard `google.server`, `places.server`, `reviews`.
+- `wrangler dev` on the cdn with a temporary marker header in the worker:
+  `/v1.js`, `/v1.<hash>.js`, both maps, `/version.json`, `/demo/` and
+  `/demo` came back with the `_headers` values and **no** marker. `/health`,
+  `/` and a 404 carried the marker. `/_headers` itself is not served.
 
 ## Appendix: raw k6 output
 
