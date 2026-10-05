@@ -3,7 +3,8 @@
 // api's `highlight` span, #85 — always on here, in both modes, so the
 // developer sees exactly what `data-highlight` would render), and the
 // review's attribution. Below-floor cards are the same card, muted, with the
-// reason spelled out.
+// reason spelled out. The bar ticks both tiers of the floor (#138): the
+// floor, and the lower word-match tier a lexical candidate is held to.
 import { Link } from "react-router";
 
 import { Stars } from "~/components/reviews/stars";
@@ -15,19 +16,22 @@ import { cn } from "~/lib/utils";
 export function SimilarityBar({
   similarity,
   floor,
+  lexicalFloor,
   belowFloor,
 }: {
   similarity: number;
   floor: number;
+  lexicalFloor: number;
   belowFloor: boolean;
 }) {
   const pct = Math.max(0, Math.min(1, similarity)) * 100;
   const floorPct = Math.max(0, Math.min(1, floor)) * 100;
+  const lexicalPct = Math.max(0, Math.min(1, lexicalFloor)) * 100;
   return (
     <div
       className="relative h-1.5 w-full bg-gray-100"
       aria-hidden
-      title={`similarity ${similarity.toFixed(3)} · floor ${floor.toFixed(2)}`}
+      title={`similarity ${similarity.toFixed(3)} · floor ${floor.toFixed(2)} · word match ${lexicalFloor.toFixed(2)}`}
     >
       <div
         className={cn("h-full", belowFloor ? "bg-gray-400" : "bg-accent-600")}
@@ -38,6 +42,13 @@ export function SimilarityBar({
         style={{ left: `${floorPct}%` }}
         aria-hidden
         title={`floor ${floor.toFixed(2)}`}
+      />
+      <div
+        data-lexical-tick
+        className="absolute top-[-2px] h-2.5 w-px bg-gray-400"
+        style={{ left: `${lexicalPct}%` }}
+        aria-hidden
+        title={`word match ${lexicalFloor.toFixed(2)}`}
       />
     </div>
   );
@@ -78,17 +89,26 @@ export function ResultCard({
   result,
   rank,
   floor,
+  lexicalFloor,
   reviewHref,
   fallback = false,
 }: {
   result: PlaygroundResult;
   rank: number;
   floor: number;
+  /** The word-match tier of the floor (`lexicalFloorFor(floor)`). */
+  lexicalFloor: number;
   reviewHref: string;
   /** A row the api would return as `match: "fallback"` (#86). */
   fallback?: boolean;
 }) {
   const { review } = result;
+  // Above the floor only because its words match: the lower tier let it in.
+  const viaWords =
+    !result.belowFloor &&
+    result.lexical &&
+    result.similarity !== null &&
+    result.similarity < floor;
   return (
     <article
       data-below-floor={result.belowFloor || undefined}
@@ -117,6 +137,7 @@ export function ResultCard({
               <SimilarityBar
                 similarity={result.similarity}
                 floor={floor}
+                lexicalFloor={lexicalFloor}
                 belowFloor={result.belowFloor}
               />
             </div>
@@ -127,9 +148,17 @@ export function ResultCard({
           </span>
         )}
         {fallback && <Badge tone="neutral">matched: false</Badge>}
-        {result.belowFloor && (
-          <Badge tone="neutral">below floor ({floor.toFixed(2)})</Badge>
+        {viaWords && (
+          <Badge tone="neutral">word match ({lexicalFloor.toFixed(2)})</Badge>
         )}
+        {result.belowFloor &&
+          (result.lexical ? (
+            <Badge tone="neutral">
+              below word match ({lexicalFloor.toFixed(2)})
+            </Badge>
+          ) : (
+            <Badge tone="neutral">below floor ({floor.toFixed(2)})</Badge>
+          ))}
       </div>
 
       <blockquote

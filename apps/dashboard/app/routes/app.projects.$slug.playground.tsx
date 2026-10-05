@@ -5,6 +5,7 @@
 // under it. A GET form keeps every run in the URL: shareable, reloadable,
 // and the back button steps through experiments.
 
+import { lexicalFloorFor } from "@proofql/core";
 import { Play } from "lucide-react";
 import { useState } from "react";
 import { data, Form, useLocation, useNavigation } from "react-router";
@@ -404,6 +405,12 @@ function Results({
             label="floor"
             value={outcome.policy.similarityFloor.toFixed(2)}
           />
+          {hasQuery && (
+            <Stat
+              label="word match"
+              value={lexicalFloorFor(outcome.policy.similarityFloor).toFixed(2)}
+            />
+          )}
         </dl>
       </header>
 
@@ -449,6 +456,7 @@ function Results({
                 result={r}
                 rank={i + 1}
                 floor={outcome.policy.similarityFloor}
+                lexicalFloor={lexicalFloorFor(outcome.policy.similarityFloor)}
                 reviewHref={reviewHref(r.reviewId)}
                 fallback
               />
@@ -462,6 +470,7 @@ function Results({
           result={r}
           rank={i + 1}
           floor={outcome.policy.similarityFloor}
+          lexicalFloor={lexicalFloorFor(outcome.policy.similarityFloor)}
           reviewHref={reviewHref(r.reviewId)}
         />
       ))}
@@ -470,6 +479,7 @@ function Results({
         <>
           <FloorLine
             floor={projectFloor}
+            lexicalFloor={lexicalFloorFor(projectFloor)}
             above={above.length}
             below={below.length}
           />
@@ -484,6 +494,7 @@ function Results({
                 result={r}
                 rank={above.length + i + 1}
                 floor={outcome.policy.similarityFloor}
+                lexicalFloor={lexicalFloorFor(outcome.policy.similarityFloor)}
                 reviewHref={reviewHref(r.reviewId)}
               />
             ))

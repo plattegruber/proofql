@@ -72,6 +72,7 @@ describe("settings tab", () => {
     ).toMatch(/#relevance$/);
     // The helper text quotes the measured default (#138), not a stale one.
     expect(container.textContent).toContain("The default of 0.66");
+    expect(container.textContent).toContain("passes 0.13 lower");
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe(
       "Cedar Ridge Dental",
     );
