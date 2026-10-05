@@ -6,7 +6,10 @@ import {
   FakeSentimentClassifier,
 } from "@proofql/ai";
 import {
+  bumpProjectGeneration,
   type ConnectionSyncMessage,
+  exhaustedKv,
+  generationKey,
   type IngestMessage,
   MemoryKv,
   type RecordingSink,
@@ -28,6 +31,7 @@ import {
   PLACES_REFRESH_CRON,
   type QueueConsumers,
   type QueueContext,
+  type QueueHandlerOptions,
   type QueueMessage,
   retryDelaySeconds,
   SWEEP_CRON,
@@ -88,11 +92,13 @@ describe("handleQueueBatch", () => {
       { index },
     );
 
-    // The indexer gets the caller's context with a per-message child logger.
+    // The indexer gets the caller's context with a per-message child logger
+    // and the batch's coalescing view of the cache (#158).
     expect(index).toHaveBeenCalledWith(
-      expect.objectContaining({ db: ctx.db, cache: ctx.cache }),
+      expect.objectContaining({ db: ctx.db }),
       validBody,
     );
+    expect(index.mock.calls[0]?.[0].cache).not.toBe(ctx.cache);
     expect(message.ack).toHaveBeenCalledOnce();
     expect(message.retry).not.toHaveBeenCalled();
     expect(ctx.out.only("ingest.message.processed")).toMatchObject({
@@ -137,11 +143,9 @@ describe("handleQueueBatch", () => {
       environment: "live",
       chunks: 2,
     });
-    // The context the indexer received is the caller's plus the child logger.
-    expect(index.mock.calls[0]?.[0]).toMatchObject({
-      db: ctx.db,
-      cache: ctx.cache,
-    });
+    // The context the indexer received is the caller's plus the child
+    // logger (and the batch's coalescing cache, #158).
+    expect(index.mock.calls[0]?.[0]).toMatchObject({ db: ctx.db });
     expect(index.mock.calls[0]?.[0].log.bindings).toMatchObject({
       message_id: "m9",
     });
@@ -497,5 +501,55 @@ describe("scheduledJob", () => {
     expect(scheduledJob(SWEEP_CRON)).toBe("sweep");
     expect(scheduledJob(undefined)).toBe("sweep");
     expect(scheduledJob("1 2 3 4 5")).toBe("sweep");
+  });
+});
+
+describe("generation bumps per batch (#158)", () => {
+  const body = (reviewId: string, projectId = PROJECT_ID) => ({
+    ...validBody,
+    reviewId,
+    projectId,
+  });
+  const bumping: NonNullable<QueueHandlerOptions["index"]> = async (
+    c,
+    message,
+  ) => {
+    await bumpProjectGeneration(c.cache, message.projectId);
+    return indexed;
+  };
+
+  it("ten reviews of one project cost one KV write, after the batch", async () => {
+    const ctx = fakeContext();
+    const kv = ctx.cache as MemoryKv;
+    const messages = Array.from({ length: 10 }, (_, i) =>
+      fakeMessage(
+        body(`00000000-0000-4000-8000-00000000000${i % 10}`),
+        `m${i}`,
+      ),
+    );
+    await handleQueueBatch({ queue: "proofql-ingest", messages }, ctx, {
+      index: bumping,
+    });
+    expect(kv.puts).toEqual([{ key: generationKey(PROJECT_ID), value: "10" }]);
+    expect(ctx.out.only("cache.generation_bumped")).toMatchObject({
+      projects: 1,
+    });
+    for (const m of messages) expect(m.ack).toHaveBeenCalledOnce();
+  });
+
+  it("KV at its daily write limit: every message is still acked, the failure logged once at warn", async () => {
+    const ctx = fakeContext();
+    ctx.cache = exhaustedKv({ reads: false });
+    const messages = [fakeMessage(body(REVIEW_ID), "m1")];
+    await handleQueueBatch({ queue: "proofql-ingest", messages }, ctx, {
+      index: bumping,
+    });
+    expect(messages[0]?.ack).toHaveBeenCalledOnce();
+    expect(messages[0]?.retry).not.toHaveBeenCalled();
+    expect(ctx.out.only("kv.limit_exceeded")).toMatchObject({
+      level: "warn",
+      op: "put",
+      site: "pipeline.generation_bump",
+    });
   });
 });

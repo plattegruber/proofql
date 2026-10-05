@@ -52,10 +52,10 @@
  */
 
 import {
-  bumpProjectGeneration,
   type GenerationKv,
   type IngestMessage,
   type Logger,
+  safeBumpProjectGeneration,
 } from "@proofql/core";
 import { type Db, schema, upsertReviews } from "@proofql/db";
 import {
@@ -593,9 +593,11 @@ async function syncConnection(
     });
     if (superseded > 0) {
       // After the commit, never inside it (packages/core cache-generation).
-      const generation = await bumpProjectGeneration(
+      // Never throws (#158): the import committed; a lost bump is logged.
+      const generation = await safeBumpProjectGeneration(
         ctx.cache,
         connection.projectId,
+        { log: runLog, site: "pipeline.google_poll" },
       );
       runLog.log("google.bootstrap_superseded", {
         deleted: superseded,

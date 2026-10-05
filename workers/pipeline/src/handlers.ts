@@ -60,9 +60,12 @@ import {
   type SentimentClassifier,
 } from "@proofql/ai";
 import {
+  type CoalescedGenerations,
+  coalesceGenerationBumps,
   createLogger,
   type IngestMessage,
   ingestMessageSchema,
+  kvFaults,
   type Logger,
 } from "@proofql/core";
 import { createDb } from "@proofql/db";
@@ -147,12 +150,45 @@ export async function syncConnectionNow(
 /** Consume one batch: parse, index, ack or retry — per message, in order. */
 export async function handleQueueBatch(
   batch: QueueBatch,
-  ctx: QueueContext,
+  outer: QueueContext,
   options: QueueHandlerOptions = {},
 ): Promise<void> {
   const index = options.index ?? indexReview;
   const sync = options.sync ?? syncConnectionNow;
+  // One generation bump per project per batch, not per review (#158): the
+  // free plan's KV allows 1,000 writes a day, and a 10-message batch of one
+  // project's import used to spend ten. Written once the batch is done.
+  const bumps = coalesceGenerationBumps(outer.cache);
+  const ctx: QueueContext = { ...outer, cache: bumps.kv };
+  try {
+    await handleMessages(batch, ctx, index, sync);
+  } finally {
+    await flushGenerationBumps(bumps, outer.log);
+  }
+}
 
+/** Write a batch's held bumps; a KV failure is logged, never thrown (#158). */
+export async function flushGenerationBumps(
+  bumps: CoalescedGenerations,
+  log: Logger,
+): Promise<void> {
+  if (bumps.pending.length === 0) return;
+  try {
+    const written = await bumps.flush();
+    log.log("cache.generation_bumped", {
+      projects: written.length,
+    });
+  } catch (error) {
+    kvFaults.report(log, "put", "pipeline.generation_bump", error);
+  }
+}
+
+async function handleMessages(
+  batch: QueueBatch,
+  ctx: QueueContext,
+  index: NonNullable<QueueHandlerOptions["index"]>,
+  sync: NonNullable<QueueHandlerOptions["sync"]>,
+): Promise<void> {
   for (const message of batch.messages) {
     const delivery = ctx.log.child({
       queue: batch.queue,

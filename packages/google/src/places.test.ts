@@ -3,6 +3,7 @@
 // attribution gaps), the key conventions, and the client over the fake
 // Places API (field masks, the cache, `fresh`, Google's refusals). No
 // services, no sockets.
+import { createLogger, exhaustedKv, recordingSink } from "@proofql/core";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -431,5 +432,40 @@ describe("kvPlacesCache and describePlacesError", () => {
     expect(describePlacesError(new PlacesError("bad mask", 400))).toBe(
       "Google refused the request: bad mask",
     );
+  });
+});
+
+describe("kvPlacesCache at KV's daily limit (#158)", () => {
+  it("a throwing get is a miss and the client fetches live; a throwing put is swallowed", async () => {
+    const api = fakePlacesApi();
+    const rec = recordingSink();
+    const log = createLogger({
+      service: "dashboard",
+      environment: "test",
+      sink: rec.sink,
+    });
+    const kv = exhaustedKv();
+    const places = createPlacesClient({
+      apiKey: "k",
+      fetch: api.fetch,
+      cache: kvPlacesCache(kv, { log, site: "test.places" }),
+    });
+    const first = await places.search("Boulder");
+    expect(first.cached).toBe(false);
+    expect(first.matches.length).toBeGreaterThan(0);
+    const again = await places.search("Boulder");
+    expect(again.cached).toBe(false);
+    expect(places.requests).toBe(2);
+    expect(kv.calls.get).toBe(2);
+    expect(kv.calls.put).toBe(2);
+    const lines = rec.find("kv.limit_exceeded");
+    expect(lines.map((l) => l.op).sort()).toEqual(["get", "put"]);
+    expect(lines.every((l) => l.level === "warn")).toBe(true);
+  });
+
+  it("without a guard it still never throws", async () => {
+    const cache = kvPlacesCache(exhaustedKv());
+    expect(await cache.get("x")).toBeNull();
+    await expect(cache.put("x", "y", 60)).resolves.toBeUndefined();
   });
 });
