@@ -680,6 +680,55 @@ every-term match, so each is a superset of `all`.
   The run was not repeated: the free plan allows two live collections and
   the second went to the reranker.
 
+### Per-project generic terms (#149)
+
+The partial match's generic list was hard-coded for the dental seed
+("dental dentist teeth review office"). It is now derived per project
+from document frequency (`refreshGenericTerms`, `packages/db/src/queries/genericTerms.ts`):
+the stemmed lexemes in more than 25% of the project's indexed live
+reviews, once it has at least 30, capped at 30 terms, plus a universal
+floor in core ("review place service experience"). Measured offline the
+same way as the rules above: the scratch run re-annotated against the
+preview database with the demo project's derived terms
+(`pnpm db:tune-floor -- --annotate <copy>`, which derives them read-only
+with `computeGenericTerms`; saved as
+[`2026-10-05-chunks-generic-terms.json`](floor-tuning/2026-10-05-chunks-generic-terms.json)),
+replayed at 0.66 / 0.53.
+
+**The demo project derives `{dr}`.** "Dr." is in 38 of the 80 live
+reviews; nothing else clears the cut of 20. The seed covers many topics
+on purpose, so its category words are rare: "office" is in 15 reviews,
+"dentist" and "teeth" in 9, "dental" in 4. Document frequency cannot find
+them, and that is what the replay measures.
+
+| Generic list (0.66 / 0.53, `half-specific`) | Lexical rows | Answered | Top-3 clean | Empty positives | Must-be-empty with a row | Precision | Recall |
+|---|---|---|---|---|---|---|---|
+| Hard-coded dental list (#147) | 97 | 85.7% (30/35) | 25/35 | 4 | 4.5% (1/22) | 69.8% | 50.0% |
+| **Derived, 25% (`{dr}` + universal)** | 101 | **82.9% (29/35)** | **23/35** | 5 | **4.5% (1/22)** | 66.3% | 46.6% |
+| Derived at 20% (`{clean, dr}`) | 100 | 82.9% (29/35) | 23/35 | 5 | 4.5% (1/22) | 66.3% | 46.6% |
+| Derived at 15% (7 terms, adds `offic`, `park`) | 85 | 82.9% (29/35) | 24/35 | 5 | 4.5% (1/22) | 67.3% | 45.9% |
+| Derived at 10% (20 terms, adds `crown`, `dentist`, `teeth`) | 87 | 85.7% (30/35) | 24/35 | 4 | 4.5% (1/22) | 68.6% | 48.6% |
+| Universal words only | 101 | 82.9% (29/35) | 23/35 | 5 | 4.5% (1/22) | 66.3% | 46.6% |
+
+- **One answered query and two top-3-clean queries worse than the
+  hard-coded list; the must-be-empty rate is unchanged** (n09, the same
+  leak). Lost: p10 "pediatric dentist for my toddler" ("dentist" now
+  counts, so the answer needs two of three words and has one). No longer
+  clean: p01 "dental implants", p23 "teeth whitening" and p29 "a bridge
+  after losing teeth" each pick up a review that shares only "dental" or
+  "teeth". On this corpus the derived list behaves like `half`, as it
+  should: almost nothing in it is generic.
+- **No threshold recovers the old numbers.** At 10% the list reaches
+  "dentist" and "teeth" (9 of 80) but also sweeps in topics, "crown",
+  "clean", "park" (a word match for "free parking" then needs "free"), and
+  still leaves top-3 clean at 24/35. 25% is kept: it is what makes "coffee" generic for a cafe
+  where most reviews say it, and never a topic only some reviews cover.
+- The seed's vocabulary is the outlier, not the method: in a real dental
+  corpus "dentist" is far more common than 11% of reviews. The
+  hard-coded list encoded what *queries* say about the business
+  ("dental …"), which reviews do not have to repeat; that is a separate
+  signal (the business category) and a follow-up if it is wanted.
+
 ### Reranker (#147): measured, off
 
 `RERANK=true` (a worker var, unset everywhere by default) fetches the top
