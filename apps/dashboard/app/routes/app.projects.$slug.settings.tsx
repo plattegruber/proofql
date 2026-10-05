@@ -20,6 +20,7 @@ import { type FieldErrors, parseFormData } from "~/lib/forms.server";
 import {
   MIN_RATING_OPTIONS,
   projectSettingsSchema,
+  SIMILARITY_FLOOR_DEFAULT,
   SIMILARITY_FLOOR_MAX,
   SIMILARITY_FLOOR_MIN,
   SIMILARITY_FLOOR_STEP,
@@ -193,8 +194,10 @@ export default function ProjectSettings({
                 <>
                   Lower it and more reviews qualify for a query, including
                   loosely related ones; raise it and only close matches appear,
-                  so some pages show nothing. The default of 0.55 suits most
-                  sites;{" "}
+                  so some pages show nothing. The default of{" "}
+                  {SIMILARITY_FLOOR_DEFAULT.toFixed(2)}, measured on real
+                  queries, keeps unrelated quotes off a page; lower it in small
+                  steps if pages you know have matching reviews show nothing;{" "}
                   <a href={RELEVANCE_DOCS_URL} className="text-link">
                     how relevance is scored
                   </a>

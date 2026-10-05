@@ -20,7 +20,7 @@ const loaderData = {
     name: "Cedar Ridge Dental",
     slug: "cedar-ridge-dental",
     minRating: 4,
-    similarityFloor: 0.55,
+    similarityFloor: 0.66,
     reviewCount: 80,
   },
 };
@@ -56,7 +56,7 @@ describe("settings tab", () => {
     )) as unknown as HTMLSelectElement;
     expect(minRating.value).toBe("4");
     const floor = screen.getByLabelText("Similarity floor") as HTMLInputElement;
-    expect(floor.value).toBe("0.55");
+    expect(floor.value).toBe("0.66");
     expect(floor.getAttribute("min")).toBe("0.3");
     expect(floor.getAttribute("max")).toBe("0.9");
     expect(floor.getAttribute("step")).toBe("0.01");
@@ -70,6 +70,8 @@ describe("settings tab", () => {
         .getByRole("link", { name: "how relevance is scored" })
         .getAttribute("href"),
     ).toMatch(/#relevance$/);
+    // The helper text quotes the measured default (#138), not a stale one.
+    expect(container.textContent).toContain("The default of 0.66");
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe(
       "Cedar Ridge Dental",
     );
