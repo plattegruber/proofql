@@ -118,6 +118,11 @@ const MATCHES: ReadonlySet<string> = new Set([
 export interface CacheKeyPolicy {
   minRating: number;
   similarityFloor: number;
+  /**
+   * Reranker threshold when experimental reranking is on (#147); absent
+   * otherwise, which leaves keys made without reranking unchanged.
+   */
+  rerankThreshold?: number | undefined;
 }
 
 export interface CacheKeyInput {
@@ -172,6 +177,7 @@ export function cacheIdentity(input: CacheKeyInput): Record<string, unknown> {
             // never answer for this one.
             lexical_rule: LEXICAL_RULE,
             generic_words: GENERIC_QUERY_WORDS,
+            rerank_threshold: policy.rerankThreshold,
           },
   };
 }

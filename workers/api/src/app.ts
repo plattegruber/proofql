@@ -16,7 +16,7 @@
  * (src/usage-buffer.ts, #108).
  */
 
-import type { EmbeddingProvider } from "@proofql/ai";
+import type { EmbeddingProvider, Reranker } from "@proofql/ai";
 import type { LogSink } from "@proofql/core";
 import type { Db } from "@proofql/db";
 import { Hono } from "hono";
@@ -69,6 +69,8 @@ export interface CreateAppOptions {
   embedder?: EmbeddingProvider;
   /** Full control over how a request obtains its embedder. */
   embedderProvider?: EmbedderProvider;
+  /** Tests: rerank with this (e.g. `FakeReranker`) when `RERANK` is on. */
+  reranker?: Reranker;
   /** Tests: use this limiter (one for both kinds, or one per kind). */
   rateLimiter?: RateLimiter | Partial<PlanRateLimiters>;
   /** Full control over how a request obtains its rate limiters. */
@@ -150,7 +152,12 @@ export function createApp(options: CreateAppOptions = {}): Hono<AppEnv> {
   );
   app.use(requestGuards);
   app.use(dbMiddleware(provider));
-  app.use(embedderMiddleware(embedder));
+  app.use(
+    embedderMiddleware(
+      embedder,
+      options.reranker ? () => options.reranker ?? null : undefined,
+    ),
+  );
   app.use(rateLimitMiddleware(rateLimiters));
   app.use(async (c, next) => {
     c.set("usage", usage);

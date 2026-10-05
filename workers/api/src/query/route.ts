@@ -110,7 +110,7 @@
 
 import { parseApiKey, planFor, readProjectGeneration } from "@proofql/core";
 import type { SearchFilters, SearchResult } from "@proofql/db";
-import { searchChunks } from "@proofql/db";
+import { MAX_SEARCH_LIMIT, searchChunks } from "@proofql/db";
 import { type Context, type Handler, Hono } from "hono";
 
 import { presentedToken, requireQueryKey, resolveApiKey } from "../auth.js";
@@ -128,6 +128,7 @@ import { logFor } from "../request-id.js";
 import {
   CACHE_HEADER,
   type CachedBody,
+  type CacheKeyPolicy,
   type CacheOutcome,
   cacheKey,
   getCached,
@@ -140,6 +141,12 @@ import {
   type QueryRequest,
   queryParamsToRequest,
 } from "./request.js";
+import {
+  applyRerank,
+  passesFloor,
+  RERANK_CANDIDATES,
+  rerankConfig,
+} from "./rerank.js";
 
 export interface QueryResponseReview {
   id: string;
@@ -245,9 +252,16 @@ const handleQuery: Handler<AppEnv> = async (c) => {
   const request = await readRequest(c);
   const { project } = auth;
 
+  // Experimental reranking (#147, ./rerank.ts): only with `q`, only when
+  // the worker var is on and a reranker is available.
+  const rerankSettings = request.q === undefined ? null : rerankConfig(c.env);
+  const reranker = rerankSettings ? c.get("getReranker")() : null;
+  const rerank =
+    rerankSettings && reranker ? { reranker, ...rerankSettings } : null;
   const policy = {
     minRating: Math.max(project.minRating, request.filters.min_rating ?? 0),
     similarityFloor: project.similarityFloor,
+    ...(rerank ? { rerankThreshold: rerank.threshold } : {}),
   };
 
   const cache = await lookupCache(c, request, policy);
@@ -304,11 +318,58 @@ const handleQuery: Handler<AppEnv> = async (c) => {
     filters: toSearchFilters(request.filters),
     mode: request.mode,
   };
-  let rows = await searchChunks(c.get("getDb")(), {
-    ...search,
-    queryEmbedding,
-    queryText: request.q,
-  });
+  let rows: SearchResult[];
+  let rerankMs: number | undefined;
+  if (rerank && request.q !== undefined) {
+    // The cosine floor is off for the candidates; the reranker gates them.
+    const candidates = await searchChunks(c.get("getDb")(), {
+      ...search,
+      limit: Math.min(RERANK_CANDIDATES, MAX_SEARCH_LIMIT),
+      policy: { minRating: policy.minRating, similarityFloor: 0 },
+      queryEmbedding,
+      queryText: request.q,
+    });
+    const rerankStarted = performance.now();
+    try {
+      const scores = await rerank.reranker.rerank(
+        request.q,
+        candidates.map((r) => r.excerpt),
+      );
+      const reranked = applyRerank(
+        candidates,
+        scores,
+        rerank.threshold,
+        request.limit,
+      );
+      rows = reranked.rows;
+      c.header(
+        "x-rerank-scores",
+        reranked.scores.map((s) => s.toFixed(4)).join(","),
+      );
+    } catch (error) {
+      // Degrade to the ordinary floor, never to "the top 20".
+      logFor(c).log("query.rerank_failed", {
+        project_id: auth.projectId,
+        q_length: request.q.length,
+        error,
+      });
+      rows = candidates
+        .filter((r) => passesFloor(r, policy.similarityFloor))
+        .slice(0, request.limit);
+    }
+    rerankMs = performance.now() - rerankStarted;
+    c.header("x-rerank-ms", String(Math.round(rerankMs)));
+    c.header(
+      "x-rerank-chars",
+      String(candidates.reduce((n, r) => n + r.excerpt.length, 0)),
+    );
+  } else {
+    rows = await searchChunks(c.get("getDb")(), {
+      ...search,
+      queryEmbedding,
+      queryText: request.q,
+    });
+  }
   let match: QueryMatch =
     request.q === undefined ? "recent" : rows.length > 0 ? "query" : "none";
   if (match === "none" && request.fallback === "recent") {
@@ -341,7 +402,8 @@ const handleQuery: Handler<AppEnv> = async (c) => {
     cached: cache.outcome,
     took_ms: tookMs,
     embedding_ms: Math.round(embedMs),
-    search_ms: Math.round(searchMs),
+    search_ms: Math.round(searchMs - (rerankMs ?? 0)),
+    ...(rerankMs === undefined ? {} : { rerank_ms: Math.round(rerankMs) }),
   });
   return respond(c, body, tookMs, false, cache.outcome);
 };
@@ -358,7 +420,7 @@ interface CacheLookup {
 async function lookupCache(
   c: Context<AppEnv>,
   request: QueryRequest,
-  policy: { minRating: number; similarityFloor: number },
+  policy: CacheKeyPolicy,
 ): Promise<CacheLookup> {
   const auth = c.get("auth");
   const kv = c.env.CACHE;
@@ -417,6 +479,8 @@ interface QueryOutcome {
   took_ms: number;
   embedding_ms: number;
   search_ms: number;
+  /** Only when experimental reranking ran (#147). */
+  rerank_ms?: number;
 }
 
 /**
