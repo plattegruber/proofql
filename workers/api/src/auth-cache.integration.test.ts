@@ -1,13 +1,20 @@
 /**
- * The auth cache on the real `/v1/query` route (#108): the first request
- * looks the key up and stores it; the next one is answered from KV with
- * **no database at all** — proven by swapping in a db provider that throws
- * — and the entry stops being trusted on a generation bump (what the
- * dashboard does on revoke, policy and allowlist changes) or after the TTL.
+ * The auth cache on the real `/v1/query` route (#108, #158): the first
+ * request looks the key up and stores it; the next one is answered from the
+ * cache with **no database at all** — proven by swapping in a db provider
+ * that throws — and the entry stops being trusted on a generation bump
+ * (what the dashboard does on revoke, policy and allowlist changes) or
+ * after the TTL, except as a stale stand-in while the database is down.
  * Write routes never consult it: a revoked secret key is refused at once.
+ * Nothing about it touches KV except the generation read.
  */
 
-import { bumpProjectGeneration, hashApiKey } from "@proofql/core";
+import {
+  bumpProjectGeneration,
+  exhaustedKv,
+  hashApiKey,
+  recordingSink,
+} from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
 import { account, project, setupTestDb } from "@proofql/db/test";
 import { eq } from "drizzle-orm";
@@ -15,15 +22,22 @@ import { describe, expect, it } from "vitest";
 
 import { fakeCtx, fakeKv, issueKey, testEnv } from "../test/helpers.js";
 import { createApp } from "./app.js";
-import { AUTH_CACHE_TTL_SECONDS, authCacheKey } from "./auth-cache.js";
+import {
+  AUTH_CACHE_TTL_SECONDS,
+  AUTH_STALE_SECONDS,
+  AuthCache,
+  UNKNOWN_GENERATION,
+} from "./auth-cache.js";
 
 const t = setupTestDb();
 
 const ORIGIN = "https://shop.example";
 
 /** `createApp` whose first database touch throws — the "no database" proof. */
-function appWithoutDb() {
+function appWithoutDb(authCache: AuthCache, now?: () => number) {
   return createApp({
+    authCache,
+    ...(now === undefined ? {} : { now }),
     dbProvider: () => {
       throw Object.assign(new Error("database must not be opened"), {
         code: "53300",
@@ -39,9 +53,11 @@ function appWithoutDb() {
 }
 const usageWrites: number[] = [];
 
-function appWithDb(db: Db) {
+function appWithDb(db: Db, authCache = new AuthCache(), now?: () => number) {
   return createApp({
     db,
+    authCache,
+    ...(now === undefined ? {} : { now }),
     rateLimiter: { limit: async () => ({ success: true }) },
   });
 }
@@ -83,17 +99,21 @@ describe("auth cache on /v1/query", () => {
   it("stores the resolved key under its hash after a lookup, and a HIT opens no database", async () => {
     const f = await fixture();
     let clock = Date.parse("2026-10-04T12:00:00Z");
-    const kv = fakeKv({ now: () => clock });
+    const now = () => clock;
+    const kv = fakeKv({ now });
     const env = testEnv({ kv });
+    const cache = new AuthCache({ now });
 
-    // First request: looked up and stored (after the response, via waitUntil).
-    const first = await query(appWithDb(t.db), env, f.publishable.plaintext);
+    // First request: looked up and stored in the isolate tier.
+    const first = await query(
+      appWithDb(t.db, cache, now),
+      env,
+      f.publishable.plaintext,
+    );
     expect(first.status).toBe(200);
     expect(first.headers.get("x-cache")).toBe("MISS");
     const hash = await hashApiKey(f.publishable.plaintext);
-    const stored = kv.peek(authCacheKey(hash));
-    expect(stored).not.toBeNull();
-    expect(JSON.parse(stored as string)).toMatchObject({
+    expect(cache.lru.get(hash, Number.POSITIVE_INFINITY)?.value).toMatchObject({
       v: 1,
       generation: 0,
       auth: {
@@ -104,18 +124,27 @@ describe("auth cache on /v1/query", () => {
         project: { allowedOrigins: [ORIGIN] },
       },
     });
+    // The auth cache never writes KV (#158); only the query result is there.
+    expect([...kv.store.keys()].filter((k) => !k.startsWith("q:"))).toEqual([]);
 
     // Second request on an app that cannot open a database at all: auth
-    // from KV, results from KV, usage into the buffer. 200 and a HIT.
+    // from the cache, results from KV, usage into the buffer. 200 and a HIT.
     usageWrites.length = 0;
-    const noDb = appWithoutDb();
+    const noDb = appWithoutDb(cache, now);
     const second = await query(noDb, env, f.publishable.plaintext);
     expect(second.status).toBe(200);
     expect(second.headers.get("x-cache")).toBe("HIT");
     expect(usageWrites).toEqual([1]);
 
-    // The entry expires with the TTL; the next request needs the database.
+    // Past the TTL the entry needs a lookup — but the database is down, so
+    // the stale entry stands in (stale-if-error) and the HIT is served…
     clock += AUTH_CACHE_TTL_SECONDS * 1000;
+    const stale = await query(noDb, env, f.publishable.plaintext);
+    expect(stale.status).toBe(200);
+    expect(stale.headers.get("x-cache")).toBe("HIT");
+
+    // …until the stale window ends too.
+    clock += AUTH_STALE_SECONDS * 1000;
     const expired = await query(noDb, env, f.publishable.plaintext);
     expect(expired.status).toBe(503);
     expect((await expired.json()) as object).toMatchObject({
@@ -123,12 +152,46 @@ describe("auth cache on /v1/query", () => {
     });
   });
 
+  it("a stale entry is never served when the database answers, nor after a bump", async () => {
+    const f = await fixture();
+    let clock = Date.now();
+    const now = () => clock;
+    const kv = fakeKv({ now });
+    const env = testEnv({ kv });
+    const cache = new AuthCache({ now });
+    expect(
+      (await query(appWithDb(t.db, cache, now), env, f.publishable.plaintext))
+        .status,
+    ).toBe(200);
+    await t.db
+      .update(schema.apiKeys)
+      .set({ revokedAt: new Date() })
+      .where(eq(schema.apiKeys.id, f.publishable.row.id));
+    clock += AUTH_CACHE_TTL_SECONDS * 1000;
+    // The database is up: the lookup is the truth.
+    expect(
+      (await query(appWithDb(t.db, cache, now), env, f.publishable.plaintext))
+        .status,
+    ).toBe(401);
+
+    // Re-prime with a live key, bump, then take the database away: a bumped
+    // entry is not a stand-in.
+    const other = await issueKey(t.db, f.project.id, "publishable");
+    await query(appWithDb(t.db, cache, now), env, other.plaintext);
+    await bumpProjectGeneration(kv, f.project.id);
+    clock += AUTH_CACHE_TTL_SECONDS * 1000;
+    expect(
+      (await query(appWithoutDb(cache, now), env, other.plaintext)).status,
+    ).toBe(503);
+  });
+
   it("CORS preflight resolves the key from the cache too", async () => {
     const f = await fixture();
     const env = testEnv();
-    await query(appWithDb(t.db), env, f.publishable.plaintext);
+    const cache = new AuthCache();
+    await query(appWithDb(t.db, cache), env, f.publishable.plaintext);
 
-    const res = await appWithoutDb().request(
+    const res = await appWithoutDb(cache).request(
       `/v1/query?key=${encodeURIComponent(f.publishable.plaintext)}`,
       {
         method: "OPTIONS",
@@ -190,14 +253,23 @@ describe("auth cache on /v1/query", () => {
     const f = await fixture();
     const kv = fakeKv();
     const env = testEnv({ kv });
-    await query(appWithDb(t.db), env, f.publishable.plaintext);
+    const cache = new AuthCache();
+    await query(appWithDb(t.db, cache), env, f.publishable.plaintext);
     const hash = await hashApiKey(f.publishable.plaintext);
-    const raw = JSON.parse(kv.peek(authCacheKey(hash)) as string);
-    raw.auth.kind = "secret";
-    await kv.put(authCacheKey(hash), JSON.stringify(raw));
+    const entry = cache.lru.get(hash, Number.POSITIVE_INFINITY)?.value;
+    if (entry === undefined) throw new Error("entry missing");
+    cache.lru.set(hash, { ...entry, auth: { ...entry.auth, kind: "secret" } });
 
-    // Falls through to the database, which still knows the key.
-    const res = await query(appWithDb(t.db), env, f.publishable.plaintext);
+    // A database-less app must not trust it…
+    expect(
+      (await query(appWithoutDb(cache), env, f.publishable.plaintext)).status,
+    ).toBe(503);
+    // …and with the database it falls through to the lookup.
+    const res = await query(
+      appWithDb(t.db, cache),
+      env,
+      f.publishable.plaintext,
+    );
     expect(res.status).toBe(200);
   });
 
@@ -234,25 +306,47 @@ describe("auth cache on /v1/query", () => {
     expect(write.status).toBe(401);
   });
 
-  it("a KV fault on the auth cache falls through to the database", async () => {
+  it("KV at its daily read limit: auth from the database once, then the cache; queries uncachable, never failed", async () => {
     const f = await fixture();
-    const kv = fakeKv();
-    const broken = {
-      ...kv,
-      get: async () => {
-        throw new Error("kv down");
-      },
-      put: async () => {
-        throw new Error("kv down");
-      },
-      getWithMetadata: async () => {
-        throw new Error("kv down");
-      },
-    };
+    const kv = exhaustedKv();
     const env = testEnv();
-    env.CACHE = broken as unknown as KVNamespace;
-    const res = await query(appWithDb(t.db), env, f.publishable.plaintext);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("x-cache")).toBe("MISS");
+    env.CACHE = kv as unknown as KVNamespace;
+    const rec = recordingSink();
+    const cache = new AuthCache();
+    const app = createApp({
+      db: t.db,
+      authCache: cache,
+      rateLimiter: { limit: async () => ({ success: true }) },
+      logSink: rec.sink,
+    });
+
+    const first = await query(app, env, f.publishable.plaintext);
+    expect(first.status).toBe(200);
+    expect(first.headers.get("x-cache")).toBe("MISS");
+    const hash = await hashApiKey(f.publishable.plaintext);
+    expect(
+      cache.lru.get(hash, Number.POSITIVE_INFINITY)?.value.generation,
+    ).toBe(UNKNOWN_GENERATION);
+
+    // The next request trusts the fresh entry on its age alone: no
+    // database for auth (proved by an app that has none), still a MISS
+    // because the query cannot be keyed — so it fails only at the quota
+    // read, which is what a database-less app must do on a miss.
+    const second = await query(
+      appWithoutDb(cache),
+      env,
+      f.publishable.plaintext,
+    );
+    expect(second.status).toBe(503);
+    const secondDb = await query(app, env, f.publishable.plaintext);
+    expect(secondDb.status).toBe(200);
+    // Uncachable: no KV write was even attempted.
+    expect(kv.calls.put).toBe(0);
+    expect(rec.find("kv.limit_exceeded")).toHaveLength(1);
+    expect(rec.only("kv.limit_exceeded")).toMatchObject({
+      level: "warn",
+      op: "get",
+      site: "api.generation",
+    });
   });
 });

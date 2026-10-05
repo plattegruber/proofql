@@ -17,7 +17,12 @@
  * `service_unavailable` with `Retry-After: 1`, because the client can
  * retry it and nothing about the request was wrong; the snippet already
  * renders nothing on any non-2xx, and a server-side caller gets the same
- * contract `embedding_unavailable` has.
+ * contract `embedding_unavailable` has. The same 503 answers an exhausted
+ * daily platform quota (#142: Hyperdrive's `Usage limit for account
+ * exceeded, usage renews at …`, KV's `… limit exceeded for the day`;
+ * `quotaExhaustion`, src/db.ts), with `Retry-After` set to the seconds until
+ * the stated renewal (300 when none is stated) and one `quota.exhausted`
+ * line at level error.
  *
  * Logging (docs/observability.md): every `ApiError` is one
  * `<route>.rejected` line (`query.rejected`, `reviews.rejected`, else
@@ -34,7 +39,7 @@ import { HTTPException } from "hono/http-exception";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 import type { AppEnv } from "./bindings.js";
-import { databaseUnavailableCode } from "./db.js";
+import { databaseUnavailableCode, quotaExhaustion } from "./db.js";
 import { logFor } from "./request-id.js";
 
 /** Base of every `doc_url`; placeholder domain until the docs site exists. */
@@ -203,6 +208,29 @@ export const onError: ErrorHandler<AppEnv> = (error, c) => {
   }
   if (error instanceof HTTPException) {
     const mapped = fromHttpException(error);
+    logRejected(c, mapped);
+    return errorResponse(c, mapped);
+  }
+  const quota = quotaExhaustion(error);
+  if (quota !== null) {
+    // docs/observability.md `quota.exhausted` (#142, #158): a daily
+    // platform allowance is spent — Hyperdrive's 100,000 queries or KV's
+    // reads/writes on the Workers Free plan. Level error so it alerts: until
+    // the renewal every request that needs that resource fails, for every
+    // tenant. The client gets a retryable 503 that says when.
+    logFor(c).log("quota.exhausted", {
+      level: "error",
+      resource: quota.resource,
+      retry_after: quota.retryAfter,
+      renews_at: quota.renewsAt,
+      error: errorFields(error),
+    });
+    c.header("Retry-After", String(quota.retryAfter));
+    const mapped = new ApiError(
+      "service_unavailable",
+      `ProofQL is temporarily over its daily capacity; retry in ${quota.retryAfter} seconds. Quote request id ${c.get("requestId")} if it persists.`,
+      { cause: error },
+    );
     logRejected(c, mapped);
     return errorResponse(c, mapped);
   }

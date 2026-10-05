@@ -1,69 +1,88 @@
 /**
- * KV cache for the resolved API key (#108): the `AuthContext` that
- * `requireApiKey` builds from the `api_keys ⨝ projects ⨝ accounts` lookup,
- * stored for `AUTH_CACHE_TTL_SECONDS` under the key's SHA-256 hash, so a
- * request whose results are also in the query cache opens **no** Postgres
- * connection at all. Before this, a cache HIT still cost one connection and
- * two transactions (the key lookup and the usage upsert), which is what made
- * the query path's ceiling a connection ceiling (docs/performance.md §3, §5).
+ * Cache for the resolved API key (#108, moved off KV in #158): the
+ * `AuthContext` that `requireApiKey` builds from the `api_keys ⨝ projects ⨝
+ * accounts` lookup, kept under the key's SHA-256 hash so a request whose
+ * results are also cached opens **no** Postgres connection at all.
+ *
+ * ## Where entries live
+ *
+ * 1. **In the isolate** (`LruTtl`, up to `AUTH_LRU_MAX` keys). Free, and
+ *    under steady traffic an isolate serves most requests for a key.
+ * 2. **The Workers Cache API** on a custom domain (src/edge-cache.ts), so
+ *    a fresh isolate in the same data center finds the entry too.
+ *
+ * Never KV. Until #158 the entry was written to KV once a minute per key,
+ * and on the Workers Free plan (1,000 KV writes a day) that alone could
+ * spend the day's writes. On `*.workers.dev`, where the Cache API is a
+ * no-op, the isolate map is the whole cache: each isolate looks a busy key
+ * up once a minute, a few Postgres statements an hour per isolate.
  *
  * ## Key and value
  *
  * ```
- * auth:<sha256 hex of the plaintext key>  →  { v, auth, lastUsedAt, generation, storedAt }
+ * <origin>/__proofql_cache/auth/<sha256 hex of the plaintext key>
+ *   →  { v, auth, lastUsedAt, generation, storedAt }
  * ```
  *
- * The hash is the same value as `api_keys.key_hash`; no plaintext ever
- * reaches KV, and the entry carries nothing the database row does not. KV's
- * minimum `expirationTtl` is 60 s, which is also the TTL — the entry is
- * meant to be short-lived, not a second source of truth.
+ * The hash is the same value as `api_keys.key_hash`; no plaintext is ever
+ * stored, and the entry carries nothing the database row does not.
  *
- * ## Invalidation
+ * ## Freshness and invalidation
  *
- * The entry stores the project's cache generation (`@proofql/core`
- * cache-generation) at the time of the lookup; `requireApiKey` compares it
- * with the current `gen:<projectId>` — which the query route needs anyway
- * for its own cache key, so the read is shared, not added — and treats a
- * mismatch as a miss. Anything that bumps the generation therefore also
- * refreshes the cached auth: a policy change (`min_rating`,
- * `similarity_floor`), a key revocation and an allowed-origins edit (the
- * dashboard bumps after each, #108), index completion, review CRUD.
+ * An entry is **fresh** for `AUTH_CACHE_TTL_SECONDS` (60 s) after the
+ * lookup that produced it, and carries the project's cache generation
+ * (`@proofql/core` cache-generation) as of that lookup. `requireApiKey`
+ * trusts a fresh entry only while that generation is still current — the
+ * read is shared with the query cache — so anything that bumps the
+ * generation ends it: a key revocation, a policy or allowed-origins edit
+ * (the dashboard bumps after each), index completion, review CRUD.
  *
- * What that leaves is the window: a revoked key keeps authenticating on
- * `/v1/query` until the bump is visible in the serving colo (KV is
- * eventually consistent, up to 60 s) or the entry expires (60 s), whichever
- * comes first — call it a minute, never more than two. That is acceptable
- * because the cache is used **only on `/v1/query`** (`requireQueryKey`):
- * a key that is stale here can read a project's publishable reviews, which
- * a publishable key publishes to every visitor of the customer's site
- * anyway, and never write. Write routes resolve the key from the database
- * on every request, so a revoked secret key cannot ingest, edit or delete
- * one second longer than before. Plan changes lag the same minute (the
- * badge flips with the next lookup). docs/security.md §6 records the window.
+ * The window that leaves: a revoked key keeps authenticating on
+ * `/v1/query` until the bump is visible here (KV propagation, up to 60 s,
+ * plus the api's 10 s generation memo) or the entry stops being fresh
+ * (60 s), whichever is first — about a minute, never more than ~70 s.
+ * When the generation cannot be read at all (KV fault or daily limit) a
+ * fresh entry is trusted on its age alone, which is the same 60 s bound.
+ * That is acceptable because the cache is used **only on `/v1/query`**
+ * (`requireQueryKey`): a key that is stale here can read a project's
+ * publishable reviews, which a publishable key publishes to every visitor
+ * anyway, and never write. docs/security.md §6 records the window.
+ *
+ * ## Stale-if-error
+ *
+ * An entry is kept for `AUTH_STALE_SECONDS` (1 h) past its lookup. A
+ * non-fresh entry is used **only** when the database lookup fails as
+ * unavailable — a connection failure or Hyperdrive's daily query limit
+ * (src/db.ts `isDatabaseFailure`) — and only when its generation is still
+ * current (or unreadable). On the free plan that is what keeps cached
+ * answers flowing for every tenant after Hyperdrive's 100,000 daily queries
+ * are spent; a revocation cannot happen during such an outage anyway, since
+ * the dashboard needs the same database to revoke.
  *
  * ## Failure
  *
- * A KV read or write that throws is logged (`auth.cache_error`) and the
- * request falls through to the database lookup: the cache can slow auth
- * down, never take it down — the same rule the query cache follows.
+ * A Cache API fault is logged (`auth.cache_error`) and treated as a miss.
  */
 
 import { API_KEY_ENVIRONMENTS, API_KEY_KINDS, isPlan } from "@proofql/core";
+import type { Context } from "hono";
 
-import type { AuthContext } from "./bindings.js";
+import type { AppEnv, AuthContext } from "./bindings.js";
+import { waitUntil } from "./db.js";
+import { edgeCacheFor, edgeCacheUrl, LruTtl } from "./edge-cache.js";
+import { logFor } from "./request-id.js";
 
-/** KV's minimum TTL, and the revocation window the module doc describes. */
+/** How long a looked-up key is trusted without a lookup (module doc). */
 export const AUTH_CACHE_TTL_SECONDS = 60;
 
-/** The slice of `KVNamespace` this module uses; tests pass a Map-backed fake. */
-export interface AuthCacheStore {
-  get(key: string, type: "text"): Promise<string | null>;
-  put(
-    key: string,
-    value: string,
-    options?: { expirationTtl?: number },
-  ): Promise<void>;
-}
+/** How long an entry is kept for stale-if-error (module doc). */
+export const AUTH_STALE_SECONDS = 60 * 60;
+
+/** Keys kept per isolate. */
+export const AUTH_LRU_MAX = 2_000;
+
+/** Generation recorded when it could not be read at lookup time. */
+export const UNKNOWN_GENERATION = -1;
 
 export interface AuthCacheEntry {
   /** Shape version; an unknown version is a miss. */
@@ -71,54 +90,114 @@ export interface AuthCacheEntry {
   auth: AuthContext;
   /** ISO 8601, or null: `api_keys.last_used_at` as of the lookup. */
   lastUsedAt: string | null;
-  /** The project's cache generation when the lookup ran (module doc). */
+  /** The project's cache generation when the lookup ran, or -1 (unknown). */
   generation: number;
-  /** ISO 8601; diagnostic. */
+  /** ISO 8601: when the lookup ran; freshness is measured from it. */
   storedAt: string;
 }
 
-/** `auth:<key hash>` — the hash is `api_keys.key_hash`, never the plaintext. */
-export function authCacheKey(keyHash: string): string {
-  return `auth:${keyHash}`;
+/** The per-app (per-isolate) store; `createApp` makes one, tests may share one. */
+export class AuthCache {
+  readonly lru: LruTtl<AuthCacheEntry>;
+  readonly now: () => number;
+
+  constructor(options: { max?: number; now?: () => number } = {}) {
+    this.now = options.now ?? Date.now;
+    this.lru = new LruTtl(options.max ?? AUTH_LRU_MAX, this.now);
+  }
+
+  /** Age of `entry` in ms against this cache's clock. */
+  ageMs(entry: AuthCacheEntry): number {
+    return this.now() - Date.parse(entry.storedAt);
+  }
+
+  /** Whether `entry` is still within `AUTH_CACHE_TTL_SECONDS`. */
+  isFresh(entry: AuthCacheEntry): boolean {
+    const age = this.ageMs(entry);
+    return age >= 0 && age < AUTH_CACHE_TTL_SECONDS * 1000;
+  }
 }
 
 /**
- * The cached entry for a key hash, or null for a miss or an entry that does
- * not parse as a current `AuthCacheEntry` (a stale shape is a miss, never
- * trusted).
+ * The cached entry for a key hash — isolate first, then the Cache API —
+ * or null. An entry that does not parse as a current `AuthCacheEntry`, or
+ * is past the stale window, is a miss.
  */
 export async function getCachedAuth(
-  kv: AuthCacheStore,
+  c: Context<AppEnv>,
   keyHash: string,
 ): Promise<AuthCacheEntry | null> {
-  const raw = await kv.get(authCacheKey(keyHash), "text");
-  if (raw === null) return null;
-  let parsed: unknown;
+  const cache = c.get("authCache");
+  const local = cache.lru.get(keyHash, AUTH_STALE_SECONDS * 1000);
+  if (local !== undefined) return local.value;
+
+  const edge = edgeCacheFor(c);
+  if (edge === null) return null;
   try {
-    parsed = JSON.parse(raw);
-  } catch {
+    const res = await edge.match(edgeCacheUrl(c.req.url, "auth", keyHash));
+    if (res === undefined) return null;
+    const parsed: unknown = await res.json();
+    if (!isAuthCacheEntry(parsed)) return null;
+    const age = cache.ageMs(parsed);
+    if (!(age >= 0 && age < AUTH_STALE_SECONDS * 1000)) return null;
+    cache.lru.set(keyHash, parsed, Date.parse(parsed.storedAt));
+    return parsed;
+  } catch (error) {
+    logAuthCacheError(c, "get", error);
     return null;
   }
-  return isAuthCacheEntry(parsed) ? parsed : null;
 }
 
-/** Store a freshly looked-up key for `AUTH_CACHE_TTL_SECONDS`. */
-export async function putCachedAuth(
-  kv: AuthCacheStore,
+/**
+ * Store a freshly looked-up key in the isolate and, on a custom domain,
+ * in the Cache API (after the response, via `waitUntil`).
+ */
+export function putCachedAuth(
+  c: Context<AppEnv>,
   keyHash: string,
   entry: Omit<AuthCacheEntry, "v" | "storedAt">,
-  options: { now?: Date; ttlSeconds?: number } = {},
-): Promise<void> {
+): void {
+  const cache = c.get("authCache");
+  const now = cache.now();
   const stored: AuthCacheEntry = {
     v: 1,
     auth: entry.auth,
     lastUsedAt: entry.lastUsedAt,
     generation: entry.generation,
-    storedAt: (options.now ?? new Date()).toISOString(),
+    storedAt: new Date(now).toISOString(),
   };
-  await kv.put(authCacheKey(keyHash), JSON.stringify(stored), {
-    expirationTtl: options.ttlSeconds ?? AUTH_CACHE_TTL_SECONDS,
-  });
+  cache.lru.set(keyHash, stored, now);
+
+  const edge = edgeCacheFor(c);
+  if (edge === null) return;
+  waitUntil(
+    c,
+    edge
+      .put(
+        edgeCacheUrl(c.req.url, "auth", keyHash),
+        new Response(JSON.stringify(stored), {
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": `max-age=${AUTH_STALE_SECONDS}`,
+          },
+        }),
+      )
+      .catch((error: unknown) => logAuthCacheError(c, "put", error)),
+  );
+}
+
+/** Forget a key in this isolate (an entry a generation bump retired). */
+export function dropCachedAuth(c: Context<AppEnv>, keyHash: string): void {
+  c.get("authCache").lru.delete(keyHash);
+}
+
+/** A Cache API fault on the auth cache is a database lookup, not a failure: warn. */
+function logAuthCacheError(
+  c: Context<AppEnv>,
+  op: "get" | "put",
+  error: unknown,
+): void {
+  logFor(c).log("auth.cache_error", { level: "warn", op, error });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -136,7 +215,9 @@ export function isAuthCacheEntry(value: unknown): value is AuthCacheEntry {
     !(typeof value.lastUsedAt === "string" || value.lastUsedAt === null) ||
     typeof value.generation !== "number" ||
     !Number.isSafeInteger(value.generation) ||
-    typeof value.storedAt !== "string"
+    value.generation < UNKNOWN_GENERATION ||
+    typeof value.storedAt !== "string" ||
+    Number.isNaN(Date.parse(value.storedAt))
   ) {
     return false;
   }

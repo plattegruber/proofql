@@ -817,6 +817,12 @@ describe("/v1/query", () => {
       let clock = Date.parse("2026-10-04T12:00:00Z");
       const kv = fakeKv({ now: () => clock });
       const bindings = testEnv({ kv });
+      // The auth cache lives in the app (#158), on the app's clock.
+      const app = createApp({
+        db: t.db,
+        embedder: new FakeEmbeddingProvider(),
+        now: () => clock,
+      });
       const free = await fixture(t.db);
       const first = await post(
         app,

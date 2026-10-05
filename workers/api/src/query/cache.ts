@@ -1,7 +1,22 @@
 /**
- * KV cache for `/v1/query` results (scope.md §3 "Query": "cached in KV
- * keyed on (project, environment, normalized query, filters); purged on
- * ingest, delete, hide, or policy change for that project"; issue #28).
+ * Cache for `/v1/query` results (scope.md §3 "Query": "cached … keyed on
+ * (project, environment, normalized query, filters); purged on ingest,
+ * delete, hide, or policy change for that project"; issues #28, #158).
+ *
+ * ## Where results live (#158)
+ *
+ * - **The Workers Cache API** (`caches.default`) when the request arrived
+ *   on a custom domain: free, unmetered, per data center. The entry is a
+ *   JSON `Response` under `<origin>/__proofql_cache/q/<key>` with
+ *   `Cache-Control: max-age=<CACHE_TTL_SECONDS>` (src/edge-cache.ts).
+ * - **KV** otherwise — on `*.workers.dev` the Cache API's `put` is a no-op —
+ *   with a **write budget**: a result is written only on its second MISS
+ *   within the TTL in the same isolate (`MissCounter`), so the long tail of
+ *   one-off queries never spends the free plan's 1,000 daily KV writes.
+ *   The trade-off: a query asked once per isolate is never cached, and a
+ *   popular query pays one extra uncached search per isolate before it is.
+ *
+ * Either way the key and the purge are the same.
  *
  * ## Key
  *
@@ -24,25 +39,30 @@
  * ## Purge
  *
  * The project's generation counter (`@proofql/core` cache-generation,
- * `gen:<projectId>`) is part of every key, so invalidating a project is one KV write:
- * `bumpProjectGeneration` orphans every entry at once and the orphans age
- * out through `CACHE_TTL_SECONDS`. The bump sites:
+ * `gen:<projectId>`, always in KV) is part of every key, so invalidating a
+ * project is one KV write: `bumpProjectGeneration` orphans every entry at
+ * once — in the Cache API and in KV alike — and the orphans age out through
+ * `CACHE_TTL_SECONDS`. The bump sites:
  *
  *   - hide, unhide, metadata edit, delete — `../routes/reviews-crud.ts` (#22)
  *   - index completion — `workers/pipeline/src/index-review.ts` bumps when a
- *     review's `indexed_at` transitions (#24). Ingest itself (`POST
+ *     review's `indexed_at` transitions (#24), coalesced to one bump per
+ *     project per queue batch (#158). Ingest itself (`POST
  *     /v1/reviews`) deliberately does **not** bump: an upsert sets
  *     `indexed_at` back to null, which removes the review from results only
  *     once the pipeline has re-embedded it, and a bump at ingest time would
  *     purge for a change that is not yet visible to the search. The
  *     pipeline's bump lands exactly when results change.
- *   - policy change — `onProjectPolicyChanged` below. There is no policy
- *     update API yet (dashboard, #41); when it lands it must call this after
- *     the `projects` row is committed.
+ *   - policy change — `onProjectPolicyChanged` below; the dashboard's
+ *     project settings, key revocation and allowlist edits.
  *
  * KV is eventually consistent (a read in another colo can lag a write by up
- * to 60 s), so a purge is "soon", never "now"; the TTL bounds the worst
- * case for an entry whose bump was lost.
+ * to 60 s) and the api memoizes the generation for 10 s per isolate, so a
+ * purge is "soon", never "now"; the TTL bounds the worst case for an entry
+ * whose bump was lost — including a bump that failed because the day's KV
+ * writes were spent, which is logged (`kv.limit_exceeded`) and swallowed.
+ * When the generation cannot be *read*, the request is uncachable: no
+ * lookup, no store.
  *
  * ## What is stored
  *
@@ -66,6 +86,7 @@ import {
   lexicalFloorFor,
 } from "@proofql/core";
 
+import type { EdgeCacheLike } from "../edge-cache.js";
 import type { QueryRequest } from "./request.js";
 import type { QueryMatch, QueryResponseResult } from "./route.js";
 
@@ -269,6 +290,47 @@ export async function putCached(
     expirationTtl: options.ttlSeconds ?? CACHE_TTL_SECONDS,
     metadata,
   });
+}
+
+/**
+ * The body cached in the Cache API under `url`, or null for a miss or a
+ * wrong-shaped entry (same rule as `getCached`).
+ */
+export async function getEdgeCached(
+  cache: EdgeCacheLike,
+  url: string,
+): Promise<CachedBody | null> {
+  const res = await cache.match(url);
+  if (res === undefined) return null;
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    return null;
+  }
+  return isCachedBody(body)
+    ? { results: body.results, match: body.match }
+    : null;
+}
+
+/** Store a successful search's body in the Cache API for `ttlSeconds`. */
+export async function putEdgeCached(
+  cache: EdgeCacheLike,
+  url: string,
+  body: CachedBody,
+  options: { generation: number; ttlSeconds?: number; now?: Date },
+): Promise<void> {
+  await cache.put(
+    url,
+    new Response(JSON.stringify(body), {
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": `max-age=${options.ttlSeconds ?? CACHE_TTL_SECONDS}`,
+        "x-proofql-generation": String(options.generation),
+        "x-proofql-stored-at": (options.now ?? new Date()).toISOString(),
+      },
+    }),
+  );
 }
 
 function isEntryMetadata(value: unknown): value is CacheEntryMetadata {

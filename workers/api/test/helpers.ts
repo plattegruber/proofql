@@ -156,3 +156,46 @@ export async function issueKey(
   });
   return { plaintext: generated.plaintext, row };
 }
+
+/**
+ * A Map-backed stand-in for the Workers Cache API (`caches.default`, #158):
+ * `put` honours the response's `Cache-Control: max-age` against an
+ * injectable clock, `match` returns a fresh clone. `puts` / `matches` count
+ * calls so tests can assert which tier was used.
+ */
+export function fakeEdgeCache(options: { now?: () => number } = {}) {
+  const now = options.now ?? Date.now;
+  const store = new Map<
+    string,
+    { body: string; headers: [string, string][]; expiresAt: number }
+  >();
+  const calls = { puts: 0, matches: 0 };
+  const url = (r: Request | string) => (typeof r === "string" ? r : r.url);
+  return {
+    store,
+    calls,
+    async match(request: Request | string): Promise<Response | undefined> {
+      calls.matches += 1;
+      const entry = store.get(url(request));
+      if (entry === undefined) return undefined;
+      if (entry.expiresAt <= now()) {
+        store.delete(url(request));
+        return undefined;
+      }
+      return new Response(entry.body, { headers: entry.headers });
+    },
+    async put(request: Request | string, response: Response): Promise<void> {
+      calls.puts += 1;
+      const maxAge = /max-age=(\d+)/.exec(
+        response.headers.get("cache-control") ?? "",
+      );
+      store.set(url(request), {
+        body: await response.text(),
+        headers: [...response.headers.entries()],
+        expiresAt: now() + Number(maxAge?.[1] ?? 0) * 1000,
+      });
+    },
+  };
+}
+
+export type FakeEdgeCache = ReturnType<typeof fakeEdgeCache>;
