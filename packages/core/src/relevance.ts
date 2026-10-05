@@ -11,4 +11,4 @@
  * runs are saved under `docs/floor-tuning/`. Change this only with a new
  * run attached, and move the schema default (a migration) with it.
  */
-export const DEFAULT_SIMILARITY_FLOOR = 0.55;
+export const DEFAULT_SIMILARITY_FLOOR = 0.66;

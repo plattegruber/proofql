@@ -4,6 +4,7 @@
  * factories that satisfy every NOT NULL / unique / FK constraint.
  */
 
+import { DEFAULT_SIMILARITY_FLOOR } from "@proofql/core";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
@@ -103,7 +104,7 @@ describe("factories: one of everything, constraints satisfied", () => {
     const p = await project(t.db, { name: "Override Co" });
     expect(p.name).toBe("Override Co");
     expect(p.minRating).toBe(4);
-    expect(p.similarityFloor).toBe(0.55);
+    expect(p.similarityFloor).toBe(DEFAULT_SIMILARITY_FLOOR);
     expect(p.showBadge).toBe(true);
     expect(p.reviewCount).toBe(0);
     expect(p.allowedOrigins).toEqual([]);

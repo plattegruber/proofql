@@ -52,7 +52,13 @@ async function indexed(
 }
 
 async function fixture() {
-  const p = await project(t.db, { allowedOrigins: [ORIGIN] });
+  // Floor pinned, not the column default: these tests are about the cache,
+  // and "implant tooth" scores 0.632 against IMPLANT under the fake
+  // embedder — above 0.55, below the bge-m3-tuned default (#138).
+  const p = await project(t.db, {
+    allowedOrigins: [ORIGIN],
+    similarityFloor: 0.55,
+  });
   const secret = (await issueKey(t.db, p.id, "secret")).plaintext;
   const publishable = (await issueKey(t.db, p.id, "publishable")).plaintext;
   const implant = await indexed(
