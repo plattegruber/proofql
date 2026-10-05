@@ -63,6 +63,9 @@ jobs:
       - uses: ./.github/actions/setup
       - name: Typecheck
         run: pnpm typecheck
+      # load/ is not a workspace, so turbo's typecheck never sees it (#152).
+      - name: Typecheck load scripts
+        run: pnpm load:typecheck
 
   test:
     runs-on: ubuntu-latest

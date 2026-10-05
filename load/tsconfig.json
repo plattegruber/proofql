@@ -2,7 +2,10 @@
   "extends": "../packages/tsconfig/base.json",
   "compilerOptions": {
     "types": ["node"],
-    "typeRoots": ["../packages/db/node_modules/@types"]
+    "typeRoots": ["../packages/db/node_modules/@types"],
+    "paths": {
+      "postgres": ["../packages/db/node_modules/postgres"]
+    }
   },
   "include": ["scripts/**/*.ts"]
 }

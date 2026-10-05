@@ -13,7 +13,7 @@ relative path and runs under `packages/db`'s `tsx`, so nothing here ships.
 | `run.sh` | Runs the scenarios in sequence, snapshots Postgres before and after each, writes `results/` (gitignored). |
 | `scripts/pg-stats.sh` | The Postgres snapshot (`pg_stat_database.sessions`, backends by state); needs `psql` or the compose container. |
 | `scripts/pg-sample.ts` | The same picture for a database without `psql` (the Neon preview branch): polls `pg_stat_activity` every 500 ms for the run's duration and prints the peak backends by state plus the `sessions` / `xact_commit` deltas. Stops on SIGTERM with its summary, so a runner can bracket k6 with it (#108). |
-| `tsconfig.json` | Typechecks the seed: `pnpm load:typecheck`. |
+| `tsconfig.json` | Typechecks the seed and the sampler: `pnpm load:typecheck` (run by CI's `typecheck` job). |
 
 ## Prerequisites
 
