@@ -1060,7 +1060,7 @@ What runs out first, by workload:
 | KV writes | Results not stored in KV (Cache API unaffected). Generation bumps lost → cached results stay stale **up to their 24 h TTL**. This is the one correctness cost; it is logged (`kv.limit_exceeded`, `site: …generation_bump`). The edit itself always succeeds. Google connect start → 503 "try again later" before the user is sent to Google. |
 | Hyperdrive | MISSes, ingest and the dashboard → 503 `service_unavailable` with `Retry-After` until 00:00 UTC, plus `quota.exhausted` (level error). HITs keep being served: auth from the isolate or Cache API, fresh or as a stale stand-in for up to an hour (`auth.stale_served`); usage counts for the outage window are lost (`usage.flush_failed`). |
 | Workers requests | Cloudflare error 1027 on every worker. The snippet renders nothing on any error, so customer pages show their fallback text. Nothing in code can help. |
-| Queues | `POST /v1/reviews` commits the rows, then `sendBatch` throws → 500; the sweep cron cannot re-enqueue either. Reviews stay unindexed until 00:00 UTC, when the sweep picks them up. Not handled in #158 (follow-up issue). |
+| Queues | `POST /v1/reviews` commits the rows, then `sendBatch` throws → 500; the sweep cron cannot re-enqueue either. Reviews stay unindexed until 00:00 UTC, when the sweep picks them up. Not handled in #158: #159. |
 
 Every KV failure is logged at **warn**, once per isolate per minute per
 (event, op), with a `suppressed` count. The events are `kv.limit_exceeded`,
