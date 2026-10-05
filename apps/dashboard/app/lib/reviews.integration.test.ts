@@ -1,7 +1,13 @@
 // Review browser against the real schema: keyset pagination and filters,
 // and hide/unhide — single and bulk — setting/clearing hidden_at and
 // bumping the project's cache generation exactly once per action.
-import { generationKey, MemoryKv } from "@proofql/core";
+import {
+  createLogger,
+  exhaustedKv,
+  generationKey,
+  MemoryKv,
+  recordingSink,
+} from "@proofql/core";
 import { chunk, project, review, setupTestDb } from "@proofql/db/test";
 import { describe, expect, it } from "vitest";
 
@@ -167,6 +173,31 @@ describe("getReviewDetail", () => {
 });
 
 describe("setReviewsHidden", () => {
+  it("KV at its daily write limit: the review is still hidden and the bump failure logged, not thrown (#158)", async () => {
+    const p = await project(t.db);
+    const r = await review(t.db, { projectId: p.id });
+    const rec = recordingSink();
+    const log = createLogger({
+      service: "dashboard",
+      environment: "test",
+      sink: rec.sink,
+    });
+    const result = await setReviewsHidden(t.db, exhaustedKv({ reads: false }), {
+      projectId: p.id,
+      environment: "live",
+      ids: [r.id],
+      hidden: true,
+      log,
+    });
+    expect(result).toEqual({ changed: 1, generation: null });
+    const detail = await getReviewDetail(t.db, { projectId: p.id, id: r.id });
+    expect(detail?.review.hiddenAt).toBeInstanceOf(Date);
+    expect(rec.only("kv.limit_exceeded")).toMatchObject({
+      level: "warn",
+      site: "dashboard.generation_bump",
+    });
+  });
+
   it("hides and unhides one review, bumping the generation once each time", async () => {
     const p = await project(t.db);
     const r = await review(t.db, { projectId: p.id });

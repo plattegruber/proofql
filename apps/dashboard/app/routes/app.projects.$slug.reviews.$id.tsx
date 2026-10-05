@@ -137,7 +137,7 @@ export async function action(args: Route.ActionArgs) {
   if (intent !== "hide" && intent !== "unhide") {
     throw data("Unknown intent.", { status: 400 });
   }
-  const { env } = getCloudflare(args.context);
+  const { env, log } = getCloudflare(args.context);
 
   const result = await withRequestDb(args.context, async (db) => {
     const project = await findProjectBySlug(db, account.id, args.params.slug);
@@ -152,6 +152,7 @@ export async function action(args: Route.ActionArgs) {
       environment: detail.review.environment,
       ids: [detail.review.id],
       hidden: intent === "hide",
+      log,
     });
   });
   return { ok: true as const, intent, changed: result.changed };

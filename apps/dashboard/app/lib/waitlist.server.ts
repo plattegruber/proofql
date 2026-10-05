@@ -12,13 +12,17 @@
  *   consistent and the fallback is per isolate, so the count is
  *   approximate — abuse protection, not accounting, the same stance as the
  *   api's limiters (workers/api/src/rate-limit.ts). Addresses are hashed
- *   before they become keys; the raw ip is never stored or logged.
+ *   before they become keys; the raw ip is never stored or logged. When KV
+ *   throws — the Workers Free plan's daily read or write limit included —
+ *   the attempt is counted by the isolate-local fallback instead
+ *   (`DegradingLimiter`, #158), logged once a minute per isolate: the form
+ *   keeps working and keeps a per-isolate throttle.
  * - `handleWaitlistSubmission` is the whole action: parse → honeypot →
  *   throttle → insert, returning `data()` the route hands back unchanged.
  *   Dependencies are injectable so the unit test drives it without
  *   Postgres or KV; the integration test covers the insert.
  */
-import type { Logger } from "@proofql/core";
+import { type KvFaultReporter, kvFaults, type Logger } from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
 import { data } from "react-router";
 
@@ -160,11 +164,50 @@ class MemoryCounterKv implements CounterKv {
 
 const memoryLimiter = new FixedWindowLimiter(new MemoryCounterKv());
 
+/**
+ * `primary` (KV) unless it throws, then `fallback` (memory) for that
+ * attempt (#158). A KV fault never turns a sign-up into an error page.
+ */
+export class DegradingLimiter implements WaitlistLimiter {
+  constructor(
+    readonly primary: WaitlistLimiter,
+    readonly fallback: WaitlistLimiter,
+    readonly log?: Logger,
+    readonly reporter: KvFaultReporter = kvFaults,
+  ) {}
+
+  async limit(key: string): Promise<{ success: boolean }> {
+    try {
+      return await this.primary.limit(key);
+    } catch (error) {
+      if (this.log) {
+        // Which half failed is in the message; `get` names the operation.
+        this.reporter.report(
+          this.log,
+          "get",
+          "dashboard.waitlist_limiter",
+          error,
+        );
+      }
+      return this.fallback.limit(key);
+    }
+  }
+}
+
 export type WaitlistEnv = Partial<Pick<Env, "CACHE">>;
 
-/** The KV-backed limiter when `CACHE` is bound, else the memory fallback. */
-export function waitlistLimiterFor(env: WaitlistEnv): WaitlistLimiter {
-  return env.CACHE ? new FixedWindowLimiter(env.CACHE) : memoryLimiter;
+/** The KV-backed limiter (degrading to memory) when `CACHE` is bound, else memory. */
+export function waitlistLimiterFor(
+  env: WaitlistEnv,
+  log?: Logger,
+): WaitlistLimiter {
+  return env.CACHE
+    ? new DegradingLimiter(
+        new FixedWindowLimiter(env.CACHE),
+        memoryLimiter,
+        log,
+      )
+    : memoryLimiter;
 }
 
 /** Cloudflare sets this on every request; absent means "not behind Cloudflare". */
@@ -190,7 +233,7 @@ export type WaitlistActionData =
 
 export interface WaitlistSubmissionDeps {
   withDb: WithDb;
-  limiterFor: (env: WaitlistEnv) => WaitlistLimiter;
+  limiterFor: (env: WaitlistEnv, log?: Logger) => WaitlistLimiter;
 }
 
 const defaultDeps: WaitlistSubmissionDeps = {
@@ -230,7 +273,7 @@ export async function handleWaitlistSubmission(
 
   const ip = args.request.headers.get(CLIENT_IP_HEADER);
   if (ip !== null) {
-    const limiter = deps.limiterFor(env);
+    const limiter = deps.limiterFor(env, log);
     const { success } = await limiter.limit(await limiterKeyFor(ip));
     if (!success) {
       logThrottled(log);

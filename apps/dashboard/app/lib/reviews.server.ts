@@ -13,9 +13,12 @@
  * @proofql/db harness + `MemoryKv`) run the same code.
  */
 import {
-  bumpProjectGeneration,
   type ChunkKind,
+  createLogger,
   type GenerationKv,
+  type Logger,
+  safeBumpProjectGeneration,
+  silentSink,
 } from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
 import {
@@ -247,12 +250,24 @@ export interface SetHiddenParams {
   /** Review ids; rows outside the scope are ignored, not errors. */
   ids: string[];
   hidden: boolean;
+  /** Where a failed generation bump is reported (#158). */
+  log?: Logger;
 }
+
+const silentLog = createLogger({
+  service: "dashboard",
+  environment: "unknown",
+  sink: silentSink,
+});
 
 export interface SetHiddenResult {
   /** Rows whose state actually changed (already-hidden rows don't count). */
   changed: number;
-  /** The project's new cache generation, or null when nothing changed. */
+  /**
+   * The project's new cache generation, or null when nothing changed or the
+   * bump failed (KV's daily write limit, #158: logged, never thrown — the
+   * edit committed; cached results age out with their TTL).
+   */
   generation: number | null;
 }
 
@@ -284,6 +299,9 @@ export async function setReviewsHidden(
     )
     .returning({ id: schema.reviews.id });
   if (updated.length === 0) return { changed: 0, generation: null };
-  const generation = await bumpProjectGeneration(kv, params.projectId);
+  const generation = await safeBumpProjectGeneration(kv, params.projectId, {
+    log: params.log ?? silentLog,
+    site: "dashboard.generation_bump",
+  });
   return { changed: updated.length, generation };
 }

@@ -8,6 +8,7 @@
  * and keeps the reviews. Runs in the local auth stub.
  */
 
+import { exhaustedKv } from "@proofql/core";
 import { schema } from "@proofql/db";
 import { DEMO_ACCOUNT_CLERK_ORG_ID } from "@proofql/db/seed";
 import { account, project, review, setupTestDb } from "@proofql/db/test";
@@ -480,6 +481,53 @@ describe("location mapping and disconnect", () => {
     await expect(saveLocations(h, "bye", ["201"])).rejects.toMatchObject({
       init: { status: 409 },
     });
+  });
+
+  it("KV at its daily limits: the connect stops with a 503 before Google, a callback is refused, a failed nonce delete is swallowed (#158)", async () => {
+    const p = await project(t.db, { accountId: demo.id, slug: "kv-limit" });
+    const h = harness();
+    const limited = exhaustedKv();
+    (h.env as { CACHE: unknown }).CACHE = limited;
+    await expect(startConnect(h, "kv-limit")).rejects.toMatchObject({
+      init: { status: 503 },
+    });
+
+    // A connect started while KV worked, completed after reads ran out:
+    // refused with a flash, nothing stored.
+    const ok = harness();
+    const back = await consent(
+      (await startConnect(ok, "kv-limit")).headers.get("Location") as string,
+    );
+    const refused = await completeConnect({
+      env: ok.env,
+      kv: exhaustedKv(),
+      db: t.db,
+      code: back.searchParams.get("code") as string,
+      state: back.searchParams.get("state") as string,
+      accountId: demo.id,
+      redirectUri: `${ORIGIN}/app/integrations/google/callback`,
+    }).catch((e: unknown) => e);
+    expect((refused as ConnectError).reason).toBe("nonce_unavailable");
+    expect(await connection(p.id)).toBeUndefined();
+
+    // Reads fine, deletes (writes) exhausted: the connect completes.
+    const deletesFail = {
+      get: (k: string) => ok.kv.get(k),
+      put: (k: string, v: string) => ok.kv.put(k, v),
+      delete: async () => {
+        throw new Error("KV delete() limit exceeded for the day.");
+      },
+    };
+    const done = await completeConnect({
+      env: ok.env,
+      kv: deletesFail,
+      db: t.db,
+      code: back.searchParams.get("code") as string,
+      state: back.searchParams.get("state") as string,
+      accountId: demo.id,
+      redirectUri: `${ORIGIN}/app/integrations/google/callback`,
+    });
+    expect(done.projectId).toBe(p.id);
   });
 
   it("the connect route refuses to start while the connector is switched off", async () => {

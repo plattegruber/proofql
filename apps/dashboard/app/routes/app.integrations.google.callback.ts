@@ -73,6 +73,7 @@ export async function loader(args: Route.LoaderArgs) {
       completeConnect({
         env,
         kv: env.CACHE,
+        log,
         db,
         code,
         state,

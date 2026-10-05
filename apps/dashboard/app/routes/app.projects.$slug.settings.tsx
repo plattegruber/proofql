@@ -3,7 +3,7 @@
 // alongside the project's name and slug, and a Danger section that deletes
 // the project. Saving the policy bumps the project's cache generation so
 // the playground (and every snippet) sees the change on its next query.
-import { bumpProjectGeneration, LEXICAL_FLOOR_OFFSET } from "@proofql/core";
+import { LEXICAL_FLOOR_OFFSET, safeBumpProjectGeneration } from "@proofql/core";
 import { data, Form, redirect, useFetcher } from "react-router";
 import { z } from "zod";
 import { Field, SelectField } from "~/components/form/field";
@@ -83,7 +83,10 @@ export async function action(args: Route.ActionArgs) {
     if (!deleted) throw data(null, { status: 404 });
     // The project's cached results are unreachable without its keys, but a
     // bump costs one write and makes the orphaning explicit.
-    await bumpProjectGeneration(env.CACHE, project.id);
+    await safeBumpProjectGeneration(env.CACHE, project.id, {
+      log,
+      site: "dashboard.generation_bump",
+    });
     log.log("project.deleted", {
       project_id: project.id,
       account_id: account.id,
@@ -126,7 +129,12 @@ export async function action(args: Route.ActionArgs) {
 
   // After the commit, never inside it (packages/core cache-generation).
   if (result.policyChanged) {
-    const generation = await bumpProjectGeneration(env.CACHE, project.id);
+    // Never throws (#158): the policy committed; a lost bump is logged and
+    // the old results age out with the cache TTL (24 h).
+    const generation = await safeBumpProjectGeneration(env.CACHE, project.id, {
+      log,
+      site: "dashboard.generation_bump",
+    });
     log.log("project.policy_changed", {
       project_id: project.id,
       min_rating: result.project.minRating,

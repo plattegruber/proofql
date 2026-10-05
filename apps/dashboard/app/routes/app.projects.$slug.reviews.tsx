@@ -122,7 +122,7 @@ export async function action(args: Route.ActionArgs) {
   const environment: Environment = parseEnvironment(
     typeof form.get("env") === "string" ? (form.get("env") as string) : null,
   );
-  const { env } = getCloudflare(args.context);
+  const { env, log } = getCloudflare(args.context);
 
   const result = await withRequestDb(args.context, async (db) => {
     const project = await findProjectBySlug(db, account.id, args.params.slug);
@@ -132,6 +132,7 @@ export async function action(args: Route.ActionArgs) {
       environment,
       ids,
       hidden: intent === "hide",
+      log,
     });
   });
 
