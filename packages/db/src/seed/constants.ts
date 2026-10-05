@@ -46,8 +46,14 @@
  * search holds full-text matches to the lower word-match tier (0.53). The
  * fake-embedded local corpus answers fewer loosely worded queries than at
  * v5; the cdn demo page's three queries still clear (0.754 / 0.798 / 0.775).
+ *
+ * v7 (#149): same reviews and chunks; the seed ends with
+ * `refreshGenericTerms`, so the demo project's `generic_terms` is what the
+ * pipeline would derive: `{dr}` ("Dr." is in 38 of the 80 live reviews;
+ * no other lexeme is in more than 20). The floor's partial word match no
+ * longer treats "dental", "dentist", "teeth", or "office" as generic.
  */
-export const SEED_VERSION = 6;
+export const SEED_VERSION = 7;
 
 /**
  * Natural key of the demo account. The wipe step finds any previous seed

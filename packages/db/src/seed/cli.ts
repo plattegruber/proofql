@@ -36,6 +36,7 @@ async function main(): Promise<void> {
       `  chunks   ${summary.chunks.full} full, ${summary.chunks.window} window, ` +
         `${summary.chunks.sentence} sentence (all embedded with the fake provider)`,
     );
+    console.log(`  generic  ${summary.genericTerms.join(" ") || "(none)"}`);
     console.log("");
     console.log(
       "API keys — LOCAL DEMO ONLY. Shown once; reseeding replaces them.",

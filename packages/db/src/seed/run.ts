@@ -39,6 +39,7 @@ import {
 import { eq } from "drizzle-orm";
 
 import type { Db } from "../client.js";
+import { refreshGenericTerms } from "../queries/genericTerms.js";
 import { apiKeys } from "../schema/apiKeys.js";
 import { reviewChunks } from "../schema/reviewChunks.js";
 import { reviews } from "../schema/reviews.js";
@@ -91,6 +92,8 @@ export interface SeedSummary {
   projectId: string;
   reviews: { live: number; test: number };
   chunks: { full: number; window: number; sentence: number };
+  /** The demo project's derived generic query words (#149), sorted. */
+  genericTerms: string[];
   keys: SeedKey[];
 }
 
@@ -194,6 +197,10 @@ export async function runSeed(
       await tx.insert(reviewChunks).values(batch);
     }
 
+    // What the pipeline would have derived after indexing (#149). No cache
+    // bump: the seed is a local wipe-and-recreate, not a live project.
+    const generic = await refreshGenericTerms(tx, DEMO_PROJECT_ID);
+
     return {
       seedVersion: SEED_VERSION,
       accountId: DEMO_ACCOUNT_ID,
@@ -207,6 +214,7 @@ export async function runSeed(
         window: chunkRows.filter((c) => c.kind === "window").length,
         sentence: chunkRows.filter((c) => c.kind === "sentence").length,
       },
+      genericTerms: generic?.terms ?? [],
       keys: minted.map((key) => ({
         kind: key.kind,
         environment: key.environment,

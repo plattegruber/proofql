@@ -56,8 +56,11 @@
  *   lower *lexical floor* (`lexicalFloorFor(similarityFloor)` from
  *   `@proofql/core`, the floor minus 0.13) **and** it matches the query's
  *   words: at least half of the query's content words that are not
- *   generic (`GENERIC_QUERY_WORDS`) are in the chunk, or the text branch
- *   matched it outright (`./lexicalMatch.ts`, rule `half-specific`, #147).
+ *   generic are in the chunk, or the text branch matched it outright
+ *   (`./lexicalMatch.ts`, rule `half-specific`, #147). Generic is the
+ *   project's own `projects.generic_terms`, read in this statement, plus
+ *   core's `UNIVERSAL_GENERIC_WORDS` (#149, `./genericTerms.ts`): for a
+ *   dental practice "dentist" and "teeth", for a cafe "coffee".
  *   So "dental implants" passes on an implant review that never says
  *   "dental". Everything else is dropped before the collapse, so a chunk that
  *   is not semantically close never comes back however well its words
@@ -119,11 +122,7 @@
  * review's `full` chunk as the excerpt and `similarity`/`score` null.
  */
 
-import {
-  GENERIC_QUERY_WORDS,
-  LEXICAL_RULE,
-  lexicalFloorFor,
-} from "@proofql/core";
+import { LEXICAL_RULE, lexicalFloorFor } from "@proofql/core";
 import { type SQL, sql } from "drizzle-orm";
 
 import type { Db } from "../client.js";
@@ -131,7 +130,7 @@ import { EMBEDDING_DIMENSIONS } from "../schema/reviewChunks.js";
 import type { ReviewMetadata } from "../schema/reviews.js";
 import type { Environment } from "../schema/shared.js";
 import { normalizeRrf, RRF_K } from "./fusion.js";
-import { lexicalMatchSql } from "./lexicalMatch.js";
+import { genericLexemesSql, lexicalMatchSql } from "./lexicalMatch.js";
 
 /** Upper bound on `limit`; the API contract's maximum page. */
 export const MAX_SEARCH_LIMIT = 20;
@@ -404,9 +403,19 @@ function hybridStatement(
 
   // The floor's word-match test (#147): partial keyword coverage, not the
   // ranking branch's every-term match. Only rows already in `vec` (at or
-  // above the lexical floor by default) pay for it.
+  // above the lexical floor by default) pay for it. The project's generic
+  // terms (#149) are read here rather than passed in, so the api never
+  // carries them (nor caches a stale copy with the key): an uncorrelated
+  // scalar subquery on the primary key, evaluated once per statement.
   const lexical = queryText
-    ? lexicalMatchSql(sql`v.tsv`, queryText, LEXICAL_RULE, GENERIC_QUERY_WORDS)
+    ? lexicalMatchSql(
+        sql`v.tsv`,
+        queryText,
+        LEXICAL_RULE,
+        genericLexemesSql(
+          sql`(SELECT p.generic_terms FROM projects p WHERE p.id = ${params.projectId})`,
+        ),
+      )
     : sql`false`;
 
   const textBranch = queryText

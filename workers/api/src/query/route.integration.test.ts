@@ -17,7 +17,7 @@ import {
   generateApiKey,
   recordingSink,
 } from "@proofql/core";
-import { type Db, setAccountPlan } from "@proofql/db";
+import { type Db, refreshGenericTerms, setAccountPlan } from "@proofql/db";
 import {
   type ApiKey,
   account,
@@ -340,6 +340,58 @@ describe("/v1/query", () => {
       expect(res.status).toBe(200);
       const body = await json<QueryResponse>(res);
       expect(body.results.map((r) => r.review.id)).toEqual([f.reviews.implant]);
+    });
+  });
+
+  describe("per-project generic terms (#149)", () => {
+    // A cafe: 30 reviews say "coffee", so the derived terms make it filler.
+    // They are indexed without embeddings, so only their words count; the
+    // two embedded reviews below are what the query can return. With the
+    // fake embedder, "coffee cake" scores 1/sqrt(2·4) = 0.354 against each
+    // four-content-word review: under this project's 0.45 floor, over its
+    // word-match tier (0.32), so only a word match lets either through.
+    const CAKE = "Lemon cake, moist crumb."; // lemon cake moist crumb
+    const COFFEE = "Coffee arrived hot, quickly."; // coffee arrived hot quickly
+
+    it('partial tier end to end: the cake review answers "coffee cake", the coffee-only one stops counting once coffee is generic', async () => {
+      const kv = fakeKv();
+      const bindings = testEnv({ kv });
+      const cafe = await fixture(t.db, { similarityFloor: 0.45 });
+      for (let i = 0; i < 30; i++) {
+        const r = await review(t.db, {
+          projectId: cafe.project.id,
+          text: `Coffee number ${i} was fine.`,
+          indexedAt: new Date(),
+        });
+        await chunk(t.db, { reviewId: r.id, kind: "full" });
+      }
+      const cake = await indexed(t.db, cafe.project.id, CAKE, {
+        indexedAt: new Date(),
+      });
+      const coffee = await indexed(t.db, cafe.project.id, COFFEE, {
+        indexedAt: new Date(),
+      });
+      const ask = () =>
+        post(app, cafe.secret, { q: "coffee cake" }, {}, bindings);
+
+      // No terms yet: "coffee" is half the query, so both pass.
+      const before = await json<QueryResponse>(await ask());
+      expect(new Set(before.results.map((r) => r.review.id))).toEqual(
+        new Set([cake, coffee]),
+      );
+
+      // What the pipeline does after indexing: refresh, bump on change.
+      const refreshed = await refreshGenericTerms(t.db, cafe.project.id);
+      expect(refreshed?.terms).toContain("coffe");
+      expect(refreshed?.changed).toBe(true);
+      await bumpProjectGeneration(kv, cafe.project.id);
+
+      const res = await ask();
+      expect(res.headers.get("x-cache")).toBe("MISS");
+      const after = await json<QueryResponse>(res);
+      expect(after.match).toBe("query");
+      expect(after.results.map((r) => r.review.id)).toEqual([cake]);
+      expect(after.results[0]?.score).toBeCloseTo(1 / Math.sqrt(8), 3);
     });
   });
 

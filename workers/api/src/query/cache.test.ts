@@ -169,7 +169,7 @@ describe("cacheKey", () => {
         similarity_floor: 0.55,
         lexical_floor: 0.42,
         lexical_rule: "half-specific",
-        generic_words: "dental dentist teeth review office",
+        generic_words: "review place service experience",
       },
     });
   });

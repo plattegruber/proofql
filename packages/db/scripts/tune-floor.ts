@@ -61,6 +61,16 @@
  *   --lexical-rule <r> with --annotate: which word-match rule to apply
  *                      (`all`, `any`, `half`, `half-specific`; default the
  *                      one `searchChunks` uses, `LEXICAL_RULE` in @proofql/core)
+ *   --generic-terms <a,b,…>  with --annotate: the project's generic lexemes
+ *                      for `half-specific` (#149), comma-separated, already
+ *                      stemmed. Default: derive them read-only from the
+ *                      database (`computeGenericTerms`, the statement the
+ *                      pipeline stores), so a database whose schema predates
+ *                      `projects.generic_terms` works. Pass `--generic-terms ""`
+ *                      for the universal words alone. Recorded in the run as
+ *                      `source.generic_terms`.
+ *   --project <uuid>   with --annotate: whose terms to derive (default the
+ *                      demo project, `DEMO_PROJECT_ID`)
  *   --two-tier         with --replay: grid-search a two-tier floor (a chunk
  *                      passes at `high`, or at `low` when it is lexical) over
  *                      high 0.62–0.70 × low 0.50–0.60 and rank the pairs
@@ -87,15 +97,15 @@ import { dirname, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
-import {
-  GENERIC_QUERY_WORDS,
-  LEXICAL_RULE,
-  LEXICAL_RULES,
-  type LexicalRule,
-} from "@proofql/core";
+import { LEXICAL_RULE, LEXICAL_RULES, type LexicalRule } from "@proofql/core";
 import { sql as drizzleSql } from "drizzle-orm";
 
-import { lexicalMatchSql } from "../src/queries/lexicalMatch.js";
+import { computeGenericTerms } from "../src/queries/genericTerms.js";
+import {
+  genericLexemesFor,
+  lexicalMatchSql,
+} from "../src/queries/lexicalMatch.js";
+import { DEMO_PROJECT_ID } from "../src/seed/constants.js";
 import {
   RELEVANCE_QUERIES,
   type RelevanceQuery,
@@ -141,6 +151,11 @@ export interface SavedRun {
     readonly project_floor?: number;
     /** The project's lexical floor during the run, when two-tier is live. */
     readonly project_lexical_floor?: number;
+    /**
+     * The generic lexemes the last `--annotate` used for `half-specific`
+     * (#149), besides the universal words; absent on older runs.
+     */
+    readonly generic_terms?: readonly string[];
   };
   readonly queries: readonly (ObservedQuery & {
     readonly rows: readonly SavedRow[];
@@ -481,7 +496,11 @@ function optionalFloor(name: string, value: string | undefined) {
  * search's full-text branch uses. Exact as long as the corpus was not
  * re-indexed since the run (the script refuses rows whose chunk is gone).
  */
-async function annotate(path: string, rule: LexicalRule): Promise<void> {
+async function annotate(
+  path: string,
+  rule: LexicalRule,
+  options: { genericTerms: string[] | undefined; projectId: string },
+): Promise<void> {
   const url = process.env.DATABASE_URL;
   if (!url) usage("--annotate needs DATABASE_URL (the database the api reads)");
   const run = JSON.parse(readFileSync(path, "utf8")) as SavedRun;
@@ -490,6 +509,15 @@ async function annotate(path: string, rule: LexicalRule): Promise<void> {
   let marked = 0;
   let lexical = 0;
   try {
+    let genericTerms = options.genericTerms;
+    if (genericTerms === undefined) {
+      const derived = await computeGenericTerms(db, options.projectId);
+      genericTerms = derived.terms;
+      console.log(
+        `db:tune-floor: derived ${genericTerms.length} generic terms from ${derived.reviews} reviews of ${options.projectId}: ${genericTerms.join(" ") || "(none)"}`,
+      );
+    }
+    const generic = genericLexemesFor(genericTerms);
     const queries: SavedRun["queries"][number][] = [];
     for (const query of run.queries) {
       const saved: readonly SavedRow[] = query.rows;
@@ -499,7 +527,7 @@ async function annotate(path: string, rule: LexicalRule): Promise<void> {
       }
       const found = await db.execute<{ id: string; lexical: boolean }>(
         drizzleSql`
-          SELECT id, ${lexicalMatchSql(drizzleSql`tsv`, query.q, rule, GENERIC_QUERY_WORDS)} AS lexical
+          SELECT id, ${lexicalMatchSql(drizzleSql`tsv`, query.q, rule, generic)} AS lexical
           FROM review_chunks
           WHERE id IN (${drizzleSql.join(
             (ids as string[]).map((id) => drizzleSql`${id}::uuid`),
@@ -520,7 +548,12 @@ async function annotate(path: string, rule: LexicalRule): Promise<void> {
       });
       queries.push({ ...query, rows });
     }
-    const next: SavedRun = { ...run, queries, summary: computeCurve(queries) };
+    const next: SavedRun = {
+      ...run,
+      source: { ...run.source, generic_terms: genericTerms },
+      queries,
+      summary: computeCurve(queries),
+    };
     writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
     console.log(
       `db:tune-floor: annotated ${marked} rows (${lexical} lexical, rule ${rule}) in ${path}`,
@@ -697,6 +730,8 @@ async function main(): Promise<void> {
       annotate: { type: "string" },
       "two-tier": { type: "boolean", default: false },
       "lexical-rule": { type: "string", default: LEXICAL_RULE },
+      "generic-terms": { type: "string" },
+      project: { type: "string", default: DEMO_PROJECT_ID },
       rerank: { type: "boolean", default: false },
     },
   });
@@ -709,7 +744,17 @@ async function main(): Promise<void> {
     if (!LEXICAL_RULES.includes(rule)) {
       usage(`--lexical-rule must be one of ${LEXICAL_RULES.join(", ")}`);
     }
-    await annotate(resolve(INVOKED_FROM, values.annotate), rule);
+    const terms = values["generic-terms"];
+    await annotate(resolve(INVOKED_FROM, values.annotate), rule, {
+      genericTerms:
+        terms === undefined
+          ? undefined
+          : terms
+              .split(",")
+              .map((t) => t.trim())
+              .filter((t) => t.length > 0),
+      projectId: values.project,
+    });
     return;
   }
 

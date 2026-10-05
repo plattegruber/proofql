@@ -137,8 +137,8 @@ Rules and properties:
   only the API keys change per run.
 - **Guarded.** Refuses a `DATABASE_URL` whose host is not loopback unless
   `--force` is passed (`src/seed/guard.ts`).
-- **`SEED_VERSION`** (`src/seed/constants.ts`, currently 5) is written
-  into the account name — `"ProofQL Demo (seed v6)"` — so any local
+- **`SEED_VERSION`** (`src/seed/constants.ts`, currently 7) is written
+  into the account name — `"ProofQL Demo (seed v7)"` — so any local
   database shows which fixture set it holds. Bump it with **any** change to
   what the seed produces and call the bump out in the PR: integration
   tests and the playground import `DEMO_REVIEW_FIXTURES` from
@@ -180,6 +180,28 @@ marked review until its `indexed_at` is set again, and the project's query
 cache generation is bumped when it is. Nothing is deleted. A slug is
 unique per account, not globally; the script refuses an ambiguous slug and
 asks for the project id.
+
+## Generic query words per project
+
+The floor's partial word match (`src/queries/lexicalMatch.ts`, #147)
+ignores words that every review of a business contains, so a query that
+shares only "coffee" with a cafe review has not matched it. Those words are
+derived per project (#149, `src/queries/genericTerms.ts`) and stored in
+`projects.generic_terms`: the stemmed lexemes in more than 25% of the
+project's indexed, visible **live** reviews, once there are at least 30,
+capped at 30 terms — one `ts_stat` over the reviews' `full` chunks (one per
+review, so the counts are document frequency). The search adds core's
+`UNIVERSAL_GENERIC_WORDS` ("review place service experience") and reads
+the column inside its own statement.
+
+The pipeline refreshes the column after a live review becomes indexed,
+debounced (`refreshGenericTermsIfDue`): at most hourly, or at once when the
+project crosses 30 indexed reviews; it bumps the query-cache generation
+when the set changed. `pnpm seed` runs the refresh at the end (the demo
+project derives `{dr}`). During a `db:reindex` the indexed count dips and
+recovers, so the terms can be derived from a partial corpus for up to an
+hour after the sweep finishes; the next indexed review after that hour
+corrects them.
 
 ## Vector search: no HNSW, on purpose
 

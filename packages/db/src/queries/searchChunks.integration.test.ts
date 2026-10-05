@@ -279,6 +279,15 @@ describe("relevance: the two-tier floor (#138)", () => {
   function twoTierQuery(projectId: string, text: string) {
     return query(projectId, text, { queryEmbedding: QUERY, policy });
   }
+  /**
+   * A dental project whose derived generic terms (#149) are what a real
+   * dental corpus yields; the search reads them from the row.
+   */
+  function dentalProject() {
+    return project(t.db, {
+      genericTerms: ["dental", "dentist", "offic", "teeth"],
+    });
+  }
 
   it("lets a keyword query through on the lexical tier, and only a lexical one", async () => {
     const p = await project(t.db);
@@ -334,7 +343,7 @@ describe("relevance: the two-tier floor (#138)", () => {
   });
 
   it("passes a partial keyword match: one specific word of two (#147)", async () => {
-    const p = await project(t.db);
+    const p = await dentalProject();
     // p01 on bge-m3: no implant review says "dental", so the every-term
     // match never fired; "implants" alone is half of the content words
     // and "dental" is generic anyway.
@@ -355,7 +364,7 @@ describe("relevance: the two-tier floor (#138)", () => {
   });
 
   it("keeps a must-be-empty query empty when it shares only a generic word (#147)", async () => {
-    const p = await project(t.db);
+    const p = await dentalProject();
     // n02 "dental tourism abroad": every review says "dental" somewhere.
     await withSimilarity(p.id, "Best dental office in town, truly.", 0.62);
     await withSimilarity(p.id, "Dental cleaning was quick and thorough.", 0.6);

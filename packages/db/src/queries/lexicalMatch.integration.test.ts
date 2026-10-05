@@ -3,22 +3,25 @@
  * stemming and stop words are the corpus's own.
  */
 
-import { GENERIC_QUERY_WORDS, LEXICAL_RULES } from "@proofql/core";
+import { LEXICAL_RULES } from "@proofql/core";
 import { sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { setupTestDb } from "../../test/harness.js";
-import { lexicalMatchSql } from "./lexicalMatch.js";
+import { genericLexemesFor, lexicalMatchSql } from "./lexicalMatch.js";
+
+/** A dental project's derived terms, as `ts_stat` lexemes (#149). */
+const DENTAL_TERMS = ["dental", "dentist", "offic", "teeth"];
 
 describe("lexicalMatchSql", () => {
   const t = setupTestDb();
 
-  async function matches(chunk: string, q: string) {
+  async function matches(chunk: string, q: string, terms = DENTAL_TERMS) {
     const out: Record<string, boolean> = {};
     for (const rule of LEXICAL_RULES) {
       const tsv = sql`to_tsvector('english', ${chunk})`;
       const [row] = await t.db.execute<{ m: boolean }>(
-        sql`SELECT ${lexicalMatchSql(tsv, q, rule, GENERIC_QUERY_WORDS)} AS m`,
+        sql`SELECT ${lexicalMatchSql(tsv, q, rule, genericLexemesFor(terms))} AS m`,
       );
       out[rule] = row?.m as boolean;
     }
@@ -72,5 +75,23 @@ describe("lexicalMatchSql", () => {
     expect(
       await matches("Two extractions, no pain.", "extraction for the kids"),
     ).toMatchObject({ half: true, "half-specific": true });
+  });
+
+  it("the universal words are generic in every project, stemmed", async () => {
+    // "experience" → `experi`; no project terms at all.
+    expect(
+      await matches("A calm experience overall.", "experience parking", []),
+    ).toMatchObject({ half: true, "half-specific": false });
+  });
+
+  it("a word is only generic in the project whose terms say so", async () => {
+    // A cafe's "coffee" is filler; for a dental project it is a topic.
+    const chunk = "Coffee in the waiting room.";
+    expect(await matches(chunk, "coffee cake", ["coffe"])).toMatchObject({
+      "half-specific": false,
+    });
+    expect(await matches(chunk, "coffee cake")).toMatchObject({
+      "half-specific": true,
+    });
   });
 });

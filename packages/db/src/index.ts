@@ -37,6 +37,15 @@ export {
   rrfScore,
 } from "./queries/fusion.js";
 export {
+  computeGenericTerms,
+  GENERIC_TERMS_REFRESH_INTERVAL,
+  type GenericTermsExecutor,
+  type GenericTermsResult,
+  type RefreshGenericTermsResult,
+  refreshGenericTerms,
+  refreshGenericTermsIfDue,
+} from "./queries/genericTerms.js";
+export {
   MAX_SEARCH_LIMIT,
   type SearchChunksParams,
   type SearchFilters,

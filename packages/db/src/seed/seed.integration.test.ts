@@ -131,6 +131,13 @@ describe("runSeed", () => {
     expect(first.chunks.sentence).toBe(EXPECTED_SENTENCES);
     // Seed v5 — pinned in fixtures/reviews.test.ts.
     expect(first.chunks).toEqual({ full: 90, window: 30, sentence: 236 });
+    // Seed v7 (#149): the derived generic terms, stored on the project.
+    expect(first.genericTerms).toEqual(["dr"]);
+    const [demo] = await t.db
+      .select({ terms: projects.genericTerms })
+      .from(projects)
+      .where(eq(projects.id, DEMO_PROJECT_ID));
+    expect(demo?.terms).toEqual(["dr"]);
 
     const [acct] = await t.db
       .select()

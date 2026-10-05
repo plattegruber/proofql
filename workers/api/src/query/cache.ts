@@ -36,9 +36,26 @@
  *     once the pipeline has re-embedded it, and a bump at ingest time would
  *     purge for a change that is not yet visible to the search. The
  *     pipeline's bump lands exactly when results change.
+ *   - generic terms change — the same pipeline path bumps again when its
+ *     debounced refresh of `projects.generic_terms` changed the set (#149).
  *   - policy change — `onProjectPolicyChanged` below. There is no policy
  *     update API yet (dashboard, #41); when it lands it must call this after
  *     the `projects` row is committed.
+ *
+ * ## Generic terms
+ *
+ * The floor's word match ignores the project's derived generic terms
+ * (`projects.generic_terms`, #149), which the search statement reads
+ * itself. They are not in the hash, on purpose: the api does not know
+ * them at key time without a database round trip on every request (the
+ * cached `AuthContext` does not carry them, and adding them there would
+ * need its own invalidation), and a hash of a value read *after* the
+ * lookup cannot key the lookup. They change only in one place — the
+ * pipeline's refresh, which bumps the generation when the set changes —
+ * so the generation is the exact invalidation, with the same "soon, not
+ * now" KV lag as every other bump and `CACHE_TTL_SECONDS` as the bound.
+ * The universal words (`UNIVERSAL_GENERIC_WORDS`) are code, so they are
+ * hashed like the rule.
  *
  * KV is eventually consistent (a read in another colo can lag a write by up
  * to 60 s), so a purge is "soon", never "now"; the TTL bounds the worst
@@ -60,10 +77,10 @@
 
 import {
   bumpProjectGeneration,
-  GENERIC_QUERY_WORDS,
   type GenerationKv,
   LEXICAL_RULE,
   lexicalFloorFor,
+  UNIVERSAL_GENERIC_WORDS,
 } from "@proofql/core";
 
 import type { QueryRequest } from "./request.js";
@@ -173,10 +190,12 @@ export function cacheIdentity(input: CacheKeyInput): Record<string, unknown> {
             // answer for it.
             lexical_floor: lexicalFloorFor(policy.similarityFloor),
             // Which chunks count as word matches (#147): answers cached
-            // under the every-term rule, or another generic-word list,
-            // never answer for this one.
+            // under the every-term rule, or another universal word list,
+            // never answer for this one. The project's own derived terms
+            // (#149) are deliberately not here — see "Generic terms" in
+            // the module doc.
             lexical_rule: LEXICAL_RULE,
-            generic_words: GENERIC_QUERY_WORDS,
+            generic_words: UNIVERSAL_GENERIC_WORDS,
             rerank_threshold: policy.rerankThreshold,
           },
   };
