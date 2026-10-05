@@ -21,8 +21,8 @@ import {
   segmentSentences,
 } from "@proofql/core";
 import { assertVerbatimSlice, schema } from "@proofql/db";
-import { project, review, setupTestDb } from "@proofql/db/test";
-import { eq } from "drizzle-orm";
+import { chunk, project, review, setupTestDb } from "@proofql/db/test";
+import { eq, sql } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 import { testLogger } from "../test/log.js";
@@ -478,5 +478,112 @@ describe("indexReview via the queue handler", () => {
     expect(input.chunks.map((c: { id: string }) => c.id).sort()).toEqual(
       (await chunksOf(r.id)).map((c) => c.id).sort(),
     );
+  });
+});
+
+describe("generic terms refresh after indexing (#149)", () => {
+  const { projects } = schema;
+
+  /** `n` indexed live reviews saying "coffee", each with its `full` chunk. */
+  async function cafe(n: number) {
+    const p = await project(t.db);
+    for (let i = 0; i < n; i++) {
+      const r = await review(t.db, {
+        projectId: p.id,
+        text: `Coffee number ${i} was fine.`,
+        indexedAt: new Date(Date.now() - 60 * 60_000),
+      });
+      await chunk(t.db, { reviewId: r.id, kind: "full" });
+    }
+    return p;
+  }
+
+  async function termsOf(projectId: string) {
+    const [row] = await t.db
+      .select({ terms: projects.genericTerms })
+      .from(projects)
+      .where(eq(projects.id, projectId));
+    return row?.terms;
+  }
+
+  it("the review that takes a project to 30 derives its terms and bumps the cache again", async () => {
+    const p = await cafe(29);
+    // Refreshed half an hour ago at 29 reviews: fresh, and empty.
+    await t.db.execute(sql`
+      UPDATE projects SET generic_terms_refreshed_at = now() - interval '30 minutes'
+      WHERE id = ${p.id}`);
+    const r = await review(t.db, {
+      projectId: p.id,
+      text: "Coffee number 29 was fine.",
+    });
+    const ctx = context();
+
+    expect(await indexReview(ctx, messageFor(r))).toMatchObject({
+      newlyIndexed: true,
+    });
+
+    expect(await termsOf(p.id)).toContain("coffe");
+    // One bump for the newly indexed review, one for the changed terms.
+    expect(ctx.cache.puts).toEqual([
+      { key: generationKey(p.id), value: "1" },
+      { key: generationKey(p.id), value: "2" },
+    ]);
+    expect(ctx.out.only("generic_terms.refreshed")).toMatchObject({
+      level: "info",
+      review_id: r.id,
+      project_id: p.id,
+      reviews: 30,
+      changed: true,
+    });
+  });
+
+  it("not due: no refresh, one bump", async () => {
+    const p = await cafe(30);
+    await t.db.execute(sql`
+      UPDATE projects
+      SET generic_terms = '{coffe,fine,number}', generic_terms_refreshed_at = now()
+      WHERE id = ${p.id}`);
+    const r = await review(t.db, { projectId: p.id, text: "Tea was fine." });
+    const ctx = context();
+
+    await indexReview(ctx, messageFor(r));
+
+    expect(ctx.cache.puts).toHaveLength(1);
+    expect(ctx.out.records.map((x) => x.event)).not.toContain(
+      "generic_terms.refreshed",
+    );
+  });
+
+  it("due but unchanged: refreshed, logged, no second bump", async () => {
+    const p = await cafe(30);
+    const r = await review(t.db, { projectId: p.id, text: "Coffee was fine." });
+    const ctx = context();
+    // Never refreshed: the first indexed review runs it.
+    await t.db.execute(sql`
+      UPDATE projects SET generic_terms = '{coffe,fine,number}' WHERE id = ${p.id}`);
+
+    await indexReview(ctx, messageFor(r));
+
+    expect(await termsOf(p.id)).toEqual(["coffe", "fine", "number"]);
+    expect(ctx.cache.puts).toHaveLength(1);
+    expect(ctx.out.only("generic_terms.refreshed")).toMatchObject({
+      changed: false,
+      terms: 3,
+    });
+  });
+
+  it("a test-environment review never refreshes the live terms", async () => {
+    const p = await cafe(30);
+    const r = await review(t.db, {
+      projectId: p.id,
+      environment: "test",
+      text: "Coffee in test.",
+    });
+    const ctx = context();
+
+    await indexReview(ctx, messageFor(r, "test"));
+
+    expect(await termsOf(p.id)).toEqual([]);
+    expect(ctx.cache.puts).toHaveLength(1);
   });
 });

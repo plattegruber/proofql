@@ -15,6 +15,16 @@
  * stage fills them and sets `indexed_at` once every chunk has a vector, and
  * the API reports `status: "indexing"` until then.
  *
+ * Generic terms (#149): once a **live** review newly becomes indexed, the
+ * project's derived generic query words are refreshed —
+ * `refreshGenericTermsIfDue` from `@proofql/db`, which recomputes at most
+ * hourly, or at once when the project crosses 30 indexed reviews — and the
+ * cache generation is bumped a second time only if the set changed. The
+ * embedding stage's bump has already happened by then (a query between the
+ * two can cache results under the old terms; the second bump orphans
+ * them). A failure here is logged and swallowed: the review is indexed and
+ * acknowledging it is right; the next indexed review retries the refresh.
+ *
  * Idempotent by construction: the existing chunks for the review are deleted
  * and the new set inserted in one transaction, so a redelivered message
  * (Queues are at-least-once) converges on the same rows instead of
@@ -25,6 +35,7 @@
 import type { EmbeddingProvider, SentimentClassifier } from "@proofql/ai";
 import {
   assertVerbatimChunks,
+  bumpProjectGeneration,
   type Chunk,
   chunkReview,
   type GenerationKv,
@@ -33,7 +44,12 @@ import {
   type Sentiment,
   sentimentFromRating,
 } from "@proofql/core";
-import { assertVerbatimSlice, type Db, schema } from "@proofql/db";
+import {
+  assertVerbatimSlice,
+  type Db,
+  refreshGenericTermsIfDue,
+  schema,
+} from "@proofql/db";
 import { and, eq } from "drizzle-orm";
 
 import {
@@ -172,6 +188,10 @@ export async function indexReview(
     chunks: written,
   });
 
+  if (embedding.newlyIndexed && review.environment === "live") {
+    await refreshGenericTerms(ctx, review.projectId, log);
+  }
+
   const windows = written.filter((c) => c.kind === "window").length;
   const sentences = written.filter((c) => c.kind === "sentence").length;
   // The one line per review: chunking and embedding figures together.
@@ -196,6 +216,30 @@ export async function indexReview(
     sentiment,
     sentimentSource,
   };
+}
+
+/**
+ * The debounced generic-terms refresh (module doc). Logs
+ * `generic_terms.refreshed` when it ran, `generic_terms.refresh_failed`
+ * when it threw; never rejects.
+ */
+async function refreshGenericTerms(
+  ctx: IndexContext,
+  projectId: string,
+  log: Logger,
+): Promise<void> {
+  try {
+    const result = await refreshGenericTermsIfDue(ctx.db, projectId);
+    if (!result) return;
+    if (result.changed) await bumpProjectGeneration(ctx.cache, projectId);
+    log.log("generic_terms.refreshed", {
+      reviews: result.reviews,
+      terms: result.terms.length,
+      changed: result.changed,
+    });
+  } catch (error) {
+    log.log("generic_terms.refresh_failed", { error });
+  }
 }
 
 /**
