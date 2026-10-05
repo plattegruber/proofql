@@ -196,7 +196,7 @@ export default function ProjectSettings({
                   so some pages show nothing. The default of{" "}
                   {SIMILARITY_FLOOR_DEFAULT.toFixed(2)}, measured on real
                   queries, keeps unrelated quotes off a page. A review that
-                  contains the query's words passes{" "}
+                  contains most of the query's specific words passes{" "}
                   {LEXICAL_FLOOR_OFFSET.toFixed(2)} lower, so short keyword
                   queries still find literal matches. Lower it in small steps if
                   pages you know have matching reviews show nothing;{" "}

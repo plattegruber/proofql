@@ -29,9 +29,10 @@ export const RERANK_CANDIDATES = 20;
 /**
  * Reranker score a row must reach. Measured on the relevance fixtures in
  * #147 (`docs/performance.md` §5): the lowest threshold that keeps the
- * must-be-empty queries' FP rate at or under 5%.
+ * must-be-empty queries' FP rate at or under 5%. There it answers only
+ * 10 of 35 answerable queries, which is why reranking stays off.
  */
-export const DEFAULT_RERANK_THRESHOLD = 0.5;
+export const DEFAULT_RERANK_THRESHOLD = 0.85;
 
 export interface RerankConfig {
   threshold: number;

@@ -24,7 +24,7 @@ export function FloorLine({
       <span
         data-lexical-floor
         className="font-mono text-label text-gray-600"
-        title="A candidate whose words match the query passes at this lower tier."
+        title="A candidate containing at least half of the query's specific words passes at this lower tier."
       >
         word match · {lexicalFloor.toFixed(2)}
       </span>
