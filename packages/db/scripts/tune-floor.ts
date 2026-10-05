@@ -58,6 +58,9 @@
  *                      `lexical` (its chunk matches `websearch_to_tsquery`
  *                      the way the hybrid search's full-text branch does)
  *                      and rewrite the file; reads chunks only, no api
+ *   --lexical-rule <r> with --annotate: which word-match rule to apply
+ *                      (`all`, `any`, `half`, `half-specific`; default the
+ *                      one `searchChunks` uses, `LEXICAL_RULE` in @proofql/core)
  *   --two-tier         with --replay: grid-search a two-tier floor (a chunk
  *                      passes at `high`, or at `low` when it is lexical) over
  *                      high 0.62–0.70 × low 0.50–0.60 and rank the pairs
@@ -79,6 +82,15 @@ import { dirname, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
+import {
+  GENERIC_QUERY_WORDS,
+  LEXICAL_RULE,
+  LEXICAL_RULES,
+  type LexicalRule,
+} from "@proofql/core";
+import { sql as drizzleSql } from "drizzle-orm";
+
+import { lexicalMatchSql } from "../src/queries/lexicalMatch.js";
 import {
   RELEVANCE_QUERIES,
   type RelevanceQuery,
@@ -418,12 +430,12 @@ function optionalFloor(name: string, value: string | undefined) {
  * search's full-text branch uses. Exact as long as the corpus was not
  * re-indexed since the run (the script refuses rows whose chunk is gone).
  */
-async function annotate(path: string): Promise<void> {
+async function annotate(path: string, rule: LexicalRule): Promise<void> {
   const url = process.env.DATABASE_URL;
   if (!url) usage("--annotate needs DATABASE_URL (the database the api reads)");
   const run = JSON.parse(readFileSync(path, "utf8")) as SavedRun;
   const { createDb } = await import("../src/client.js");
-  const { sql } = createDb(url, { max: 1 });
+  const { db, sql } = createDb(url, { max: 1 });
   let marked = 0;
   let lexical = 0;
   try {
@@ -434,10 +446,15 @@ async function annotate(path: string): Promise<void> {
       if (ids.some((id) => id === undefined)) {
         usage(`${query.id}: rows without chunk_id — collect a new run first`);
       }
-      const found = await sql<{ id: string; lexical: boolean }[]>`
-        SELECT id, tsv @@ websearch_to_tsquery('english', ${query.q}) AS lexical
-        FROM review_chunks
-        WHERE id = ANY(${ids as string[]}::uuid[])`;
+      const found = await db.execute<{ id: string; lexical: boolean }>(
+        drizzleSql`
+          SELECT id, ${lexicalMatchSql(drizzleSql`tsv`, query.q, rule, GENERIC_QUERY_WORDS)} AS lexical
+          FROM review_chunks
+          WHERE id IN (${drizzleSql.join(
+            (ids as string[]).map((id) => drizzleSql`${id}::uuid`),
+            drizzleSql`, `,
+          )})`,
+      );
       const byId = new Map(found.map((row) => [row.id, row.lexical]));
       const rows = saved.map((row): SavedRow => {
         const flag = byId.get(row.chunk_id as string);
@@ -455,7 +472,7 @@ async function annotate(path: string): Promise<void> {
     const next: SavedRun = { ...run, queries, summary: computeCurve(queries) };
     writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
     console.log(
-      `db:tune-floor: annotated ${marked} rows (${lexical} lexical) in ${path}`,
+      `db:tune-floor: annotated ${marked} rows (${lexical} lexical, rule ${rule}) in ${path}`,
     );
   } finally {
     await sql.end();
@@ -539,6 +556,7 @@ async function main(): Promise<void> {
       "project-lexical-floor": { type: "string" },
       annotate: { type: "string" },
       "two-tier": { type: "boolean", default: false },
+      "lexical-rule": { type: "string", default: LEXICAL_RULE },
     },
   });
   const at = values.at === undefined ? undefined : Number(values.at);
@@ -546,7 +564,11 @@ async function main(): Promise<void> {
     usage("--at must be in [0, 1]");
 
   if (values.annotate !== undefined) {
-    await annotate(resolve(INVOKED_FROM, values.annotate));
+    const rule = values["lexical-rule"] as LexicalRule;
+    if (!LEXICAL_RULES.includes(rule)) {
+      usage(`--lexical-rule must be one of ${LEXICAL_RULES.join(", ")}`);
+    }
+    await annotate(resolve(INVOKED_FROM, values.annotate), rule);
     return;
   }
 
