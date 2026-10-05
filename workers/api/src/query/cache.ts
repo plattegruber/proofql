@@ -58,7 +58,11 @@
  * stored; errors are never cached.
  */
 
-import { bumpProjectGeneration, type GenerationKv } from "@proofql/core";
+import {
+  bumpProjectGeneration,
+  type GenerationKv,
+  lexicalFloorFor,
+} from "@proofql/core";
 
 import type { QueryRequest } from "./request.js";
 import type { QueryMatch, QueryResponseResult } from "./route.js";
@@ -157,6 +161,10 @@ export function cacheIdentity(input: CacheKeyInput): Record<string, unknown> {
         : {
             min_rating: policy.minRating,
             similarity_floor: policy.similarityFloor,
+            // Derived, but part of what the SQL applies (#138): keys made
+            // before the two-tier floor, or under another offset, never
+            // answer for it.
+            lexical_floor: lexicalFloorFor(policy.similarityFloor),
           },
   };
 }
