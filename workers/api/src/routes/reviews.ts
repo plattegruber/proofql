@@ -20,6 +20,15 @@
  * transaction commits; a consumer that runs on a stale message just
  * re-reads the current row.
  *
+ * A failed queue write does not fail the request (#159). The rows are
+ * committed with `indexed_at` null, and the pipeline's five-minute sweep
+ * re-enqueues every unindexed review, so the response is the normal 200
+ * receipt (those reviews report `status: "indexing"`) with a top-level
+ * `indexing: "deferred"`. The usual cause is the Workers Free plan's daily
+ * Queues operations limit; indexing then catches up after 00:00 UTC.
+ * `enqueueOrDefer` (@proofql/core) logs it: `quota.exhausted` at error for
+ * the limit, `ingest.enqueue_deferred` at warn for anything else.
+ *
  * The upsert itself is `upsertReviews` in @proofql/db (#38 moved it there
  * so the dashboard's CSV import writes reviews through the same code);
  * this route owns parsing, the API error mapping, the queue write and the
@@ -30,6 +39,7 @@
  */
 
 import {
+  enqueueOrDefer,
   REQUEST_BODY_LIMITS,
   type ReviewInput,
   reviewBatchSchema,
@@ -50,6 +60,7 @@ import { bodyLimit } from "hono/body-limit";
 import { requireSecretKey } from "../auth.js";
 import type { AppEnv, AuthContext } from "../bindings.js";
 import { ApiError, type ValidationIssue } from "../errors.js";
+import { logFor } from "../request-id.js";
 
 /** Hard ceiling on the request body; 100 maximal reviews are ~2 MB short of it. */
 export const REVIEW_BODY_LIMIT_BYTES = REQUEST_BODY_LIMITS.reviews;
@@ -60,6 +71,11 @@ export type { IngestedReview, ReviewStatus };
 
 export interface IngestResponse {
   reviews: IngestedReview[];
+  /**
+   * Present only when the reviews were stored but could not be queued for
+   * indexing; the sweep indexes them later (module doc).
+   */
+  indexing?: "deferred";
 }
 
 export const reviewsRoutes = new Hono<AppEnv>();
@@ -94,11 +110,17 @@ reviewsRoutes.post(
         throw toApiError(error);
       });
 
-      if (result.toEnqueue.length > 0) {
-        await c.env.INGEST_QUEUE.sendBatch(
-          result.toEnqueue.map((body) => ({ body })),
-        );
-      }
+      const enqueued = await enqueueOrDefer(
+        c.env.INGEST_QUEUE,
+        result.toEnqueue,
+        {
+          log: logFor(c).child({
+            project_id: auth.projectId,
+            key_environment: auth.environment,
+          }),
+          site: "api.ingest",
+        },
+      );
 
       await db.insert(schema.ingestRuns).values({
         projectId: auth.projectId,
@@ -112,7 +134,9 @@ reviewsRoutes.post(
         finishedAt: new Date(),
       });
 
-      const body: IngestResponse = { reviews: result.reviews };
+      const body: IngestResponse = enqueued.sent
+        ? { reviews: result.reviews }
+        : { reviews: result.reviews, indexing: "deferred" };
       return c.json(body, 200);
     } catch (error) {
       await recordFailure(db, auth, received, error);

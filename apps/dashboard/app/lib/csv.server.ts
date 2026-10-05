@@ -25,6 +25,14 @@
  * `POST /v1/reviews` calls — with the `truncate` cap policy, in batches of
  * `IMPORT_BATCH_SIZE`, and one `IngestMessage` per inserted or re-indexed
  * review is sent after each batch commits.
+ *
+ * A refused send never fails the import (#159): the batch is committed with
+ * `indexed_at` null and the pipeline's five-minute sweep indexes it later,
+ * which the run page's indexing progress already shows. `enqueueOrDefer`
+ * (@proofql/core) logs the failure; after the Workers Free plan's daily
+ * Queues limit (`quota.exhausted`) the run stops trying to send for the
+ * rest of the call, since every send would fail until 00:00 UTC, and
+ * counts the messages it skipped as `indexing_deferred`.
  */
 import {
   CSV_PROFILE_IDS,
@@ -37,6 +45,7 @@ import {
   csvProfile,
   type DetectedMapping,
   detectMapping,
+  enqueueOrDefer,
   type IngestMessage,
   JsonShapeError,
   type Logger,
@@ -453,7 +462,17 @@ export async function runImport(
     resume_from: alreadyProcessed,
   });
 
-  const ctx: BatchContext = { db, queue, store, run, plan, failures, log };
+  const ctx: BatchContext = {
+    db,
+    queue,
+    store,
+    run,
+    plan,
+    failures,
+    log,
+    queueExhausted: false,
+    deferred: 0,
+  };
   let batch: { rowNumber: number; review: ReviewInput }[] = [];
   let batchFailures: RowFailure[] = [];
   let processed = alreadyProcessed;
@@ -508,7 +527,11 @@ export async function runImport(
 
   if (paused) {
     run = await findRun(db, runId);
-    log?.log("import.paused", { processed, total_rows: plan.totalRows });
+    log?.log("import.paused", {
+      processed,
+      total_rows: plan.totalRows,
+      indexing_deferred: ctx.deferred,
+    });
     return { state: "paused", run, processed };
   }
 
@@ -527,6 +550,7 @@ export async function runImport(
     updated: finished.updated,
     skipped: finished.skipped,
     failed: finished.failed,
+    indexing_deferred: ctx.deferred,
     duration_ms: now() - startedAt,
   });
   return { state: "finished", run: finished };
@@ -540,6 +564,10 @@ interface BatchContext {
   plan: ImportPlan;
   failures: RowFailure[];
   log: Logger | undefined;
+  /** The Queues daily limit was hit during this call: stop trying to send. */
+  queueExhausted: boolean;
+  /** Index messages not sent during this call; the sweep covers them. */
+  deferred: number;
 }
 
 /** One batch: upsert, bump the counts, enqueue, persist the failures. */
@@ -584,7 +612,18 @@ async function commitBatch(
       failures.sort((a, b) => a.rowNumber - b.rowNumber);
     }
     if (result.toEnqueue.length > 0) {
-      await ctx.queue.sendBatch(result.toEnqueue.map((body) => ({ body })));
+      if (ctx.queueExhausted) {
+        ctx.deferred += result.toEnqueue.length;
+      } else {
+        const outcome = await enqueueOrDefer(ctx.queue, result.toEnqueue, {
+          log: ctx.log,
+          site: "dashboard.csv_import",
+        });
+        if (!outcome.sent) {
+          ctx.deferred += result.toEnqueue.length;
+          if (outcome.quota) ctx.queueExhausted = true;
+        }
+      }
     }
   }
 

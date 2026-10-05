@@ -15,13 +15,17 @@
  *   index message per inserted or re-indexed review. Re-running on the same
  *   place updates the same five rows (`source` + `external_id`), so it is
  *   idempotent and the Business Profile connector (#45) later takes them
- *   over rather than duplicating them.
+ *   over rather than duplicating them. A refused send (the Workers Free
+ *   plan's daily Queues limit, #159) does not fail the import: the rows are
+ *   committed unindexed, the run succeeds with `indexingDeferred`, and the
+ *   pipeline's sweep indexes them later; the run page's indexing progress
+ *   shows it.
  *
  * Plain functions over injected `fetch`, cache and queue, so the integration
  * tests drive the whole flow against the real schema with the fake Places
  * API (`@proofql/google/fake`) and no network.
  */
-import type { Logger } from "@proofql/core";
+import { enqueueOrDefer, type Logger } from "@proofql/core";
 import { type Db, schema, upsertReviews } from "@proofql/db";
 import {
   createPlacesClient,
@@ -106,6 +110,8 @@ export interface ImportPlaceResult {
   /** Refused by the plan's review cap. */
   failed: number;
   enqueued: number;
+  /** The index messages could not be sent; the sweep indexes the reviews later. */
+  indexingDeferred: boolean;
   /** Whether the place came from the KV cache rather than Google. */
   cached: boolean;
 }
@@ -162,9 +168,11 @@ export async function importPlaceReviews(
       reviews: mapped.reviews,
       onLimit: "truncate",
     });
-    if (result.toEnqueue.length > 0) {
-      await queue.sendBatch(result.toEnqueue.map((body) => ({ body })));
-    }
+    const enqueue = await enqueueOrDefer(queue, result.toEnqueue, {
+      log,
+      site: "dashboard.places_import",
+    });
+    const enqueued = enqueue.sent ? result.toEnqueue.length : 0;
     const skipped = result.skipped + mapped.skipped.length;
     const failed = result.rejected.length;
     const [run] = await db
@@ -190,7 +198,8 @@ export async function importPlaceReviews(
       updated: run.updated,
       skipped: run.skipped,
       failed: run.failed,
-      enqueued: result.toEnqueue.length,
+      enqueued,
+      indexing_deferred: !enqueue.sent,
       cached,
     });
     return {
@@ -200,7 +209,8 @@ export async function importPlaceReviews(
       updated: result.updated,
       skipped,
       failed,
-      enqueued: result.toEnqueue.length,
+      enqueued,
+      indexingDeferred: !enqueue.sent,
       cached,
     };
   } catch (error) {

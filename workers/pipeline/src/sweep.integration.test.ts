@@ -26,6 +26,9 @@ import {
 
 const { reviews } = schema;
 
+/** What workerd throws once the free plan's daily Queues operations are spent. */
+const QUEUE_LIMIT_MESSAGE = "Queue sendBatch failed: Free tier limit exceeded";
+
 const t = setupTestDb();
 
 // Stuck reviews stay stuck across tests by design; start each one clean.
@@ -37,9 +40,13 @@ class FakeQueue implements IngestQueue {
   /** Every `sendBatch` call's bodies, in order. */
   readonly batches: ReviewIndexMessage[][] = [];
   failWith: Error | undefined;
+  /** With `failWith`: let this many calls succeed before failing. */
+  failAfter = 0;
+  calls = 0;
 
   async sendBatch(messages: Iterable<{ body: IngestMessage }>): Promise<void> {
-    if (this.failWith) throw this.failWith;
+    this.calls += 1;
+    if (this.failWith && this.calls > this.failAfter) throw this.failWith;
     this.batches.push([...messages].map((m) => m.body as ReviewIndexMessage));
   }
 
@@ -92,7 +99,12 @@ describe("sweepUnindexed", () => {
 
     const result = await run();
 
-    expect(result).toEqual({ enqueued: 1, exhausted: 0, batches: 1 });
+    expect(result).toEqual({
+      enqueued: 1,
+      deferred: 0,
+      exhausted: 0,
+      batches: 1,
+    });
     expect(queue.sent).toEqual([
       {
         type: "review.index",
@@ -130,7 +142,12 @@ describe("sweepUnindexed", () => {
 
     const result = await run();
 
-    expect(result).toEqual({ enqueued: 1, exhausted: 1, batches: 1 });
+    expect(result).toEqual({
+      enqueued: 1,
+      deferred: 0,
+      exhausted: 1,
+      batches: 1,
+    });
     expect(queue.sent.map((m) => m.reviewId)).toEqual([lastChance.id]);
     expect((await reload(exhausted.id)).indexAttempts).toBe(
       DEFAULT_MAX_INDEX_ATTEMPTS,
@@ -147,7 +164,12 @@ describe("sweepUnindexed", () => {
 
     // Next tick: the one that just hit the cap is now exhausted too.
     const again = await run();
-    expect(again).toEqual({ enqueued: 0, exhausted: 2, batches: 0 });
+    expect(again).toEqual({
+      enqueued: 0,
+      deferred: 0,
+      exhausted: 2,
+      batches: 0,
+    });
     expect(queue.sent).toHaveLength(1);
   });
 
@@ -193,14 +215,24 @@ describe("sweepUnindexed", () => {
 
     const limited = new FakeQueue();
     const first = await sweep(limited, { limit: 50 }).run();
-    expect(first).toEqual({ enqueued: 50, exhausted: 0, batches: 1 });
+    expect(first).toEqual({
+      enqueued: 50,
+      deferred: 0,
+      exhausted: 0,
+      batches: 1,
+    });
     expect(limited.sent.map((m) => m.reviewId)).toEqual(
       oldestFirst.slice(0, 50),
     );
 
     const full = new FakeQueue();
     const second = await sweep(full).run();
-    expect(second).toEqual({ enqueued: 120, exhausted: 0, batches: 2 });
+    expect(second).toEqual({
+      enqueued: 120,
+      deferred: 0,
+      exhausted: 0,
+      batches: 2,
+    });
     expect(full.batches.map((b) => b.length)).toEqual([100, 20]);
     expect(full.sent.map((m) => m.reviewId)).toEqual(oldestFirst);
     for (const m of full.sent) expect(m.projectId).toBe(p.id);
@@ -215,5 +247,81 @@ describe("sweepUnindexed", () => {
 
     expect(queue.sent).toEqual([]);
     expect((await reload(r.id)).indexAttempts).toBe(1);
+  });
+
+  it("Queues daily limit: stops at the first refused batch, burns no attempts, logs quota.exhausted (#159)", async () => {
+    const p = await project(t.db);
+    // 150 stuck reviews (two batches), one of them a send short of the cap.
+    const rows: ReviewRow[] = [];
+    for (let i = 0; i < 150; i++) {
+      rows.push(await stale({ projectId: p.id }, 10 + i));
+    }
+    const nearCap = rows[0];
+    if (!nearCap) throw new Error("no rows");
+    await t.db
+      .update(reviews)
+      .set({ indexAttempts: DEFAULT_MAX_INDEX_ATTEMPTS - 1 })
+      .where(eq(reviews.id, nearCap.id));
+
+    const queue = new FakeQueue();
+    queue.failWith = new Error(QUEUE_LIMIT_MESSAGE);
+    const s = sweep(queue);
+    const result = await s.run();
+
+    // One refused call, not one per batch: the sweep stopped.
+    expect(queue.calls).toBe(1);
+    expect(queue.sent).toEqual([]);
+    expect(result).toMatchObject({ enqueued: 0, deferred: 150, batches: 0 });
+    const attempts = await t.db
+      .select({ id: reviews.id, indexAttempts: reviews.indexAttempts })
+      .from(reviews)
+      .where(eq(reviews.projectId, p.id));
+    for (const row of attempts) {
+      expect(row.indexAttempts).toBe(
+        row.id === nearCap.id ? DEFAULT_MAX_INDEX_ATTEMPTS - 1 : 0,
+      );
+    }
+    expect(s.out.only("quota.exhausted")).toMatchObject({
+      level: "error",
+      resource: "queues",
+      site: "pipeline.sweep",
+      messages: 150,
+      error: { message: QUEUE_LIMIT_MESSAGE },
+    });
+    expect(s.out.only("sweep.completed")).toMatchObject({
+      enqueued: 0,
+      deferred: 150,
+      review_ids: [],
+    });
+
+    // After 00:00 UTC the queue accepts again: the next tick sends them all,
+    // the near-cap review included.
+    const recovered = new FakeQueue();
+    const next = await sweep(recovered).run();
+    expect(next).toMatchObject({ enqueued: 150, deferred: 0, batches: 2 });
+    expect(recovered.sent.map((m) => m.reviewId)).toContain(nearCap.id);
+  });
+
+  it("Queues daily limit mid-tick: batches already sent keep their attempt, the rest are deferred untouched", async () => {
+    const p = await project(t.db);
+    for (let i = 0; i < 150; i++) {
+      await stale({ projectId: p.id }, 10 + i);
+    }
+    const queue = new FakeQueue();
+    queue.failWith = new Error(QUEUE_LIMIT_MESSAGE);
+    queue.failAfter = 1;
+    const result = await sweep(queue).run();
+
+    expect(queue.calls).toBe(2);
+    expect(result).toMatchObject({ enqueued: 100, deferred: 50, batches: 1 });
+    const sentIds = new Set(queue.sent.map((m) => m.reviewId));
+    const attempts = await t.db
+      .select({ id: reviews.id, indexAttempts: reviews.indexAttempts })
+      .from(reviews)
+      .where(eq(reviews.projectId, p.id));
+    expect(attempts).toHaveLength(150);
+    for (const row of attempts) {
+      expect(row.indexAttempts).toBe(sentIds.has(row.id) ? 1 : 0);
+    }
   });
 });

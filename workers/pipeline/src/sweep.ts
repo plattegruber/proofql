@@ -19,13 +19,29 @@
  * are excluded from the candidate query rather than merely skipped, so
  * they can never crowd fresh ones out of the per-tick `limit`.
  *
- * The counter is incremented before the send: if the queue is down, each
- * tick still burns one attempt, so even a prolonged outage cannot make a
- * review's re-sends unbounded. The handler receives the whole batch of ids
- * it enqueued as one structured log line.
+ * The counter is incremented before each `sendBatch`, for that batch only:
+ * if the queue is down, each tick still burns one attempt per review it
+ * tried to send, so even a prolonged outage cannot make a review's re-sends
+ * unbounded. Reviews in later batches that were never tried keep their
+ * count. The handler receives the whole batch of ids it enqueued as one
+ * structured log line.
+ *
+ * The exception is the Workers Free plan's daily Queues limit (#159;
+ * `isQueueLimitError` in @proofql/core). It is not the review's fault, and
+ * burning an attempt on every tick until 00:00 UTC would push reviews to
+ * the cap before the quota resets. On that error the sweep gives the
+ * failed batch its attempt back, stops (every further send would fail the
+ * same way), logs `quota.exhausted` with `resource: "queues"` once, and
+ * reports the unsent reviews as `deferred`. The first tick after the reset
+ * sends them.
  */
 
-import type { IngestMessage, Logger } from "@proofql/core";
+import {
+  type IngestMessage,
+  isQueueLimitError,
+  type Logger,
+  logEnqueueFailure,
+} from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
 import { and, asc, inArray, isNull, lt, sql } from "drizzle-orm";
 
@@ -57,6 +73,11 @@ export interface SweepOptions {
 export interface SweepResult {
   /** Reviews found stuck and re-enqueued this tick. */
   enqueued: number;
+  /**
+   * Stuck reviews not sent because the Queues daily limit was reached; their
+   * attempt counters are unchanged.
+   */
+  deferred: number;
   /** Stuck reviews skipped because they have hit `maxAttempts`. */
   exhausted: number;
   /** `sendBatch` calls made. */
@@ -107,34 +128,55 @@ export async function sweepUnindexed(
   }
 
   let batches = 0;
-  if (candidates.length > 0) {
-    const ids = candidates.map((r) => r.id);
-    await ctx.db
-      .update(reviews)
-      .set({ indexAttempts: sql`${reviews.indexAttempts} + 1` })
-      .where(inArray(reviews.id, ids));
-
-    const messages: IngestMessage[] = candidates.map((r) => ({
+  const sent: string[] = [];
+  let deferred = 0;
+  const plan = chunked(candidates, QUEUE_SEND_BATCH_MAX);
+  for (const [index, rows] of plan.entries()) {
+    const ids = rows.map((r) => r.id);
+    const batch: IngestMessage[] = rows.map((r) => ({
       type: "review.index",
       reviewId: r.id,
       projectId: r.projectId,
       environment: r.environment,
     }));
-    for (const batch of chunked(messages, QUEUE_SEND_BATCH_MAX)) {
+    await ctx.db
+      .update(reviews)
+      .set({ indexAttempts: sql`${reviews.indexAttempts} + 1` })
+      .where(inArray(reviews.id, ids));
+    try {
       await ctx.queue.sendBatch(batch.map((body) => ({ body })));
-      batches += 1;
+    } catch (error) {
+      if (!isQueueLimitError(error)) throw error;
+      // Not the reviews' fault: hand the attempt back and stop (module doc).
+      await ctx.db
+        .update(reviews)
+        .set({
+          indexAttempts: sql`greatest(${reviews.indexAttempts} - 1, 0)`,
+        })
+        .where(inArray(reviews.id, ids));
+      deferred = plan.slice(index).reduce((n, b) => n + b.length, 0);
+      logEnqueueFailure(log, "pipeline.sweep", deferred, error);
+      break;
     }
+    batches += 1;
+    sent.push(...ids);
   }
 
   log.log("sweep.completed", {
     older_than_minutes: options.olderThanMinutes,
     limit: options.limit,
-    enqueued: candidates.length,
+    enqueued: sent.length,
+    deferred,
     exhausted: exhausted.length,
     batches,
-    review_ids: candidates.map((r) => r.id),
+    review_ids: sent,
   });
-  return { enqueued: candidates.length, exhausted: exhausted.length, batches };
+  return {
+    enqueued: sent.length,
+    deferred,
+    exhausted: exhausted.length,
+    batches,
+  };
 }
 
 /** Split `items` into consecutive slices of at most `size`. */

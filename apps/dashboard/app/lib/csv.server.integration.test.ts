@@ -3,12 +3,18 @@
 // recording queue standing in for R2 and the ingest queue.
 import { readFileSync } from "node:fs";
 
+import { createLogger, recordingSink } from "@proofql/core";
 import { schema } from "@proofql/db";
 import { account, project, setupTestDb } from "@proofql/db/test";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { fakeBucket, fakeQueue } from "../../test/fake-r2";
+import {
+  failingQueue,
+  fakeBucket,
+  fakeQueue,
+  QUEUE_LIMIT_MESSAGE,
+} from "../../test/fake-r2";
 import {
   capInfo,
   createUpload,
@@ -242,6 +248,39 @@ describe("mappingFromForm", () => {
   });
 });
 
+/** Upload and start a generated generic CSV of `rows` rows. */
+async function uploadGenerated(projectId: string, rows: number) {
+  const store = fakeBucket(700);
+  const csv = [
+    "id,author,stars,date,text",
+    ...Array.from(
+      { length: rows },
+      (_, i) =>
+        `gen-${i},Author ${i},${(i % 5) + 1},2026-01-${String((i % 28) + 1).padStart(2, "0")},"Row ${i}: a sentence long enough to be a review."`,
+    ),
+  ].join("\n");
+  const { runId, artifactKey } = await createUpload(t.db, store, {
+    projectId,
+    environment: "live",
+    filename: "generated.csv",
+    contentType: "text/csv",
+    bytes: new TextEncoder().encode(csv).buffer as ArrayBuffer,
+  });
+  const preview = await loadUploadPreview(store, artifactKey);
+  const { detected, defaults } = proposeMapping(
+    preview,
+    uploadOptionsSchema.parse({}),
+  );
+  await startImport(t.db, store, await findProjectRun(t.db, projectId, runId), {
+    mapping: detected.mapping,
+    defaults,
+    profile: detected.profile,
+    headers: preview.headers,
+    totalRows: preview.totalRows,
+  });
+  return { store, runId };
+}
+
 describe("runImport", () => {
   it("imports a 50-row generic CSV: 50 reviews, 50 messages, a succeeded run", async () => {
     const p = await project(t.db);
@@ -409,6 +448,72 @@ describe("runImport", () => {
     expect(reviews[0]?.authorAvatarUrl ?? reviews[1]?.authorAvatarUrl).toBe(
       "https://lh3.googleusercontent.com/a/photo1",
     );
+  });
+
+  it("Queues daily limit: imports every row, stops sending after the first refusal, logs quota.exhausted (#159)", async () => {
+    const p = await project(t.db);
+    const { store, runId } = await uploadGenerated(p.id, 250);
+    const queue = failingQueue();
+    const out = recordingSink();
+    const log = createLogger({
+      service: "dashboard",
+      environment: "test",
+      sink: out.sink,
+    });
+
+    const outcome = await runImport({ db: t.db, store, queue, log }, runId);
+
+    expect(outcome.state).toBe("finished");
+    expect(outcome.run).toMatchObject({
+      status: "succeeded",
+      received: 250,
+      created: 250,
+      failed: 0,
+      error: null,
+    });
+    const reviews = await storedReviews(p.id);
+    expect(reviews).toHaveLength(250);
+    expect(reviews.every((r) => r.indexedAt === null)).toBe(true);
+    // One refused send; the other two batches did not try.
+    expect(queue.attempts).toBe(1);
+    expect(out.only("quota.exhausted")).toMatchObject({
+      level: "error",
+      resource: "queues",
+      site: "dashboard.csv_import",
+      messages: 100,
+      ingest_run_id: runId,
+      error: { message: QUEUE_LIMIT_MESSAGE },
+    });
+    expect(out.only("import.finished")).toMatchObject({
+      created: 250,
+      indexing_deferred: 250,
+    });
+    expect(out.find("import.failed")).toHaveLength(0);
+    // The run page's progress shows them as still indexing.
+    expect(await getRunProgress(t.db, outcome.run)).toMatchObject({
+      processed: 250,
+      indexed: 0,
+      indexing: 250,
+    });
+  });
+
+  it("any other queue failure: the import still succeeds, every batch is tried, ingest.enqueue_deferred per batch", async () => {
+    const p = await project(t.db);
+    const { store, runId } = await uploadGenerated(p.id, 250);
+    const queue = failingQueue("Queue sendBatch failed: Unknown error");
+    const out = recordingSink();
+    const log = createLogger({
+      service: "dashboard",
+      environment: "test",
+      sink: out.sink,
+    });
+
+    const outcome = await runImport({ db: t.db, store, queue, log }, runId);
+
+    expect(outcome.run).toMatchObject({ status: "succeeded", created: 250 });
+    expect(queue.attempts).toBe(3);
+    expect(out.find("ingest.enqueue_deferred")).toHaveLength(3);
+    expect(out.find("quota.exhausted")).toHaveLength(0);
   });
 
   it("pauses at the time budget and resumes from the counts without duplicating", async () => {

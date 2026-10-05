@@ -52,7 +52,13 @@ import type { Hono } from "hono";
 import { beforeAll, describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 
-import { fakeCtx, fakeKv, issueKey, testEnv } from "../test/helpers.js";
+import {
+  fakeCtx,
+  fakeKv,
+  issueKey,
+  refusingQueue,
+  testEnv,
+} from "../test/helpers.js";
 import { createApp } from "./app.js";
 import type { ApiBindings, AppEnv } from "./bindings.js";
 import { monthStart } from "./quota.js";
@@ -329,8 +335,14 @@ const env = testEnv({
     sendBatch: async () => {},
   } as unknown as ApiBindings["INGEST_QUEUE"],
 });
-/** Refusing queue (the helper default): a queue outage is a 500 on ingest. */
-const envQueueDown = testEnv({ kv });
+/**
+ * A queue past the free plan's daily operations limit (#159): ingest still
+ * answers 200, with `indexing: "deferred"`.
+ */
+const envQueueDown = testEnv({
+  kv,
+  queue: refusingQueue("Queue sendBatch failed: Free tier limit exceeded"),
+});
 
 let app: Hono<AppEnv>;
 
@@ -655,7 +667,7 @@ describe("POST /v1/reviews", () => {
     await conforms(res, "post", PATH);
   });
 
-  it("500: the ingest queue is down", async () => {
+  it("200 with indexing deferred: the ingest queue refuses the send (#159)", async () => {
     const res = await call(PATH, {
       method: "POST",
       key: f.secret,
@@ -665,8 +677,13 @@ describe("POST /v1/reviews", () => {
         external_id: "queue-down-new-review",
       },
     });
-    expect(res.status).toBe(500);
-    await conforms(res, "post", PATH);
+    expect(res.status).toBe(200);
+    const body = (await conforms(res, "post", PATH)) as {
+      indexing?: string;
+      reviews: { status: string }[];
+    };
+    expect(body.indexing).toBe("deferred");
+    expect(body.reviews.map((r) => r.status)).toEqual(["indexing"]);
   });
 });
 
@@ -1354,8 +1371,11 @@ describe("503 service_unavailable on every database-backed operation", () => {
 describe("the spec", () => {
   it("documents no response that the tests above could not provoke", () => {
     // 500 is documented on every operation because any of them can fail
-    // unexpectedly; only ingest has a fault (the queue) a test can inject.
+    // unexpectedly; none has a fault a test can inject. (Ingest's queue
+    // used to be one; since #159 a refused send is a 200 with
+    // `indexing: "deferred"`.)
     const untriggerable = new Set([
+      "post /v1/reviews 500",
       "get /v1/reviews 500",
       "get /v1/reviews/{id} 500",
       "patch /v1/reviews/{id} 500",

@@ -383,7 +383,7 @@ counts behind these numbers are in
 | KV reads | 100,000 | ~50,000–100,000 queries (1–2 reads each; ≤ 1 on a custom domain) |
 | KV writes | 1,000 | ~1,000 *repeated* uncached queries stored (a one-off query never writes; none at all on a custom domain), ~10,000 reviews indexed (one write per batch), every dashboard edit that changes results (one each) |
 | Hyperdrive queries | 100,000 | ~40,000 uncached queries, or ~10,000 reviews indexed |
-| Queues operations | 10,000 | **~3,300 reviews indexed** (3 operations each). This is the tightest limit for imports |
+| Queues operations | 10,000 | **~3,300 reviews indexed** (3 operations each). This is the tightest limit for imports. Past it, ingest still accepts reviews and indexing catches up after 00:00 UTC |
 | Workers AI | 10,000 neurons | ~30,000 reviews indexed, or far more queries. Not the constraint |
 
 Cached queries cost no database queries and, on a custom domain, no KV
@@ -394,8 +394,13 @@ move to the Workers Cache API by themselves
 ### What degrades first
 
 1. **A large import or re-index** (`pnpm db:reindex`, a CSV of thousands of
-   reviews) hits **Queues** at ~3,300 reviews a day. The rest wait for the
-   next day's sweep. Plan big imports across days, or upgrade first.
+   reviews) hits **Queues** at ~3,300 reviews a day. Ingest keeps accepting
+   reviews past the limit (#159): `POST /v1/reviews` still answers 200, with
+   `indexing: "deferred"`, and CSV and Places imports still finish. The
+   reviews are stored but stay unindexed, so they do not appear in query
+   results yet. Indexing catches up after 00:00 UTC, when the five-minute
+   sweep re-enqueues them, 500 per tick. Look for `quota.exhausted` with
+   `resource: "queues"`. Plan big imports across days, or upgrade first.
 2. **KV writes** (1,000). When they run out, results stop being stored in
    KV and **cache purges are lost**: a hide, a policy edit or a newly
    indexed review can take up to the cache's 24 h TTL to show in cached
