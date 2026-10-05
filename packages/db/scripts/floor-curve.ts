@@ -40,6 +40,30 @@ export interface ObservedRow {
   /** Review key from the fixtures, or `?<uuid>` for a review not in them. */
   readonly key: string;
   readonly similarity: number;
+  /**
+   * The returned chunk matches the query lexically — the hybrid search's
+   * full-text branch ranked it (`tsv @@ websearch_to_tsquery('english', q)`).
+   * Filled by `tune-floor --annotate`; absent on runs not annotated.
+   */
+  readonly lexical?: boolean;
+}
+
+/** Whether a row survives a filter; flat floor or two-tier. */
+export type RowPasses = (row: ObservedRow) => boolean;
+
+/** Flat floor: `similarity >= floor`, the SQL's comparison. */
+export function flat(floor: number): RowPasses {
+  return (row) => row.similarity >= floor;
+}
+
+/**
+ * Two-tier floor (#138 follow-up): a chunk passes on similarity alone at
+ * `high`, or at `low` when it also matches the query lexically. A row
+ * without a `lexical` annotation only passes the high tier.
+ */
+export function twoTier(high: number, low: number): RowPasses {
+  return (row) =>
+    row.similarity >= high || (row.lexical === true && row.similarity >= low);
 }
 
 export interface ObservedQuery {
@@ -214,12 +238,20 @@ export function mustBeEmpty(
 
 /** What one query got right and wrong at `floor`. */
 export function verdictAt(query: ObservedQuery, floor: number): QueryVerdict {
+  return verdictWith(query, flat(floor));
+}
+
+/** What one query got right and wrong under any row filter. */
+export function verdictWith(
+  query: ObservedQuery,
+  passes: RowPasses,
+): QueryVerdict {
   // A must-be-empty query's `expect` names hidden reviews for the record;
   // nothing is expected back, so every row is a false positive.
   const positive = query.kind === "positive";
   const expected = new Set(positive ? query.expect : []);
   const acceptable = new Set(positive ? (query.acceptable ?? []) : []);
-  const above = query.rows.filter((row) => row.similarity >= floor);
+  const above = query.rows.filter(passes);
   const hits = above.filter((row) => expected.has(row.key));
   const falsePositives = above.filter(
     (row) => !expected.has(row.key) && !acceptable.has(row.key),
@@ -246,6 +278,15 @@ export function pointAt(
   negatives: readonly ObservedQuery[],
   floor: number,
 ): FloorPoint {
+  return { ...pointWith(positives, negatives, flat(floor)), floor };
+}
+
+/** {@link pointAt} under any row filter; `floor` is NaN (the caller labels it). */
+export function pointWith(
+  positives: readonly ObservedQuery[],
+  negatives: readonly ObservedQuery[],
+  passes: RowPasses,
+): FloorPoint {
   let tp = 0;
   let fp = 0;
   let misses = 0;
@@ -253,16 +294,14 @@ export function pointAt(
   let answered = 0;
   let topClean = 0;
   for (const query of positives) {
-    const v = verdictAt(query, floor);
+    const v = verdictWith(query, passes);
     tp += v.hits.length;
     fp += v.falsePositives.length;
     misses += v.missed.length;
-    if (!query.rows.some((row) => row.similarity >= floor)) emptyPositives++;
+    if (!query.rows.some(passes)) emptyPositives++;
     if (v.hits.length > 0) answered++;
     const ok = new Set([...query.expect, ...(query.acceptable ?? [])]);
-    const top = query.rows
-      .filter((row) => row.similarity >= floor)
-      .slice(0, TOP_N);
+    const top = query.rows.filter(passes).slice(0, TOP_N);
     if (
       top.length > 0 &&
       top.every((row) => ok.has(row.key)) &&
@@ -274,12 +313,12 @@ export function pointAt(
   let negativeQueriesHit = 0;
   let negativeRows = 0;
   for (const query of negatives) {
-    const rows = query.rows.filter((row) => row.similarity >= floor).length;
+    const rows = query.rows.filter(passes).length;
     if (rows > 0) negativeQueriesHit++;
     negativeRows += rows;
   }
   return {
-    floor,
+    floor: Number.NaN,
     precision: tp + fp === 0 ? null : tp / (tp + fp),
     recall: tp + misses === 0 ? 1 : tp / (tp + misses),
     truePositives: tp,
@@ -370,4 +409,94 @@ export function verdictsAt(
 /** True when the query is answered correctly at the floor it was judged at. */
 export function isClean(verdict: QueryVerdict): boolean {
   return verdict.missed.length === 0 && verdict.falsePositives.length === 0;
+}
+
+// ---- two-tier grid ----------------------------------------------------------
+
+export interface TwoTierPoint extends FloorPoint {
+  readonly high: number;
+  readonly low: number;
+}
+
+export interface TwoTierOptions {
+  readonly highs?: readonly number[];
+  readonly lows?: readonly number[];
+  readonly maxNegativeRate?: number;
+}
+
+export interface TwoTierGrid {
+  /** Every (high, low) with `low <= high`. */
+  readonly points: readonly TwoTierPoint[];
+  /**
+   * Pairs with the negatives' rate at or under the cap, best first: highest
+   * per-page answer rate, then lowest negatives' rate, then highest
+   * precision, then the higher `low` (the more conservative tier).
+   */
+  readonly ranked: readonly TwoTierPoint[];
+  readonly maxNegativeRate: number;
+  /** Rows carrying a `lexical` annotation, of all rows (0 means not annotated). */
+  readonly annotated: {
+    readonly rows: number;
+    readonly lexical: number;
+    readonly total: number;
+  };
+}
+
+export const DEFAULT_TWO_TIER_OPTIONS = {
+  highs: floorSteps(0.62, 0.7, 0.01),
+  lows: floorSteps(0.5, 0.6, 0.01),
+  maxNegativeRate: DEFAULT_CURVE_OPTIONS.maxNegativeRate,
+} as const;
+
+/** Grid-search the two-tier floor over the tuned positives and must-be-empty queries. */
+export function computeTwoTier(
+  queries: readonly ObservedQuery[],
+  options: TwoTierOptions = {},
+): TwoTierGrid {
+  const opts = { ...DEFAULT_TWO_TIER_OPTIONS, ...options };
+  const positives = tunedPositives(queries);
+  const negatives = mustBeEmpty(queries);
+  const points: TwoTierPoint[] = [];
+  for (const high of opts.highs) {
+    for (const low of opts.lows) {
+      if (low > high) continue;
+      points.push({
+        ...pointWith(positives, negatives, twoTier(high, low)),
+        floor: high,
+        high,
+        low,
+      });
+    }
+  }
+  const ranked = points
+    .filter((p) => p.negativeRate <= opts.maxNegativeRate)
+    .sort(
+      (a, b) =>
+        b.answeredRate - a.answeredRate ||
+        a.negativeRate - b.negativeRate ||
+        (b.precision ?? 0) - (a.precision ?? 0) ||
+        b.low - a.low ||
+        a.high - b.high,
+    );
+  const rows = queries.flatMap((q) => q.rows);
+  return {
+    points,
+    ranked,
+    maxNegativeRate: opts.maxNegativeRate,
+    annotated: {
+      rows: rows.filter((row) => row.lexical !== undefined).length,
+      lexical: rows.filter((row) => row.lexical === true).length,
+      total: rows.length,
+    },
+  };
+}
+
+/** Every query's verdict under `passes`, failures first. */
+export function verdictsWith(
+  queries: readonly ObservedQuery[],
+  passes: RowPasses,
+): QueryVerdict[] {
+  return queries
+    .map((query) => verdictWith(query, passes))
+    .sort((a, b) => Number(isClean(a)) - Number(isClean(b)));
 }

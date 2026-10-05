@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   computeCurve,
+  computeTwoTier,
   floorSteps,
   type ObservedQuery,
   percentiles,
   pointAt,
+  twoTier,
   verdictAt,
   verdictsAt,
 } from "./floor-curve.js";
@@ -220,5 +222,65 @@ describe("verdictsAt", () => {
     const ids = verdictsAt([clean, positive, negative], 0.55).map((v) => v.id);
     expect(ids.slice(-1)).toEqual(["p02"]);
     expect(new Set(ids.slice(0, 2))).toEqual(new Set(["p01", "n01"]));
+  });
+});
+
+describe("twoTier", () => {
+  it("passes on similarity at high, or lexically at low", () => {
+    const passes = twoTier(0.66, 0.55);
+    expect(passes({ key: "a", similarity: 0.66 })).toBe(true);
+    expect(passes({ key: "a", similarity: 0.6 })).toBe(false);
+    expect(passes({ key: "a", similarity: 0.6, lexical: true })).toBe(true);
+    expect(passes({ key: "a", similarity: 0.54, lexical: true })).toBe(false);
+    expect(passes({ key: "a", similarity: 0.6, lexical: false })).toBe(false);
+  });
+});
+
+describe("computeTwoTier", () => {
+  // "implants" (keyword) answers lexically at 0.62; the in-domain negative
+  // scores 0.64 with no lexical match; the noise row is lexical but low.
+  const keyword: ObservedQuery = {
+    id: "p01",
+    q: "implants",
+    kind: "positive",
+    expect: ["g01"],
+    rows: [
+      { key: "g01", similarity: 0.62, lexical: true },
+      { key: "g44", similarity: 0.52, lexical: true },
+    ],
+  };
+  const nearMiss: ObservedQuery = {
+    id: "n01",
+    q: "charging station",
+    kind: "negative",
+    expect: [],
+    rows: [{ key: "g56", similarity: 0.64, lexical: false }],
+  };
+
+  it("grid-searches low <= high and ranks safe pairs by answer rate", () => {
+    const grid = computeTwoTier([keyword, nearMiss], {
+      highs: [0.63, 0.65],
+      lows: [0.5, 0.55, 0.64],
+      maxNegativeRate: 0,
+    });
+    // (0.63, 0.64) is skipped: low > high.
+    expect(grid.points.map((p) => [p.high, p.low])).toEqual([
+      [0.63, 0.5],
+      [0.63, 0.55],
+      [0.65, 0.5],
+      [0.65, 0.55],
+      [0.65, 0.64],
+    ]);
+    // high 0.63 lets the 0.64 negative through; at 0.65 it stays empty and
+    // the keyword query is answered on the low tier unless low > 0.62.
+    const best = grid.ranked[0];
+    expect(best).toMatchObject({ high: 0.65, low: 0.55, answeredRate: 1 });
+    expect(best?.falsePositives).toBe(0); // g44 at 0.52 is under low 0.55
+    expect(grid.ranked.map((p) => [p.high, p.low])).toEqual([
+      [0.65, 0.55],
+      [0.65, 0.5],
+      [0.65, 0.64],
+    ]);
+    expect(grid.annotated).toEqual({ rows: 3, lexical: 2, total: 3 });
   });
 });

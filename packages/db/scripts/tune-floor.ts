@@ -49,6 +49,26 @@
  *   --out <path>       where to save the run (default docs/floor-tuning/<date>.json)
  *   --replay <path>    offline: recompute the report from a saved run
  *   --at <floor>       also list every query's verdict at this floor
+ *   --project-floor <x>  live mode: the project's similarity_floor during the
+ *                      run, recorded in the JSON (0.30 for a scratch run; the
+ *                      real floor for a validation run)
+ *   --project-lexical-floor <x>  live mode: the project's lexical floor during
+ *                      the run, when the two-tier floor is deployed
+ *   --annotate <path>  offline, needs DATABASE_URL: mark each saved row
+ *                      `lexical` (its chunk matches `websearch_to_tsquery`
+ *                      the way the hybrid search's full-text branch does)
+ *                      and rewrite the file; reads chunks only, no api
+ *   --two-tier         with --replay: grid-search a two-tier floor (a chunk
+ *                      passes at `high`, or at `low` when it is lexical) over
+ *                      high 0.62–0.70 × low 0.50–0.60 and rank the pairs
+ *                      with the negatives' FP rate ≤ 5% by per-page answers
+ *
+ * Caveat for offline grids: the search collapses each review to its best
+ * chunk by *fused* rank, so a scratch run records one chunk per review —
+ * usually but not always its most similar one, and its `lexical` flag is
+ * that chunk's. A floor can therefore admit a review the replay misses
+ * (through a sibling chunk). Validate a chosen setting with a live run at
+ * that setting (`--project-floor` = the real floor): that run is exact.
  *
  * The saved key is never the plaintext of anything: the JSON holds query
  * texts, review keys, and scores only.
@@ -68,13 +88,25 @@ import { parseScriptArgs } from "./args.js";
 import {
   type Curve,
   computeCurve,
+  computeTwoTier,
   DEFAULT_CURVE_OPTIONS,
+  type FloorPoint,
   isClean,
   type ObservedQuery,
   type ObservedRow,
   type QueryVerdict,
+  tunedPositives,
+  twoTier,
   verdictsAt,
+  verdictsWith,
 } from "./floor-curve.js";
+
+/** One returned review as saved. */
+export interface SavedRow extends ObservedRow {
+  readonly review_id: string;
+  /** The returned excerpt's chunk (`excerpt_id`); absent on the first run. */
+  readonly chunk_id?: string;
+}
 
 /** Shape of `docs/floor-tuning/<date>.json`. */
 export interface SavedRun {
@@ -86,9 +118,13 @@ export interface SavedRun {
     readonly limit: number;
     readonly embedding: string;
     readonly fixtures: number;
+    /** The project's floor during the run (absent on the first run: 0.30). */
+    readonly project_floor?: number;
+    /** The project's lexical floor during the run, when two-tier is live. */
+    readonly project_lexical_floor?: number;
   };
   readonly queries: readonly (ObservedQuery & {
-    readonly rows: readonly (ObservedRow & { readonly review_id: string })[];
+    readonly rows: readonly SavedRow[];
   })[];
   /** Derived from `queries`; a replay recomputes and ignores it. */
   readonly summary: Curve;
@@ -115,6 +151,7 @@ function usage(message: string): never {
 
 interface ApiResult {
   score: number | null;
+  excerpt_id: string;
   review: { id: string; text?: string };
 }
 
@@ -182,6 +219,7 @@ async function observe(
           key: reviewKey ?? `?${r.review.id}`,
           similarity: r.score,
           review_id: r.review.id,
+          chunk_id: r.excerpt_id,
         },
       ];
     });
@@ -363,6 +401,127 @@ function report(run: SavedRun, at: number | undefined): void {
   }
 }
 
+// ---- two-tier ----------------------------------------------------------------
+
+function optionalFloor(name: string, value: string | undefined) {
+  if (value === undefined) return {};
+  const n = Number(value);
+  if (!(n >= 0 && n <= 1)) {
+    usage(`--${name.replaceAll("_", "-")} must be in [0, 1]`);
+  }
+  return { [name]: n };
+}
+
+/**
+ * `--annotate`: look up every saved row's chunk and record whether it
+ * matches the query lexically, with the same expression the hybrid
+ * search's full-text branch uses. Exact as long as the corpus was not
+ * re-indexed since the run (the script refuses rows whose chunk is gone).
+ */
+async function annotate(path: string): Promise<void> {
+  const url = process.env.DATABASE_URL;
+  if (!url) usage("--annotate needs DATABASE_URL (the database the api reads)");
+  const run = JSON.parse(readFileSync(path, "utf8")) as SavedRun;
+  const { createDb } = await import("../src/client.js");
+  const { sql } = createDb(url, { max: 1 });
+  let marked = 0;
+  let lexical = 0;
+  try {
+    const queries: SavedRun["queries"][number][] = [];
+    for (const query of run.queries) {
+      const saved: readonly SavedRow[] = query.rows;
+      const ids = saved.map((row) => row.chunk_id);
+      if (ids.some((id) => id === undefined)) {
+        usage(`${query.id}: rows without chunk_id — collect a new run first`);
+      }
+      const found = await sql<{ id: string; lexical: boolean }[]>`
+        SELECT id, tsv @@ websearch_to_tsquery('english', ${query.q}) AS lexical
+        FROM review_chunks
+        WHERE id = ANY(${ids as string[]}::uuid[])`;
+      const byId = new Map(found.map((row) => [row.id, row.lexical]));
+      const rows = saved.map((row): SavedRow => {
+        const flag = byId.get(row.chunk_id as string);
+        if (flag === undefined) {
+          usage(
+            `${query.id}: chunk ${row.chunk_id} no longer exists (re-indexed?)`,
+          );
+        }
+        marked++;
+        if (flag) lexical++;
+        return { ...row, lexical: flag };
+      });
+      queries.push({ ...query, rows });
+    }
+    const next: SavedRun = { ...run, queries, summary: computeCurve(queries) };
+    writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
+    console.log(
+      `db:tune-floor: annotated ${marked} rows (${lexical} lexical) in ${path}`,
+    );
+  } finally {
+    await sql.end();
+  }
+}
+
+type GridRow = { high: number; low: number } & FloorPoint;
+
+function reportTwoTier(run: SavedRun): void {
+  const grid = computeTwoTier(run.queries);
+  const flatCurve = computeCurve(run.queries);
+  const { annotated } = grid;
+  console.log(
+    `Run ${run.generated_at} (${run.queries.length} queries); ${annotated.rows}/${annotated.total} rows annotated, ${annotated.lexical} lexical.`,
+  );
+  if (annotated.rows === 0) {
+    console.log(
+      "WARNING: no lexical annotations — run --annotate first; the low tier is inert.",
+    );
+  }
+  const positives = flatCurve.counts.positives;
+  const header =
+    "  high  low   answered        top-3 clean  empty pos  FP rate (neg)   precision  recall";
+  const line = (p: GridRow) =>
+    `  ${p.high.toFixed(2)}  ${p.low.toFixed(2)}  ${pct(p.answeredRate)} (${String(p.answered).padStart(2)})   ${String(p.topClean).padStart(5)}/${positives}     ${String(p.emptyPositives).padStart(4)}     ${pct(p.negativeRate)} (${String(p.negativeQueriesHit).padStart(2)})    ${pct(p.precision)}   ${pct(p.recall)}`;
+  const safeFlat = flatCurve.recommendation.chosen;
+  const flatPoint = flatCurve.floors.find((p) => p.floor === safeFlat);
+  console.log(
+    `\nTwo-tier pairs with the negatives' FP rate ≤ ${pct(grid.maxNegativeRate).trim()}, best first (top 5 of ${grid.ranked.length} safe, ${grid.points.length} searched):`,
+  );
+  console.log(header);
+  for (const p of grid.ranked.slice(0, 5)) console.log(line(p));
+  if (flatPoint) {
+    console.log("\nFlat baseline (the lowest safe flat floor):");
+    console.log(header);
+    console.log(
+      line({ ...flatPoint, high: flatPoint.floor, low: flatPoint.floor }),
+    );
+  }
+  const best = grid.ranked[0];
+  if (best === undefined) {
+    console.log("\nNo two-tier pair meets the FP cap.");
+    return;
+  }
+  const passes = twoTier(best.high, best.low);
+  console.log(
+    `\nFailing fixtures at high ${best.high.toFixed(2)} / low ${best.low.toFixed(2)}:`,
+  );
+  for (const v of verdictsWith(run.queries, passes).filter(
+    (x) => !isClean(x),
+  )) {
+    console.log(describe(v));
+  }
+  if (flatPoint) {
+    const flatPasses = (row: ObservedRow) => row.similarity >= flatPoint.floor;
+    const answers = (q: ObservedQuery, f: (row: ObservedRow) => boolean) =>
+      q.rows.some((row) => f(row) && q.expect.includes(row.key));
+    const recovered = tunedPositives(run.queries).filter(
+      (q) => !answers(q, flatPasses) && answers(q, passes),
+    );
+    console.log(
+      `\nAnswered by the pair but not at flat ${flatPoint.floor.toFixed(2)}: ${recovered.map((q) => `${q.id} "${q.q}"`).join(", ") || "none"}`,
+    );
+  }
+}
+
 // ---- main ------------------------------------------------------------------
 
 async function main(): Promise<void> {
@@ -376,11 +535,20 @@ async function main(): Promise<void> {
       out: { type: "string" },
       replay: { type: "string" },
       at: { type: "string" },
+      "project-floor": { type: "string" },
+      "project-lexical-floor": { type: "string" },
+      annotate: { type: "string" },
+      "two-tier": { type: "boolean", default: false },
     },
   });
   const at = values.at === undefined ? undefined : Number(values.at);
   if (at !== undefined && !(at >= 0 && at <= 1))
     usage("--at must be in [0, 1]");
+
+  if (values.annotate !== undefined) {
+    await annotate(resolve(INVOKED_FROM, values.annotate));
+    return;
+  }
 
   if (values.replay !== undefined) {
     if (values.api || values.key || values.origin || values.out) {
@@ -391,9 +559,11 @@ async function main(): Promise<void> {
     ) as SavedRun;
     if (run.version !== 1)
       usage(`unsupported run version ${String(run.version)}`);
-    report(run, at);
+    if (values["two-tier"]) reportTwoTier(run);
+    else report(run, at);
     return;
   }
+  if (values["two-tier"]) usage("--two-tier needs --replay <path>");
 
   if (!values.api) usage("--api is required (or --replay <path>)");
   if (!values.key) usage("--key is required");
@@ -424,6 +594,11 @@ async function main(): Promise<void> {
       limit,
       embedding: "@cf/baai/bge-m3 via Workers AI (query and corpus)",
       fixtures: RELEVANCE_QUERIES.length,
+      ...optionalFloor("project_floor", values["project-floor"]),
+      ...optionalFloor(
+        "project_lexical_floor",
+        values["project-lexical-floor"],
+      ),
     },
     queries,
     summary: computeCurve(queries),
