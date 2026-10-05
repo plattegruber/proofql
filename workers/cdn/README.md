@@ -29,11 +29,11 @@ Stale hashed copies are not kept: `public/` holds exactly one build and `wrangle
 scripts/build.mjs      pnpm build: snippet esbuild → public/v1.js, v1.<hash>.js, maps, version.json
 src/handler.ts         routing + headers (pure, tested in src/handler.test.ts)
 src/worker.ts          wrangler entrypoint (fetch → handler with env.ASSETS)
-src/build.test.ts      runs the build into a temp dir and checks the file set
+src/build.test.ts      runs the build into a temp dir, checks the file set and that _headers matches src/handler.ts
 public/demo/           the demo site — the only thing in public/ that is committed
 public/                everything else is generated and gitignored
 screenshots/           the demo page, desktop and mobile, for the PR
-wrangler.jsonc         proofql-cdn-<env>; assets binding ASSETS, run_worker_first; port 8800
+wrangler.jsonc         proofql-cdn-<env>; assets binding ASSETS, run_worker_first: ["/health"]; port 8800
 ```
 
 ```sh
@@ -43,7 +43,9 @@ pnpm --filter @proofql/cdn test    # vitest: headers/caching + the build
 pnpm --filter @proofql/cdn exec wrangler deploy --dry-run --env preview
 ```
 
-`run_worker_first` sends every request through `src/worker.ts`, which fetches the file from the `ASSETS` binding and rewrites the headers; `html_handling: auto-trailing-slash` gives `/demo` → `/demo/` → `demo/index.html`, `not_found_handling: none` keeps unknown paths a plain 404.
+Snippet loads cost no worker invocation (#158): `/v1.js`, `/v1.<hash>.js`, both maps, `/version.json` and `/demo/*` are served straight from static assets, which are free and unmetered, while a worker request counts against the Workers Free plan's 100,000 a day. Their headers come from `public/_headers`, written by the build with the same values `src/handler.ts` uses (`src/build.test.ts` fails if they drift). `run_worker_first: ["/health"]` runs the worker for the smoke check; it also answers anything no asset matches — a 404 (`no-store`), `/` (→ `/demo/`), OPTIONS. One behaviour changed with that: an OPTIONS preflight to a snippet file is now answered by the asset layer with 405 (it still carries the CORS headers) instead of the worker's 204. Nothing preflights the snippet — a `<script>` tag never does, and a plain `fetch()` of it is a simple request. `html_handling: auto-trailing-slash` gives `/demo` → `/demo/` → `demo/index.html`, `not_found_handling: none` keeps unknown paths a plain 404 from the worker.
+
+To check locally that an asset path does not invoke the worker: `pnpm build && pnpm exec wrangler dev`, then `curl -sD- -o /dev/null localhost:8800/v1.js` shows the `_headers` values; a temporary `x-worker-invoked` header added in `src/worker.ts` appears on `/health`, `/` and 404s only (verified for #158).
 
 ## The demo site (`/demo/`)
 
