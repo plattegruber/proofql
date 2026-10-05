@@ -60,7 +60,9 @@
 
 import {
   bumpProjectGeneration,
+  GENERIC_QUERY_WORDS,
   type GenerationKv,
+  LEXICAL_RULE,
   lexicalFloorFor,
 } from "@proofql/core";
 
@@ -116,6 +118,11 @@ const MATCHES: ReadonlySet<string> = new Set([
 export interface CacheKeyPolicy {
   minRating: number;
   similarityFloor: number;
+  /**
+   * Reranker threshold when experimental reranking is on (#147); absent
+   * otherwise, which leaves keys made without reranking unchanged.
+   */
+  rerankThreshold?: number | undefined;
 }
 
 export interface CacheKeyInput {
@@ -165,6 +172,12 @@ export function cacheIdentity(input: CacheKeyInput): Record<string, unknown> {
             // before the two-tier floor, or under another offset, never
             // answer for it.
             lexical_floor: lexicalFloorFor(policy.similarityFloor),
+            // Which chunks count as word matches (#147): answers cached
+            // under the every-term rule, or another generic-word list,
+            // never answer for this one.
+            lexical_rule: LEXICAL_RULE,
+            generic_words: GENERIC_QUERY_WORDS,
+            rerank_threshold: policy.rerankThreshold,
           },
   };
 }

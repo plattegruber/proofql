@@ -5,7 +5,7 @@
  * per-request variables middleware attaches to the Hono context.
  */
 
-import type { EmbeddingProvider } from "@proofql/ai";
+import type { EmbeddingProvider, Reranker } from "@proofql/ai";
 import type {
   ApiKeyEnvironment,
   ApiKeyKind,
@@ -32,6 +32,14 @@ export interface ApiBindings {
    * no local simulator — so code must treat it as optional.
    */
   AI?: Ai;
+  /**
+   * `"true"` turns on experimental reranking of query candidates with
+   * Workers AI bge-reranker-base (#147; src/query/rerank.ts). Unset by
+   * default in every environment.
+   */
+  RERANK?: string;
+  /** Reranker score threshold in [0, 1] when `RERANK` is on. */
+  RERANK_THRESHOLD?: string;
   /**
    * Cloudflare rate limiting bindings, one per (plan, key kind) pair
    * (`ratelimits` in wrangler.jsonc). A binding's limit is fixed in the
@@ -95,6 +103,8 @@ export interface AppVariables {
   getDb: () => Db;
   /** Lazily resolves the query embedder for this request (see src/embedder.ts). */
   getEmbedder: () => EmbeddingProvider;
+  /** Lazily resolves the reranker, or null when none is available (src/embedder.ts). */
+  getReranker: () => Reranker | null;
   /** Present after `requireApiKey` ran. */
   auth: AuthContext;
   /** Lazily resolves this request's per-kind limiters (see src/rate-limit.ts). */

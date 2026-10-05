@@ -10,7 +10,7 @@
  * low-rated topical review and a hidden one that must never render.
  */
 
-import { FakeEmbeddingProvider, fakeEmbed } from "@proofql/ai";
+import { FakeEmbeddingProvider, FakeReranker, fakeEmbed } from "@proofql/ai";
 import {
   bumpProjectGeneration,
   chunkReview,
@@ -340,6 +340,82 @@ describe("/v1/query", () => {
       expect(res.status).toBe(200);
       const body = await json<QueryResponse>(res);
       expect(body.results.map((r) => r.review.id)).toEqual([f.reviews.implant]);
+    });
+  });
+
+  describe("experimental reranking (#147): RERANK=true", () => {
+    // Four content words, one shared with the parking review: cosine
+    // 1/sqrt(4·4) = 0.25 and no word match, so the floor drops it; the
+    // fake reranker scores it 1/4 (one of four query words).
+    const Q = "parking garage elevator stairs";
+    const fresh = { "Cache-Control": "no-cache" };
+    const on = (threshold: string): ApiBindings => ({
+      ...env,
+      RERANK: "true",
+      RERANK_THRESHOLD: threshold,
+    });
+
+    it("is off by default: the reranker is never called", async () => {
+      const reranker = new FakeReranker();
+      const off = createApp({
+        db: t.db,
+        embedder: new FakeEmbeddingProvider(),
+        reranker,
+      });
+      const res = await post(off, f.secret, { q: Q }, fresh);
+      expect((await json<QueryResponse>(res)).results).toEqual([]);
+      expect(res.headers.get("x-rerank-ms")).toBeNull();
+      expect(reranker.calls).toHaveLength(0);
+    });
+
+    it("gates candidates on the reranker score instead of the cosine floor", async () => {
+      const reranker = new FakeReranker();
+      const reranking = createApp({
+        db: t.db,
+        embedder: new FakeEmbeddingProvider(),
+        reranker,
+      });
+      const res = await post(reranking, f.secret, { q: Q }, fresh, on("0.2"));
+      const body = await json<QueryResponse>(res);
+      expect(body.match).toBe("query");
+      expect(body.results.map((r) => r.review.id)).toEqual([f.reviews.parking]);
+      // `score` is still the cosine similarity: the contract is unchanged.
+      expect(body.results[0]?.score).toBeCloseTo(0.25, 2);
+      expect(res.headers.get("x-rerank-scores")).toBe("0.2500");
+      expect(Number(res.headers.get("x-rerank-ms"))).toBeGreaterThanOrEqual(0);
+      // The reranker saw the floorless candidates, never a hidden review.
+      const passages = reranker.calls[0]?.passages ?? [];
+      expect(passages.length).toBeGreaterThan(1);
+      expect(passages).not.toContain(HIDDEN_IMPLANT);
+
+      const strict = await post(
+        reranking,
+        f.secret,
+        { q: Q },
+        fresh,
+        on("0.3"),
+      );
+      expect((await json<QueryResponse>(strict)).results).toEqual([]);
+    });
+
+    it("falls back to the ordinary floor when the reranker fails", async () => {
+      const failing = createApp({
+        db: t.db,
+        embedder: new FakeEmbeddingProvider(),
+        reranker: new FakeReranker({ shouldFail: true }),
+      });
+      const dropped = await post(failing, f.secret, { q: Q }, fresh, on("0"));
+      expect((await json<QueryResponse>(dropped)).results).toEqual([]);
+      const kept = await post(
+        failing,
+        f.secret,
+        { q: "implant tooth" },
+        fresh,
+        on("0"),
+      );
+      expect(
+        (await json<QueryResponse>(kept)).results.map((r) => r.review.id),
+      ).toEqual([f.reviews.implant]);
     });
   });
 

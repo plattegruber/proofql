@@ -58,10 +58,18 @@
  *                      `lexical` (its chunk matches `websearch_to_tsquery`
  *                      the way the hybrid search's full-text branch does)
  *                      and rewrite the file; reads chunks only, no api
+ *   --lexical-rule <r> with --annotate: which word-match rule to apply
+ *                      (`all`, `any`, `half`, `half-specific`; default the
+ *                      one `searchChunks` uses, `LEXICAL_RULE` in @proofql/core)
  *   --two-tier         with --replay: grid-search a two-tier floor (a chunk
  *                      passes at `high`, or at `low` when it is lexical) over
  *                      high 0.62–0.70 × low 0.50–0.60 and rank the pairs
  *                      with the negatives' FP rate ≤ 5% by per-page answers
+ *   --rerank           with --replay: sweep the reranker threshold (#147) over
+ *                      a run collected against an api deployed with
+ *                      `RERANK=true RERANK_THRESHOLD=0` (every candidate
+ *                      comes back with its `x-rerank-scores` entry), and
+ *                      report reranker latency and estimated neurons/query
  *
  * Caveat for offline grids: the search collapses each review to its best
  * chunk by *fused* rank, so a scratch run records one chunk per review —
@@ -80,6 +88,15 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 import {
+  GENERIC_QUERY_WORDS,
+  LEXICAL_RULE,
+  LEXICAL_RULES,
+  type LexicalRule,
+} from "@proofql/core";
+import { sql as drizzleSql } from "drizzle-orm";
+
+import { lexicalMatchSql } from "../src/queries/lexicalMatch.js";
+import {
   RELEVANCE_QUERIES,
   type RelevanceQuery,
 } from "../src/seed/fixtures/relevance.js";
@@ -88,6 +105,7 @@ import { parseScriptArgs } from "./args.js";
 import {
   type Curve,
   computeCurve,
+  computeRerankCurve,
   computeTwoTier,
   DEFAULT_CURVE_OPTIONS,
   type FloorPoint,
@@ -95,6 +113,7 @@ import {
   type ObservedQuery,
   type ObservedRow,
   type QueryVerdict,
+  rerankAt,
   tunedPositives,
   twoTier,
   verdictsAt,
@@ -125,6 +144,12 @@ export interface SavedRun {
   };
   readonly queries: readonly (ObservedQuery & {
     readonly rows: readonly SavedRow[];
+    /** The response's `took_ms` (#147; absent on older runs). */
+    readonly took_ms?: number;
+    /** `x-rerank-ms`, when the api reranked (#147). */
+    readonly rerank_ms?: number;
+    /** `x-rerank-chars`: characters of excerpt sent to the reranker. */
+    readonly rerank_chars?: number;
   })[];
   /** Derived from `queries`; a replay recomputes and ignores it. */
   readonly summary: Curve;
@@ -158,6 +183,20 @@ interface ApiResult {
 interface ApiResponse {
   results: ApiResult[];
   match: string;
+  took_ms: number;
+}
+
+/** A response plus the reranker headers (absent unless `RERANK=true`). */
+interface Observed {
+  body: ApiResponse;
+  rerankScores: number[] | null;
+  rerankMs: number | null;
+  rerankChars: number | null;
+}
+
+function numberHeader(res: Response, name: string): number | null {
+  const v = res.headers.get(name);
+  return v === null ? null : Number(v);
 }
 
 const MAX_ATTEMPTS = 6;
@@ -169,7 +208,7 @@ async function queryApi(
   origin: string,
   q: string,
   limit: number,
-): Promise<ApiResponse> {
+): Promise<Observed> {
   const url = new URL("/v1/query", api);
   url.searchParams.set("key", key);
   url.searchParams.set("q", q);
@@ -180,7 +219,20 @@ async function queryApi(
     const res = await fetch(url, {
       headers: { Origin: origin, "Cache-Control": "no-cache" },
     });
-    if (res.ok) return (await res.json()) as ApiResponse;
+    if (res.ok) {
+      const scores = res.headers.get("x-rerank-scores");
+      return {
+        body: (await res.json()) as ApiResponse,
+        rerankScores:
+          scores === null
+            ? null
+            : scores === ""
+              ? []
+              : scores.split(",").map(Number),
+        rerankMs: numberHeader(res, "x-rerank-ms"),
+        rerankChars: numberHeader(res, "x-rerank-chars"),
+      };
+    }
     const body = (await res.text()).slice(0, 300);
     const retryable = res.status === 429 || res.status >= 500;
     if (!retryable || attempt >= MAX_ATTEMPTS) {
@@ -209,21 +261,32 @@ async function observe(
   const out: SavedRun["queries"][number][] = [];
   let unknown = 0;
   for (const [i, fixture] of RELEVANCE_QUERIES.entries()) {
-    const res = await queryApi(api, key, origin, fixture.q, limit);
-    const rows = res.results.flatMap((r) => {
+    const observed = await queryApi(api, key, origin, fixture.q, limit);
+    const res = observed.body;
+    const rows = res.results.flatMap((r, index) => {
       if (r.score === null) return [];
       const reviewKey = keyByText.get(r.review.text ?? "");
       if (reviewKey === undefined) unknown++;
+      const rerank = observed.rerankScores?.[index];
       return [
         {
           key: reviewKey ?? `?${r.review.id}`,
           similarity: r.score,
           review_id: r.review.id,
           chunk_id: r.excerpt_id,
+          ...(rerank === undefined ? {} : { rerank }),
         },
       ];
     });
-    out.push({ ...toObserved(fixture, []), rows });
+    out.push({
+      ...toObserved(fixture, []),
+      rows,
+      took_ms: res.took_ms,
+      ...(observed.rerankMs === null ? {} : { rerank_ms: observed.rerankMs }),
+      ...(observed.rerankChars === null
+        ? {}
+        : { rerank_chars: observed.rerankChars }),
+    });
     const top = rows[0];
     console.error(
       `  ${String(i + 1).padStart(2)}/${RELEVANCE_QUERIES.length} ${fixture.id} ${fixture.kind.padEnd(15)} ${rows.length.toString().padStart(2)} rows` +
@@ -418,12 +481,12 @@ function optionalFloor(name: string, value: string | undefined) {
  * search's full-text branch uses. Exact as long as the corpus was not
  * re-indexed since the run (the script refuses rows whose chunk is gone).
  */
-async function annotate(path: string): Promise<void> {
+async function annotate(path: string, rule: LexicalRule): Promise<void> {
   const url = process.env.DATABASE_URL;
   if (!url) usage("--annotate needs DATABASE_URL (the database the api reads)");
   const run = JSON.parse(readFileSync(path, "utf8")) as SavedRun;
   const { createDb } = await import("../src/client.js");
-  const { sql } = createDb(url, { max: 1 });
+  const { db, sql } = createDb(url, { max: 1 });
   let marked = 0;
   let lexical = 0;
   try {
@@ -434,10 +497,15 @@ async function annotate(path: string): Promise<void> {
       if (ids.some((id) => id === undefined)) {
         usage(`${query.id}: rows without chunk_id — collect a new run first`);
       }
-      const found = await sql<{ id: string; lexical: boolean }[]>`
-        SELECT id, tsv @@ websearch_to_tsquery('english', ${query.q}) AS lexical
-        FROM review_chunks
-        WHERE id = ANY(${ids as string[]}::uuid[])`;
+      const found = await db.execute<{ id: string; lexical: boolean }>(
+        drizzleSql`
+          SELECT id, ${lexicalMatchSql(drizzleSql`tsv`, query.q, rule, GENERIC_QUERY_WORDS)} AS lexical
+          FROM review_chunks
+          WHERE id IN (${drizzleSql.join(
+            (ids as string[]).map((id) => drizzleSql`${id}::uuid`),
+            drizzleSql`, `,
+          )})`,
+      );
       const byId = new Map(found.map((row) => [row.id, row.lexical]));
       const rows = saved.map((row): SavedRow => {
         const flag = byId.get(row.chunk_id as string);
@@ -455,7 +523,7 @@ async function annotate(path: string): Promise<void> {
     const next: SavedRun = { ...run, queries, summary: computeCurve(queries) };
     writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
     console.log(
-      `db:tune-floor: annotated ${marked} rows (${lexical} lexical) in ${path}`,
+      `db:tune-floor: annotated ${marked} rows (${lexical} lexical, rule ${rule}) in ${path}`,
     );
   } finally {
     await sql.end();
@@ -522,6 +590,95 @@ function reportTwoTier(run: SavedRun): void {
   }
 }
 
+// ---- reranker (#147) ---------------------------------------------------------
+
+/**
+ * Tokens per character for bge's XLM-RoBERTa tokenizer on English review
+ * text, for the neuron estimate (~4 characters per token).
+ */
+const CHARS_PER_TOKEN = 4;
+/** Workers AI pricing page: bge-reranker-base, neurons per M input tokens. */
+const RERANKER_NEURONS_PER_M_TOKENS = 283;
+
+function reportRerank(run: SavedRun): void {
+  const rows = run.queries.flatMap((q) => q.rows);
+  const scored = rows.filter((row) => row.rerank !== undefined).length;
+  console.log(
+    `Run ${run.generated_at} (${run.queries.length} queries); ${scored}/${rows.length} rows carry a reranker score.`,
+  );
+  if (scored === 0) {
+    console.log(
+      "WARNING: no reranker scores — collect against an api with RERANK=true and RERANK_THRESHOLD=0.",
+    );
+    return;
+  }
+  const curve = computeRerankCurve(run.queries);
+  const positives = tunedPositives(run.queries).length;
+  console.log(
+    "\nthreshold  answered        top-3 clean  empty pos  FP rate (neg)   precision  recall",
+  );
+  for (const p of curve) {
+    console.log(
+      `  ${p.threshold.toFixed(3)}   ${pct(p.answeredRate)} (${String(p.answered).padStart(2)})   ${String(p.topClean).padStart(5)}/${positives}     ${String(p.emptyPositives).padStart(4)}     ${pct(p.negativeRate)} (${String(p.negativeQueriesHit).padStart(2)})    ${pct(p.precision)}   ${pct(p.recall)}`,
+    );
+  }
+  const safe = curve.filter(
+    (p) => p.negativeRate <= DEFAULT_CURVE_OPTIONS.maxNegativeRate,
+  );
+  const best = [...safe].sort(
+    (a, b) =>
+      b.answeredRate - a.answeredRate ||
+      a.negativeRate - b.negativeRate ||
+      (b.precision ?? 0) - (a.precision ?? 0),
+  )[0];
+  if (best === undefined) {
+    console.log("\nNo threshold meets the FP cap.");
+  } else {
+    console.log(
+      `\nBest threshold under the FP cap: ${best.threshold} (${best.answered}/${positives} answered, FP ${pct(best.negativeRate).trim()}).`,
+    );
+    const passes = rerankAt(best.threshold);
+    for (const v of verdictsWith(run.queries, passes).filter(
+      (x) => !isClean(x),
+    )) {
+      console.log(describe(v));
+    }
+  }
+  const ms = run.queries.flatMap((q) =>
+    q.rerank_ms === undefined ? [] : [q.rerank_ms],
+  );
+  const took = run.queries.flatMap((q) =>
+    q.took_ms === undefined ? [] : [q.took_ms],
+  );
+  const chars = run.queries.flatMap((q) =>
+    q.rerank_chars === undefined ? [] : [q.rerank_chars + 20 * q.q.length],
+  );
+  const pctl = (values: number[], p: number) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[
+      Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1)
+    ];
+  };
+  if (ms.length > 0) {
+    console.log(
+      `\nReranker call: p50 ${pctl(ms, 0.5)} ms, p95 ${pctl(ms, 0.95)} ms, max ${Math.max(...ms)} ms (n=${ms.length}).`,
+    );
+  }
+  if (took.length > 0) {
+    console.log(
+      `took_ms: p50 ${pctl(took, 0.5)} ms, p95 ${pctl(took, 0.95)} ms (n=${took.length}).`,
+    );
+  }
+  if (chars.length > 0) {
+    const tokens = chars.map((c) => c / CHARS_PER_TOKEN);
+    const mean = tokens.reduce((a, b) => a + b, 0) / tokens.length;
+    const neurons = (mean * RERANKER_NEURONS_PER_M_TOKENS) / 1e6;
+    console.log(
+      `Reranker input: ~${Math.round(mean)} tokens/query (20 × (query + excerpt), ${CHARS_PER_TOKEN} chars/token) → ~${neurons.toFixed(3)} neurons/query at ${RERANKER_NEURONS_PER_M_TOKENS} neurons/M tokens.`,
+    );
+  }
+}
+
 // ---- main ------------------------------------------------------------------
 
 async function main(): Promise<void> {
@@ -539,6 +696,8 @@ async function main(): Promise<void> {
       "project-lexical-floor": { type: "string" },
       annotate: { type: "string" },
       "two-tier": { type: "boolean", default: false },
+      "lexical-rule": { type: "string", default: LEXICAL_RULE },
+      rerank: { type: "boolean", default: false },
     },
   });
   const at = values.at === undefined ? undefined : Number(values.at);
@@ -546,7 +705,11 @@ async function main(): Promise<void> {
     usage("--at must be in [0, 1]");
 
   if (values.annotate !== undefined) {
-    await annotate(resolve(INVOKED_FROM, values.annotate));
+    const rule = values["lexical-rule"] as LexicalRule;
+    if (!LEXICAL_RULES.includes(rule)) {
+      usage(`--lexical-rule must be one of ${LEXICAL_RULES.join(", ")}`);
+    }
+    await annotate(resolve(INVOKED_FROM, values.annotate), rule);
     return;
   }
 
@@ -560,6 +723,7 @@ async function main(): Promise<void> {
     if (run.version !== 1)
       usage(`unsupported run version ${String(run.version)}`);
     if (values["two-tier"]) reportTwoTier(run);
+    else if (values.rerank) reportRerank(run);
     else report(run, at);
     return;
   }

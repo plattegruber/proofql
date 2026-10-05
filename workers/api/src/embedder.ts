@@ -17,8 +17,10 @@
 
 import {
   createWorkersAiEmbedder,
+  createWorkersAiReranker,
   type EmbeddingProvider,
   FakeEmbeddingProvider,
+  type Reranker,
 } from "@proofql/ai";
 import { createMiddleware } from "hono/factory";
 
@@ -43,13 +45,31 @@ export function injectedEmbedder(
   return () => embedder;
 }
 
-/** Installs `c.get("getEmbedder")`; resolves lazily, once per request. */
-export function embedderMiddleware(provider: EmbedderProvider) {
+/**
+ * How the app obtains the experimental reranker (#147; src/query/rerank.ts).
+ * Null means none: the query path then keeps the cosine floor.
+ */
+export type RerankerProvider = (env: ApiBindings) => Reranker | null;
+
+/** Workers AI bge-reranker-base where `AI` is bound; none locally. */
+export const workersAiReranker: RerankerProvider = (env) =>
+  env.AI ? createWorkersAiReranker(env.AI) : null;
+
+/** Installs `c.get("getEmbedder")` and `c.get("getReranker")`; both lazy, once per request. */
+export function embedderMiddleware(
+  provider: EmbedderProvider,
+  rerankerProvider: RerankerProvider = workersAiReranker,
+) {
   return createMiddleware<AppEnv>(async (c, next) => {
     let embedder: EmbeddingProvider | undefined;
     c.set("getEmbedder", () => {
       embedder ??= provider(c.env);
       return embedder;
+    });
+    let reranker: Reranker | null | undefined;
+    c.set("getReranker", () => {
+      if (reranker === undefined) reranker = rerankerProvider(c.env);
+      return reranker;
     });
     await next();
   });

@@ -164,7 +164,13 @@ describe("cacheKey", () => {
         since: "2025-01-01T00:00:00.000Z",
         metadata: null,
       },
-      policy: { min_rating: 4, similarity_floor: 0.55, lexical_floor: 0.42 },
+      policy: {
+        min_rating: 4,
+        similarity_floor: 0.55,
+        lexical_floor: 0.42,
+        lexical_rule: "half-specific",
+        generic_words: "dental dentist teeth review office",
+      },
     });
   });
 });

@@ -59,8 +59,9 @@ export interface PlaygroundResult {
   similarity: number | null;
   belowFloor: boolean;
   /**
-   * The full-text branch matched this chunk, so it was held to the lexical
-   * tier of the floor (`lexicalFloorFor`, #138) instead of the floor.
+   * The chunk matches the query's words (at least half of its specific
+   * words, #147), so it was held to the lexical tier of the floor
+   * (`lexicalFloorFor`, #138) instead of the floor.
    */
   lexical: boolean;
   review: {

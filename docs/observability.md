@@ -84,7 +84,8 @@ wire) and bind it in `handleQueueBatch`.
 
 | Event | Level | Fields beyond the request bindings | When |
 |---|---|---|---|
-| `query.completed` | info | `project_id`, `key_environment`, `key_kind`, `mode`, `fallback`, `has_q`, `q_length`, `limit`, `min_rating`, `similarity_floor`, `returned`, `match`, `cached`, `took_ms`, `embedding_ms`, `search_ms` | Exactly once per answered `/v1/query`, hit or miss. See [Tuning the floor](#tuning-the-similarity-floor). |
+| `query.completed` | info | `project_id`, `key_environment`, `key_kind`, `mode`, `fallback`, `has_q`, `q_length`, `limit`, `min_rating`, `similarity_floor`, `returned`, `match`, `cached`, `took_ms`, `embedding_ms`, `search_ms`, plus `rerank_ms` only when experimental reranking ran (`RERANK=true`, #147) | Exactly once per answered `/v1/query`, hit or miss. See [Tuning the floor](#tuning-the-similarity-floor). |
+| `query.rerank_failed` | error | `project_id`, `q_length`, `error` | Only with `RERANK=true` (off by default, #147): the reranker call failed and the candidates were held to the ordinary two-tier floor instead. |
 | `query.rejected` | warn (error for 5xx) | `code`, `status`, and `project_id`, `key_environment`, `key_kind` when auth had run | Any `ApiError` on `/v1/query`: 401/403 auth and CORS, 422 validation, 429 rate limit or quota, 503 `embedding_unavailable`. |
 | `query.embedding_failed` | error | `project_id`, `key_environment`, `key_kind`, `q_length`, `embedding_ms`, `error` | Workers AI failed or is unbound; the response is 503 and there is deliberately no full-text fallback. Followed by a `query.rejected` with `code: embedding_unavailable`. |
 | `query.cache_error` | warn | `project_id`, `key_environment`, `op` (`get` \| `put`), `error` | A KV read or write threw. The request is served as a miss; the cache can slow the endpoint down, never take it down. |

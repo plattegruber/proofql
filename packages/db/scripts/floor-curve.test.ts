@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   computeCurve,
+  computeRerankCurve,
   computeTwoTier,
   floorSteps,
   type ObservedQuery,
   percentiles,
   pointAt,
+  rerankAt,
   twoTier,
   verdictAt,
   verdictsAt,
@@ -282,5 +284,44 @@ describe("computeTwoTier", () => {
       [0.65, 0.64],
     ]);
     expect(grid.annotated).toEqual({ rows: 3, lexical: 2, total: 3 });
+  });
+});
+
+describe("reranker threshold (#147)", () => {
+  const reranked: ObservedQuery = {
+    id: "p05",
+    q: "straightening without braces",
+    kind: "positive",
+    expect: ["g04"],
+    rows: [
+      { key: "g04", similarity: 0.59, rerank: 0.4 },
+      { key: "g44", similarity: 0.7, rerank: 0.02 },
+    ],
+  };
+  const empty: ObservedQuery = {
+    id: "n01",
+    q: "kiosk",
+    kind: "negative",
+    expect: [],
+    rows: [{ key: "g51", similarity: 0.64, rerank: 0.08 }],
+  };
+
+  it("gates on the reranker score and ignores rows without one", () => {
+    const passes = rerankAt(0.1);
+    expect(passes({ key: "a", similarity: 0.9 })).toBe(false);
+    expect(passes({ key: "a", similarity: 0.1, rerank: 0.1 })).toBe(true);
+    expect(passes({ key: "a", similarity: 0.9, rerank: 0.09 })).toBe(false);
+  });
+
+  it("sweeps thresholds: the paraphrase is answered and the negative empties", () => {
+    const curve = computeRerankCurve([reranked, empty], [0.05, 0.1, 0.5]);
+    expect(
+      curve.map((p) => [p.threshold, p.answered, p.negativeQueriesHit]),
+    ).toEqual([
+      [0.05, 1, 1],
+      [0.1, 1, 0],
+      [0.5, 0, 0],
+    ]);
+    expect(curve[1]?.precision).toBe(1);
   });
 });

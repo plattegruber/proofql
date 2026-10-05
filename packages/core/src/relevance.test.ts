@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_SIMILARITY_FLOOR,
+  GENERIC_QUERY_WORDS,
   LEXICAL_FLOOR_OFFSET,
+  LEXICAL_RULE,
+  LEXICAL_RULES,
   lexicalFloorFor,
 } from "./relevance.js";
 
@@ -17,5 +20,19 @@ describe("relevance floors", () => {
     expect(lexicalFloorFor(0.7)).toBe(0.57);
     expect(lexicalFloorFor(0.3)).toBe(0.17);
     expect(lexicalFloorFor(0.1)).toBe(0);
+  });
+});
+
+describe("lexical rule (#147)", () => {
+  it("is the measured partial-match rule with the issue's generic words", () => {
+    expect(LEXICAL_RULES).toContain(LEXICAL_RULE);
+    expect(LEXICAL_RULE).toBe("half-specific");
+    expect(GENERIC_QUERY_WORDS.split(" ")).toEqual([
+      "dental",
+      "dentist",
+      "teeth",
+      "review",
+      "office",
+    ]);
   });
 });
