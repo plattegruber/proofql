@@ -88,13 +88,15 @@ wire) and bind it in `handleQueueBatch`.
 | `query.rerank_failed` | error | `project_id`, `q_length`, `error` | Only with `RERANK=true` (off by default, #147): the reranker call failed and the candidates were held to the ordinary two-tier floor instead. |
 | `query.rejected` | warn (error for 5xx) | `code`, `status`, and `project_id`, `key_environment`, `key_kind` when auth had run | Any `ApiError` on `/v1/query`: 401/403 auth and CORS, 422 validation, 429 rate limit or quota, 503 `embedding_unavailable`. |
 | `query.embedding_failed` | error | `project_id`, `key_environment`, `key_kind`, `q_length`, `embedding_ms`, `error` | Workers AI failed or is unbound; the response is 503 and there is deliberately no full-text fallback. Followed by a `query.rejected` with `code: embedding_unavailable`. |
-| `query.cache_error` | warn | `project_id`, `key_environment`, `op` (`get` \| `put`), `error` | A KV read or write threw. The request is served as a miss; the cache can slow the endpoint down, never take it down. |
+| `query.cache_error` | warn | `project_id`, `key_environment`, `op` (`get` \| `put`), `error` | A **Cache API** read or write threw (custom domains, #158). The request is served as a miss; the cache can slow the endpoint down, never take it down. A KV fault on the result cache is a `kv.*` line instead (site `api.query_cache`). |
 | `reviews.rejected` | warn | as `query.rejected` | Any `ApiError` on `/v1/reviews*`. |
 | `request.rejected` | warn | as `query.rejected` | Any other refused request, including unknown routes (404). |
 | `request.failed` | error | `error`, `stack` (first 2,000 chars) | An unhandled exception became a 500 `internal`. The only line that carries a stack, and the only place the cause is recorded; the client sees the request id and nothing else. |
 | `ratelimit.rejected` | warn | `project_id`, `key_environment`, `key_kind`, `api_key_id`, `limit`, `period`, `retry_after` | A key hit its per-kind limit ([`rate-limit.ts`](../workers/api/src/rate-limit.ts)). Also produces a `*.rejected` with `code: rate_limited`; this line has the limiter's numbers. |
 | `quota.rejected` | warn | `project_id`, `key_environment`, `key_kind`, `plan`, `limit`, `uncached`, `queries`, `cache_hits`, `retry_after` | The project is at its plan's monthly uncached-query quota ([`quota.ts`](../workers/api/src/quota.ts)); only a cache miss can trigger it. |
-| `auth.cache_error` | warn | `op` (`get` \| `put`), `error` | The KV auth cache ([`auth-cache.ts`](../workers/api/src/auth-cache.ts), #108) threw on `/v1/query`; the key was resolved from the database instead. The cache can slow auth down, never take it down. |
+| `auth.cache_error` | warn | `op` (`get` \| `put`), `error` | The auth cache's Cache API tier ([`auth-cache.ts`](../workers/api/src/auth-cache.ts), #108, #158) threw on `/v1/query`; the key was resolved from the isolate or the database instead. The cache can slow auth down, never take it down. |
+| `auth.stale_served` | warn | `project_id`, `age_s`, `error` | The database lookup for a key failed as unavailable (connection failure or Hyperdrive's daily limit) and a cached entry past its 60 s freshness, at most an hour old and with an unchanged generation, stood in (stale-if-error, #158). Expect a burst of these during a Hyperdrive outage; that is the HIT path staying up. |
+| `quota.exhausted` | error | `resource` (`hyperdrive` \| `kv`), `retry_after`, `renews_at` (ISO, or null), `error` | A daily platform allowance is spent (#142, #158): Hyperdrive's `Usage limit for account exceeded, usage renews at …` or KV's `… limit exceeded for the day` reached the error handler. The response is 503 `service_unavailable` with `Retry-After` set to the seconds until the renewal (300 when none is stated), and a `*.rejected` with that code follows. Level error so it alerts: until the renewal every request needing the resource fails, for every tenant (docs/launch.md §16). |
 | `db.unavailable` | warn | `code` (SQLSTATE such as `53300`, or a driver code such as `CONNECT_TIMEOUT`), `error` | The database refused or timed out a connection ([`db.ts`](../workers/api/src/db.ts) `isDatabaseUnavailable`); the response is 503 `service_unavailable` with `Retry-After: 1`, and a `*.rejected` with that code follows. `53300` is Hyperdrive's origin limit or Neon's `max_connections`; `CONNECT_TIMEOUT` is a pool queue that outlasted the 10 s connect timeout. No stack: the cause is a known shape, not a bug. |
 | `usage.flush_failed` | error | `projects`, `queries`, `cache_hits`, `error` | The batched `usage` write ([`usage-buffer.ts`](../workers/api/src/usage-buffer.ts), #108) failed and that window's counts were dropped — the totals in the line are what the dashboard will under-report. Not retried: the database just refused a connection. |
 | `auth.throttled` | warn | `phase` (`failure` \| `penalty_box`), `limit`, `period`, `retry_after` | An address exceeded the per-IP budget of authentication failures ([`auth-throttle.ts`](../workers/api/src/auth-throttle.ts), #49): `failure` is the 401/403 that overflowed and was answered 429 instead; `penalty_box` is a later request from the same address refused before auth. The address is deliberately not logged (identifiers and measurements, never personal data); Cloudflare's request logs carry it. No `*.rejected` accompanies the `penalty_box` form. |
@@ -104,7 +106,7 @@ wire) and bind it in `handleQueueBatch`.
 - `cached` is `HIT`, `MISS`, or `BYPASS` (the caller sent `Cache-Control:
   no-cache`; the fresh answer was still stored) — the same value as the
   `x-cache` response header. On a `HIT`, `embedding_ms` and `search_ms`
-  are `0` and `took_ms` is the KV round-trip.
+  are `0` and `took_ms` is the cache round-trip.
 - `has_q` / `q_length`: whether a query was sent and how long it was, in
   UTF-16 code units. Without `q` the endpoint returns the newest publishable
   reviews and `similarity_floor` played no part.
@@ -137,6 +139,7 @@ wire) and bind it in `handleQueueBatch`.
 | `ingest.dlq.unparseable` | warn | `issues[]` (`path`, `message`) | A DLQ body failed `ingestMessageSchema`. Acked; the ingest consumer would have acked it too, so one arriving here means the wire shape changed between the two consumers. |
 | `ingest.dlq.failed` | error | `error` | The `ingest_runs` insert or `reviews` update threw (database down, or the project is gone and the foreign key refused the row). Acked anyway: the DLQ consumer runs with `max_retries: 0` and no further DLQ, so a retry would only drop the message silently. This line is the record of last resort — a non-empty count here is the one DLQ signal that did not reach the dashboard. |
 | `review.indexed` | info | `chunks`, `windows`, `sentences`, `embedded`, `embedding_ms`, `newly_indexed`, `sentiment`, `sentiment_source` | The one line per indexed review, from `indexReview`. `chunks` is `1 + windows + sentences`; `sentences` is 0 for a one-sentence review (#127). `newly_indexed` is whether this run flipped `indexed_at` (and therefore bumped the project's cache generation). |
+| `cache.generation_bumped` | info | `projects` | A queue batch's held generation bumps were written, one KV write per project (#158: bumps are coalesced per batch, not per review). A failure is a `kv.*` line with site `pipeline.generation_bump` instead. |
 | `review.skipped` | info | `reason` (`not_found` \| `hidden` \| `empty_text`) | A property of the review that redelivery cannot change. Acked. |
 | `sweep.completed` | info | `older_than_minutes`, `limit`, `enqueued`, `exhausted`, `batches`, `review_ids[]` | Every cron tick ([`sweep.ts`](../workers/pipeline/src/sweep.ts)). |
 | `sweep.exhausted` | warn | `max_attempts`, `count`, `review_ids[]` | Reviews stuck past the attempt cap, listed once per tick and not re-sent. A non-empty one is a review the pipeline cannot index: look at its last `ingest.message.failed`, or its `ingest.dlq.recorded` (a dead letter sets the counter to the cap directly). |
@@ -211,6 +214,29 @@ emits `project.created` (with `onboarding: true`) and two `api_key.created`
 lines from its step-1 action, the same events the project and Keys surfaces
 log. No onboarding line carries a key: `plaintext` and `key` are redacted
 fields, and the call sites log ids only.
+
+### Every service: KV faults (#158)
+
+Every KV call in every worker goes through the guards in
+[`packages/core/src/kv-guard.ts`](../packages/core/src/kv-guard.ts). A
+failure degrades the request (a cache miss, a live fetch, an in-memory
+limiter, a swallowed write) and is logged at **warn** at most **once per
+isolate per minute** per (event, op), because a spent daily quota fails
+every call until 00:00 UTC.
+
+| Event | Level | Fields | When |
+|---|---|---|---|
+| `kv.limit_exceeded` | warn | `op` (`get` \| `put` \| `delete` \| `list`), `site`, `suppressed`, `error` | The message is Cloudflare's daily-limit error (`KV get() limit exceeded for the day.` / `KV put() …`): the Workers Free plan's 100,000 reads or 1,000 writes are spent. `suppressed` counts the failures the throttle swallowed since the previous line. |
+| `kv.read_failed` | warn | as above | Any other failed read. |
+| `kv.write_failed` | warn | as above | Any other failed write. |
+
+`site` names the call: `api.generation`, `api.generation_bump`,
+`api.query_cache`, `pipeline.index`, `pipeline.generation_bump`,
+`pipeline.google_poll`, `pipeline.places_refresh`, `pipeline.places_cache`,
+`dashboard.generation_bump`, `dashboard.places_cache`,
+`dashboard.waitlist_limiter`, `dashboard.oauth_nonce`. A `…generation_bump`
+failure is the one that costs correctness: cached results stay stale until
+their 24 h TTL (docs/performance.md §7).
 
 ## Tuning the similarity floor
 

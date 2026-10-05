@@ -42,10 +42,10 @@
  */
 
 import {
-  bumpProjectGeneration,
   type GenerationKv,
   type IngestMessage,
   type Logger,
+  safeBumpProjectGeneration,
 } from "@proofql/core";
 import { type Db, schema, upsertReviews } from "@proofql/db";
 import {
@@ -379,7 +379,8 @@ export async function refreshPlacesBootstraps(
   const client = createPlacesClient({
     apiKey: (ctx.env.GOOGLE_PLACES_API_KEY as string).trim(),
     baseUrl: ctx.env.PLACES_API_BASE?.trim() || undefined,
-    cache: kvPlacesCache(ctx.kv),
+    // A KV fault is a live fetch, never a failed refresh (#158).
+    cache: kvPlacesCache(ctx.kv, { log, site: "pipeline.places_cache" }),
     fetch: ctx.fetch,
   });
 
@@ -530,7 +531,11 @@ async function refreshOne(
       })
     ) {
       // After the commits, never inside them (packages/core cache-generation).
-      generation = await bumpProjectGeneration(ctx.kv, projectId);
+      // Never throws (#158): the refresh committed; a lost bump is logged.
+      generation = await safeBumpProjectGeneration(ctx.kv, projectId, {
+        log,
+        site: "pipeline.places_refresh",
+      });
     }
     if (rejected > 0) {
       log.log("places.refresh.cap_reached", {

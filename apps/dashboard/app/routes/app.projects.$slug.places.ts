@@ -57,7 +57,7 @@ export async function action(args: Route.ActionArgs) {
   const fail = (error: string, status: number) =>
     data<PlacesActionData>({ intent, error }, { status });
 
-  const places = placesClientFor(env);
+  const places = placesClientFor(env, { log });
   if (places === null) return fail(PLACES_NOT_CONFIGURED, 503);
 
   if (intent === "search") {

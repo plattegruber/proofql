@@ -20,7 +20,7 @@ import type { EmbeddingProvider, Reranker } from "@proofql/ai";
 import type { LogSink } from "@proofql/core";
 import type { Db } from "@proofql/db";
 import { Hono } from "hono";
-
+import { AuthCache } from "./auth-cache.js";
 import {
   authFailureThrottle,
   injectedAuthFailureLimiter,
@@ -33,12 +33,21 @@ import {
   injectedProvider,
 } from "./db.js";
 import {
+  defaultEdgeCache,
+  type EdgeCacheLike,
+  type EdgeCaches,
+  GENERATION_MEMO_MS,
+  GenerationMemo,
+  MissCounter,
+} from "./edge-cache.js";
+import {
   type EmbedderProvider,
   embedderMiddleware,
   injectedEmbedder,
   workersAiEmbedder,
 } from "./embedder.js";
 import { notFound, onError } from "./errors.js";
+import { CACHE_TTL_SECONDS } from "./query/cache.js";
 import { queryRoutes } from "./query/route.js";
 import { recordUsage } from "./quota.js";
 import {
@@ -87,6 +96,27 @@ export interface CreateAppOptions {
   usageFlushMs?: number;
   /** Full control over how the usage buffer writes (defaults to `recordUsage`). */
   usageWriter?: UsageWriter;
+  /**
+   * The Workers Cache API to use (src/edge-cache.ts). Defaults to
+   * `caches.default` where it exists, or null — always null when `db` is
+   * injected, unless given, so tests exercise the KV path by default.
+   */
+  edgeCache?: EdgeCacheLike | null;
+  /** Share one resolved-key cache between apps (tests). */
+  authCache?: AuthCache;
+  /**
+   * Generation memo lifetime (ms). Defaults to `GENERATION_MEMO_MS`, or 0
+   * when `db` is injected — tests bump KV directly and expect the next
+   * request to see it.
+   */
+  generationMemoMs?: number;
+  /**
+   * MISSes within the TTL before a result is written to KV (the write
+   * budget, src/edge-cache.ts). Defaults to 2, or 1 when `db` is injected.
+   */
+  kvWriteAfterMisses?: number;
+  /** Clock for the caches (tests). */
+  now?: () => number;
 }
 
 /** The buffer `createApp` built, for tests that assert on flushes. */
@@ -130,6 +160,27 @@ export function createApp(options: CreateAppOptions = {}): Hono<AppEnv> {
     flushMs: options.usageFlushMs ?? (options.db ? 0 : USAGE_FLUSH_MS),
   });
 
+  const injected = options.db !== undefined;
+  const now = options.now ?? Date.now;
+  const authCache = options.authCache ?? new AuthCache({ now });
+  const edge: EdgeCaches = {
+    cache:
+      options.edgeCache !== undefined
+        ? options.edgeCache
+        : injected
+          ? null
+          : defaultEdgeCache(),
+    missCounter: new MissCounter({
+      threshold: options.kvWriteAfterMisses ?? (injected ? 1 : 2),
+      windowMs: CACHE_TTL_SECONDS * 1000,
+      now,
+    }),
+    generations: new GenerationMemo(
+      options.generationMemoMs ?? (injected ? 0 : GENERATION_MEMO_MS),
+      now,
+    ),
+  };
+
   const app = new Hono<AppEnv>();
   usageBuffers.set(app, usage);
   app.onError(onError);
@@ -161,6 +212,8 @@ export function createApp(options: CreateAppOptions = {}): Hono<AppEnv> {
   app.use(rateLimitMiddleware(rateLimiters));
   app.use(async (c, next) => {
     c.set("usage", usage);
+    c.set("authCache", authCache);
+    c.set("edge", edge);
     await next();
   });
 

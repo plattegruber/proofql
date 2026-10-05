@@ -19,6 +19,7 @@
  * it and nothing is opened or closed here.
  */
 
+import { errorMessages, isKvLimitError } from "@proofql/core";
 import { type CreateDbOptions, createDb, type Db } from "@proofql/db";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
@@ -104,6 +105,83 @@ export function databaseUnavailableCode(error: unknown): string | null {
 /** Whether `error` (Drizzle wraps the driver's error as `cause`) is a connection failure. */
 export function isDatabaseUnavailable(error: unknown): boolean {
   return databaseUnavailableCode(error) !== null;
+}
+
+/**
+ * Daily platform quotas (#142, #158). On the Workers Free plan Hyperdrive
+ * allows 100,000 database queries a day and fails every statement after
+ * that with
+ *
+ *   PostgresError: Usage limit for account exceeded, usage renews at 2026-10-05 00:00:00 UTC
+ *
+ * (no SQLSTATE; the renewal is the next 00:00 UTC — Cloudflare's
+ * Hyperdrive pricing page, "All limits reset daily at 00:00 UTC"), and KV
+ * fails with `KV get() limit exceeded for the day.` / `KV put() …`.
+ * Nothing about the request was wrong and the condition clears at a known
+ * time, so src/errors.ts answers 503 `service_unavailable` with
+ * `Retry-After` set to the seconds until that time.
+ */
+export const HYPERDRIVE_USAGE_LIMIT_PATTERN =
+  /Usage limit for account exceeded/i;
+
+const RENEWS_AT_PATTERN =
+  /usage renews at (\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)(?:\s*UTC|Z)?/i;
+
+/** `Retry-After` when the message names no renewal time. */
+export const QUOTA_RETRY_AFTER_FALLBACK_SECONDS = 300;
+
+export interface QuotaExhaustion {
+  resource: "hyperdrive" | "kv";
+  /** Seconds until the stated renewal, or the fallback. */
+  retryAfter: number;
+  /** ISO 8601 renewal time when the message stated one. */
+  renewsAt: string | null;
+}
+
+/** The quota `error` reports exhausted, or null when it is something else. */
+export function quotaExhaustion(
+  error: unknown,
+  now: number = Date.now(),
+): QuotaExhaustion | null {
+  const messages = errorMessages(error);
+  const hyperdrive = messages.find((m) =>
+    HYPERDRIVE_USAGE_LIMIT_PATTERN.test(m),
+  );
+  if (hyperdrive !== undefined) {
+    const match = RENEWS_AT_PATTERN.exec(hyperdrive);
+    const time = match?.[2]?.length === 5 ? `${match[2]}:00` : match?.[2];
+    const renews = match ? Date.parse(`${match[1]}T${time}Z`) : Number.NaN;
+    if (Number.isNaN(renews)) {
+      return {
+        resource: "hyperdrive",
+        retryAfter: QUOTA_RETRY_AFTER_FALLBACK_SECONDS,
+        renewsAt: null,
+      };
+    }
+    return {
+      resource: "hyperdrive",
+      // At least a second; a renewal in the past means "any moment now".
+      retryAfter: Math.max(1, Math.ceil((renews - now) / 1000)),
+      renewsAt: new Date(renews).toISOString(),
+    };
+  }
+  if (isKvLimitError(error)) {
+    return {
+      resource: "kv",
+      retryAfter: QUOTA_RETRY_AFTER_FALLBACK_SECONDS,
+      renewsAt: null,
+    };
+  }
+  return null;
+}
+
+/**
+ * Whether a database call failed for a reason the caller can retry: a
+ * connection failure (`isDatabaseUnavailable`) or an exhausted quota. The
+ * auth cache serves a stale entry only for these (src/auth-cache.ts).
+ */
+export function isDatabaseFailure(error: unknown): boolean {
+  return isDatabaseUnavailable(error) || quotaExhaustion(error) !== null;
 }
 
 /** For tests: always the given client, never closed by the app. */

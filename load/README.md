@@ -127,10 +127,14 @@ kill -TERM $SAMPLER; wait $SAMPLER
 ```
 
 **Budget the run.** On the free plan, preview has *daily* allowances:
-100,000 KV reads and a Hyperdrive query quota. The full suite twice
-(~160,000 requests) spent both and took preview's `/v1/query` down for
-every caller until 00:00 UTC (`docs/performance.md` §6). Run a subset,
-shorten `DURATION`, or coordinate first.
+100,000 KV reads, 1,000 KV writes, 100,000 Hyperdrive queries and 100,000
+Workers requests, shared with every other user of the account. The full
+suite twice (~160,000 requests) spent the KV reads and the Hyperdrive
+queries and took preview's `/v1/query` down for every caller until
+00:00 UTC (`docs/performance.md` §6, §7). Since #158 that degrades instead
+of failing, but the suite alone exceeds the daily Workers requests: do
+not run it against preview while the account is on the free plan
+(docs/launch.md §16).
 
 Load-seeded chunks carry **fake embeddings**, so on preview — where `q`
 is embedded by Workers AI — every query returns `results: []` and

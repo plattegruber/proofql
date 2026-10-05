@@ -50,14 +50,23 @@ export function placesConfigured(env: PlacesEnv): boolean {
 /** A client over the worker's env, or null when the key is not set. */
 export function placesClientFor(
   env: PlacesEnv,
-  options: { fetch?: typeof fetch } = {},
+  options: { fetch?: typeof fetch; log?: Logger } = {},
 ): PlacesClient | null {
   const apiKey = env.GOOGLE_PLACES_API_KEY?.trim();
   if (!apiKey) return null;
   return createPlacesClient({
     apiKey,
     baseUrl: env.PLACES_API_BASE?.trim() || undefined,
-    cache: env.CACHE ? kvPlacesCache(env.CACHE) : undefined,
+    // A KV fault — the free plan's daily limit included — is a live fetch
+    // from Google, never a failed search (#158).
+    cache: env.CACHE
+      ? kvPlacesCache(
+          env.CACHE,
+          options.log
+            ? { log: options.log, site: "dashboard.places_cache" }
+            : undefined,
+        )
+      : undefined,
     fetch: options.fetch,
   });
 }

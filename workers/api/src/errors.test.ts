@@ -4,6 +4,7 @@ import { HTTPException } from "hono/http-exception";
 import { describe, expect, it } from "vitest";
 
 import type { AppEnv } from "./bindings.js";
+import { quotaExhaustion } from "./db.js";
 import {
   ApiError,
   docUrl,
@@ -13,6 +14,15 @@ import {
   rejectionEvent,
 } from "./errors.js";
 import { REQUEST_ID_HEADER, requestContext } from "./request-id.js";
+
+/** Hyperdrive's literal message (#141), renewing `inSeconds` from now. */
+function hyperdriveLimit(inSeconds: number): string {
+  const at = new Date(Math.ceil(Date.now() / 1000) * 1000 + inSeconds * 1000)
+    .toISOString()
+    .replace("T", " ")
+    .replace(/\.\d{3}Z$/, "");
+  return `Usage limit for account exceeded, usage renews at ${at} UTC`;
+}
 
 /** A bare app with only the error plumbing under test, logging into `out`. */
 function harness() {
@@ -45,6 +55,26 @@ function harness() {
     throw Object.assign(new Error("write CONNECT_TIMEOUT"), {
       code: "CONNECT_TIMEOUT",
     });
+  });
+  // What postgres-js threw on preview when Hyperdrive's daily quota was
+  // spent (#141): a PostgresError with no SQLSTATE, wrapped by Drizzle.
+  app.get("/hyperdrive-limit", () => {
+    throw new Error("Failed query: select ...", {
+      cause: Object.assign(new Error(hyperdriveLimit(3600)), {
+        name: "PostgresError",
+      }),
+    });
+  });
+  app.get("/hyperdrive-limit-no-time", () => {
+    throw Object.assign(new Error("Usage limit for account exceeded"), {
+      name: "PostgresError",
+    });
+  });
+  app.get("/kv-limit", () => {
+    throw new Error("KV get() limit exceeded for the day.");
+  });
+  app.get("/kv-put-limit", () => {
+    throw new Error("KV put() limit exceeded for the day.");
   });
   app.get("/syntax-error", () => {
     throw new Error("Failed query", {
@@ -138,6 +168,74 @@ describe("error envelope", () => {
         .filter((l) => l.code === "service_unavailable"),
     ).toHaveLength(2);
     expect(app.out.find("request.failed")).toEqual([]);
+  });
+
+  it("maps Hyperdrive's daily usage limit to 503 with Retry-After until the renewal (#142)", async () => {
+    const app = harness();
+    const res = await app.request("/hyperdrive-limit");
+    expect(res.status).toBe(503);
+    const retryAfter = Number(res.headers.get("Retry-After"));
+    expect(retryAfter).toBeGreaterThan(3590);
+    expect(retryAfter).toBeLessThanOrEqual(3601);
+    const body = (await res.json()) as {
+      error: { code: string; message: string };
+    };
+    expect(body.error.code).toBe("service_unavailable");
+    expect(body.error.message).not.toMatch(/Usage limit/);
+    expect(app.out.only("quota.exhausted")).toMatchObject({
+      level: "error",
+      resource: "hyperdrive",
+      retry_after: retryAfter,
+    });
+    expect(app.out.find("request.failed")).toEqual([]);
+    expect(app.out.find("db.unavailable")).toEqual([]);
+  });
+
+  it("falls back to Retry-After 300 when no renewal time is stated, and maps KV's limit errors too", async () => {
+    const app = harness();
+    for (const [path, resource] of [
+      ["/hyperdrive-limit-no-time", "hyperdrive"],
+      ["/kv-limit", "kv"],
+      ["/kv-put-limit", "kv"],
+    ] as const) {
+      const res = await app.request(path);
+      expect(res.status).toBe(503);
+      expect(res.headers.get("Retry-After")).toBe("300");
+      expect(
+        ((await res.json()) as { error: { code: string } }).error.code,
+      ).toBe("service_unavailable");
+      expect(app.out.find("quota.exhausted").at(-1)).toMatchObject({
+        level: "error",
+        resource,
+      });
+    }
+    expect(app.out.find("request.failed")).toEqual([]);
+  });
+
+  it("parses the renewal time from the literal message", () => {
+    const now = Date.parse("2026-10-04T22:00:00Z");
+    expect(
+      quotaExhaustion(
+        new Error(
+          "Usage limit for account exceeded, usage renews at 2026-10-05 00:00:00 UTC",
+        ),
+        now,
+      ),
+    ).toEqual({
+      resource: "hyperdrive",
+      retryAfter: 7200,
+      renewsAt: "2026-10-05T00:00:00.000Z",
+    });
+    // A renewal already past means "any moment": at least one second.
+    expect(
+      quotaExhaustion(
+        new Error(
+          "Usage limit for account exceeded, usage renews at 2026-10-04 00:00:00 UTC",
+        ),
+        now,
+      )?.retryAfter,
+    ).toBe(1);
+    expect(quotaExhaustion(new Error("syntax error"), now)).toBeNull();
   });
 
   it("leaves other database errors as 500 internal", async () => {

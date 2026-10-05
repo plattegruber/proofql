@@ -43,19 +43,22 @@
  * `last_used_at` is refreshed at most once per key per minute, after the
  * response, via `waitUntil` — a dashboard hint, never on the hot path.
  *
- * **Auth cache (#108).** With `{ cache: true }` — `/v1/query` and its
- * preflight only — step 4 is answered from KV when it can be
- * (src/auth-cache.ts): the resolved context is stored under the key hash
- * for 60 s together with the project's cache generation, and an entry is
- * trusted only while that generation is still current, so a revocation,
- * a policy or allowlist change (each bumps the generation) or the TTL ends
- * it. A request answered from the auth cache *and* the query cache opens no
- * database connection at all, which is what moved the query path's ceiling
- * off Hyperdrive's origin connection pool (docs/performance.md §6). The generation read is
- * shared with the query cache through `c.get("projectGeneration")`. Write
- * routes never use it: a revoked secret key cannot write for one second
- * longer than before. The `last_used_at` refresh runs only on a database
- * lookup, which under steady traffic is once a minute — the same cadence.
+ * **Auth cache (#108, #158).** With `{ cache: true }` — `/v1/query` and its
+ * preflight only — step 4 is answered from the auth cache when it can be
+ * (src/auth-cache.ts): the resolved context is kept in the isolate and, on a
+ * custom domain, in the Workers Cache API, under the key hash, together
+ * with the project's cache generation. An entry is trusted for 60 s and
+ * only while that generation is still current, so a revocation, a policy
+ * or allowlist change (each bumps the generation) or the TTL ends it. When
+ * the database cannot be reached (or Hyperdrive's daily quota is spent) an
+ * entry up to an hour old stands in — "stale-if-error" — so cached answers
+ * keep flowing. A request answered from the auth cache *and* the query
+ * cache opens no database connection at all (docs/performance.md §6). The
+ * generation read is shared with the query cache through
+ * `c.get("projectGeneration")`. Write routes never use it: a revoked secret
+ * key cannot write for one second longer than before. The `last_used_at`
+ * refresh runs only on a database lookup, which under steady traffic is
+ * once a minute per isolate.
  */
 
 import {
@@ -64,16 +67,22 @@ import {
   normalizePlan,
   type ParsedApiKey,
   parseApiKey,
-  readProjectGeneration,
 } from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
 import { and, eq, isNull } from "drizzle-orm";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 
-import { getCachedAuth, putCachedAuth } from "./auth-cache.js";
+import {
+  type AuthCacheEntry,
+  dropCachedAuth,
+  getCachedAuth,
+  putCachedAuth,
+  UNKNOWN_GENERATION,
+} from "./auth-cache.js";
 import type { AppEnv, AuthContext } from "./bindings.js";
-import { waitUntil } from "./db.js";
+import { isDatabaseFailure, waitUntil } from "./db.js";
+import { readGeneration } from "./edge-cache.js";
 import { ApiError } from "./errors.js";
 import { enforceRateLimit } from "./rate-limit.js";
 import { logFor } from "./request-id.js";
@@ -91,7 +100,7 @@ export interface RequireApiKeyOptions {
    */
   keyParam?: boolean;
   /**
-   * Resolve the key through the KV auth cache (module doc "Auth cache").
+   * Resolve the key through the auth cache (module doc "Auth cache").
    * Read-only routes only: a cached entry can outlive a revocation by up to
    * a minute, which is acceptable for reading publishable reviews and for
    * nothing else.
@@ -206,16 +215,22 @@ async function lookupApiKeyByHash(
 
 /** What `resolveApiKey` found, and where. */
 export interface ResolvedKey extends LookedUpKey {
-  /** `kv` when the auth cache answered; `db` after a lookup. */
-  source: "kv" | "db";
+  /**
+   * `cache` when the auth cache answered with a fresh entry, `stale` when
+   * the database was down and a stale entry stood in (src/auth-cache.ts
+   * "Stale-if-error"), `db` after a lookup.
+   */
+  source: "cache" | "stale" | "db";
 }
 
 /**
  * Resolve a well-formed plaintext key: through the auth cache when
- * `options.cache` is set and the entry is current (module doc "Auth cache"),
- * else from the database, storing the result for the next request. Null
- * for an unknown or revoked key. Sets `c.get("projectGeneration")` whenever
- * the generation was read, so the query cache need not read it again.
+ * `options.cache` is set and the entry is fresh and current (module doc
+ * "Auth cache"), else from the database, storing the result for the next
+ * request. Null for an unknown or revoked key. Sets
+ * `c.get("projectGeneration")` whenever the generation was read, so the
+ * query cache need not read it again; leaves it unset when KV could not be
+ * read, which makes the query uncachable for this request.
  */
 export async function resolveApiKey(
   c: Context<AppEnv>,
@@ -224,66 +239,76 @@ export async function resolveApiKey(
   options: { cache?: boolean } = {},
 ): Promise<ResolvedKey | null> {
   const keyHash = await hashApiKey(token);
-  const kv = options.cache ? c.env?.CACHE : undefined;
-
-  if (kv !== undefined) {
-    try {
-      const cached = await getCachedAuth(kv, keyHash);
-      if (
-        cached !== null &&
-        cached.auth.kind === parsed.kind &&
-        cached.auth.environment === parsed.environment
-      ) {
-        const generation = await readProjectGeneration(
-          kv,
-          cached.auth.projectId,
-        );
-        if (generation === cached.generation) {
-          c.set("projectGeneration", generation);
-          return {
-            auth: cached.auth,
-            lastUsedAt:
-              cached.lastUsedAt === null ? null : new Date(cached.lastUsedAt),
-            source: "kv",
-          };
-        }
-      }
-    } catch (error) {
-      logAuthCacheError(c, "get", error);
-    }
+  if (!options.cache) {
+    const found = await lookupApiKeyByHash(c.get("getDb")(), parsed, keyHash);
+    return found === null ? null : { ...found, source: "db" };
   }
 
-  const found = await lookupApiKeyByHash(c.get("getDb")(), parsed, keyHash);
-  if (found === null) return null;
-
-  if (kv !== undefined) {
-    try {
-      const generation = await readProjectGeneration(kv, found.auth.projectId);
-      c.set("projectGeneration", generation);
-      // After the response: the store must not add to the request's time,
-      // and a failed store is a lookup next time, not an error now.
-      waitUntil(
-        c,
-        putCachedAuth(kv, keyHash, {
-          auth: found.auth,
-          lastUsedAt: found.lastUsedAt?.toISOString() ?? null,
-          generation,
-        }).catch((error: unknown) => logAuthCacheError(c, "put", error)),
-      );
-    } catch (error) {
-      logAuthCacheError(c, "get", error);
+  const cache = c.get("authCache");
+  let stale: AuthCacheEntry | null = null;
+  let generation: number | null | undefined;
+  const cached = await getCachedAuth(c, keyHash);
+  if (
+    cached !== null &&
+    cached.auth.kind === parsed.kind &&
+    cached.auth.environment === parsed.environment
+  ) {
+    generation = await readGeneration(c, cached.auth.projectId);
+    if (generation !== null) c.set("projectGeneration", generation);
+    // A bump since the lookup retires the entry, fresh or not. An
+    // unreadable generation leaves only the entry's age as the bound.
+    const current = generation === null || generation === cached.generation;
+    if (current && cache.isFresh(cached)) {
+      return fromEntry(cached, "cache");
     }
+    if (current) stale = cached;
+    else dropCachedAuth(c, keyHash);
   }
+
+  let found: LookedUpKey | null;
+  try {
+    found = await lookupApiKeyByHash(c.get("getDb")(), parsed, keyHash);
+  } catch (error) {
+    if (stale !== null && isDatabaseFailure(error)) {
+      logFor(c).log("auth.stale_served", {
+        level: "warn",
+        project_id: stale.auth.projectId,
+        age_s: Math.round(cache.ageMs(stale) / 1000),
+        error,
+      });
+      return fromEntry(stale, "stale");
+    }
+    throw error;
+  }
+  if (found === null) {
+    dropCachedAuth(c, keyHash);
+    return null;
+  }
+
+  if (
+    generation === undefined ||
+    cached?.auth.projectId !== found.auth.projectId
+  ) {
+    generation = await readGeneration(c, found.auth.projectId);
+    if (generation !== null) c.set("projectGeneration", generation);
+  }
+  putCachedAuth(c, keyHash, {
+    auth: found.auth,
+    lastUsedAt: found.lastUsedAt?.toISOString() ?? null,
+    generation: generation ?? UNKNOWN_GENERATION,
+  });
   return { ...found, source: "db" };
 }
 
-/** A KV fault on the auth cache is a database lookup, not a failure: warn. */
-function logAuthCacheError(
-  c: Context<AppEnv>,
-  op: "get" | "put",
-  error: unknown,
-): void {
-  logFor(c).log("auth.cache_error", { level: "warn", op, error });
+function fromEntry(
+  entry: AuthCacheEntry,
+  source: "cache" | "stale",
+): ResolvedKey {
+  return {
+    auth: entry.auth,
+    lastUsedAt: entry.lastUsedAt === null ? null : new Date(entry.lastUsedAt),
+    source,
+  };
 }
 
 /**

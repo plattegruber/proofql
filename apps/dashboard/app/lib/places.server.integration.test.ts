@@ -4,7 +4,12 @@
 // row, five index messages; a second import updates in place and enqueues
 // nothing; a place with no usable reviews leaves no run behind. The client
 // itself (search, the cache, refusals) is tested in packages/google.
-import { planFor } from "@proofql/core";
+import {
+  createLogger,
+  exhaustedKv,
+  planFor,
+  recordingSink,
+} from "@proofql/core";
 import { schema } from "@proofql/db";
 import { project, setupTestDb } from "@proofql/db/test";
 import {
@@ -272,5 +277,32 @@ describe("configuration", () => {
     const { matches } = await client.search("bakery");
     expect(matches.map((m) => m.id)).toEqual([HARBOR_LIGHT_ID]);
     expect(api.calls[0]?.path).toBe("/v1/places:searchText");
+  });
+
+  it("KV at its daily limits: the search fetches live from Google and never fails (#158)", async () => {
+    const api = fakePlacesApi();
+    const kv = exhaustedKv();
+    const rec = recordingSink();
+    const log = createLogger({
+      service: "dashboard",
+      environment: "test",
+      sink: rec.sink,
+    });
+    const client = placesClientFor(
+      {
+        GOOGLE_PLACES_API_KEY: "fake",
+        CACHE: kv as unknown as KVNamespace,
+      },
+      { fetch: api.fetch, log },
+    );
+    if (client === null) throw new Error("expected a client");
+    for (let i = 0; i < 2; i++) {
+      const { matches, cached } = await client.search("bakery");
+      expect(cached).toBe(false);
+      expect(matches.map((m) => m.id)).toEqual([HARBOR_LIGHT_ID]);
+    }
+    expect(api.calls).toHaveLength(2);
+    expect(kv.calls.put).toBe(2);
+    expect(rec.find("kv.limit_exceeded").length).toBeGreaterThan(0);
   });
 });

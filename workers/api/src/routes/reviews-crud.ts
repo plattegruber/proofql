@@ -19,10 +19,12 @@
  *
  * Anything that can change what a query returns — hide, unhide, metadata
  * (filterable), delete — bumps the project's cache generation after the
- * transaction commits (`bumpProjectGeneration` in `@proofql/core`; #28).
+ * transaction commits (`bumpGeneration`, ../edge-cache.ts; #28). A bump
+ * that fails — KV's daily write limit — is logged and swallowed (#158):
+ * the edit has committed, and the cached entries age out with their TTL.
  */
 
-import { bumpProjectGeneration, REQUEST_BODY_LIMITS } from "@proofql/core";
+import { REQUEST_BODY_LIMITS } from "@proofql/core";
 import { schema } from "@proofql/db";
 import {
   and,
@@ -41,6 +43,7 @@ import { bodyLimit } from "hono/body-limit";
 
 import { requireSecretKey } from "../auth.js";
 import type { AppEnv, AuthContext } from "../bindings.js";
+import { bumpGeneration } from "../edge-cache.js";
 import { ApiError } from "../errors.js";
 import { flattenIssues, type ReviewStatus } from "./reviews.js";
 import {
@@ -191,7 +194,8 @@ reviewsCrudRoutes.patch(
     });
 
     // After commit: hidden and metadata both affect what a query returns.
-    if (changed) await bumpProjectGeneration(c.env.CACHE, auth.projectId);
+    // Never throws (#158): a failed bump is logged; the edit stands.
+    if (changed) await bumpGeneration(c, auth.projectId);
 
     return c.json(toResource(row), 200);
   },
@@ -223,7 +227,7 @@ reviewsCrudRoutes.delete("/:id", requireSecretKey, async (c) => {
     if (deleted.length === 0) throw notFound(id);
   });
 
-  await bumpProjectGeneration(c.env.CACHE, auth.projectId);
+  await bumpGeneration(c, auth.projectId);
 
   return c.body(null, 204);
 });

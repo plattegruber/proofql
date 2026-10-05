@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   bumpProjectGeneration,
+  coalesceGenerationBumps,
   generationKey,
   MemoryKv,
   parseGeneration,
@@ -57,5 +58,52 @@ describe("project generation counter", () => {
     expect(parseGeneration("-3")).toBe(0);
     expect(parseGeneration("1e3")).toBe(0);
     expect(parseGeneration("7")).toBe(7);
+  });
+});
+
+describe("coalesceGenerationBumps", () => {
+  it("holds every bump of a project and writes the final value once", async () => {
+    const kv = new MemoryKv({ [generationKey(PROJECT_ID)]: "4" });
+    const batch = coalesceGenerationBumps(kv);
+    for (let i = 0; i < 10; i++) {
+      await bumpProjectGeneration(batch.kv, PROJECT_ID);
+    }
+    await bumpProjectGeneration(batch.kv, "other");
+    expect(kv.puts).toEqual([]);
+    expect([...batch.pending].sort()).toEqual([PROJECT_ID, "other"].sort());
+
+    const written = await batch.flush();
+    expect(kv.puts).toHaveLength(2);
+    expect(kv.store.get(generationKey(PROJECT_ID))).toBe("14");
+    expect(written).toContainEqual({ projectId: PROJECT_ID, generation: 14 });
+    expect(batch.pending).toEqual([]);
+    expect(await batch.flush()).toEqual([]);
+  });
+
+  it("passes non-generation writes straight through", async () => {
+    const kv = new MemoryKv();
+    const batch = coalesceGenerationBumps(kv);
+    await batch.kv.put("places:x", "y");
+    expect(kv.store.get("places:x")).toBe("y");
+  });
+
+  it("attempts every write and rethrows the first failure", async () => {
+    const kv = new MemoryKv();
+    let fail = true;
+    const flaky = {
+      get: (k: string) => kv.get(k),
+      put: async (k: string, v: string) => {
+        if (fail) {
+          fail = false;
+          throw new Error("KV put() limit exceeded for the day.");
+        }
+        await kv.put(k, v);
+      },
+    };
+    const batch = coalesceGenerationBumps(flaky);
+    await bumpProjectGeneration(batch.kv, "a");
+    await bumpProjectGeneration(batch.kv, "b");
+    await expect(batch.flush()).rejects.toThrow(/limit exceeded/);
+    expect(kv.puts).toHaveLength(1);
   });
 });

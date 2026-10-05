@@ -29,6 +29,7 @@ effort estimate. Nothing here needs new code except where it says so.
 | 12 | [Smoke test on prod](#12-smoke-test-on-prod) | owner | 30 min | Go |
 | 13 | [Go](#13-go) | owner | 5 min | — |
 | 14 | [Day-one monitoring](#14-day-one-monitoring) | owner | 10 min × a few, 48 h | closing #51 |
+| 16 | [Running on the free plan](#16-running-on-the-free-plan) | owner | 5 min a day | upgrading to Workers Paid (#143) |
 
 Companion documents: [`infra/provisioning.md`](../infra/provisioning.md)
 (the accounts, step by step), [`docs/secrets.md`](secrets.md) (every value
@@ -212,7 +213,7 @@ structured lines ([`docs/observability.md`](observability.md)).
   $W tail proofql-api-prod       --format pretty --search query.rejected
   $W tail proofql-pipeline-prod  --format pretty                          # queue batches, review.indexed, dlq
   $W tail proofql-dashboard-prod --format pretty --search onboarding      # onboarding.step / completed / dismissed
-  $W tail proofql-cdn-prod       --format pretty --sampling-rate 0.1      # every snippet load; sample it
+  $W tail proofql-cdn-prod       --format pretty                          # /health, 404s and / only: snippet loads are static assets (#158)
   $W tail proofql-docs-prod      --format pretty
   # One event's fields, as JSON: the logger prints one JSON object per line
   $W tail proofql-api-prod --format json \
@@ -344,6 +345,7 @@ recipes from §8. What to watch and what it means:
 | **`onboarding.completed` count and `elapsed_ms`** | filter `event = onboarding.completed` on `proofql-dashboard-prod`; `onboarding.dismissed` beside it | completions ≥ dismissals; `elapsed_ms` median under 300,000 (five minutes) | dismissals at `elapsed_ms` near 0 mean step 1 asks too much; completions slow at step 2 means imports are the wall — both are product issues to file, not incidents |
 | **`import.failed` / `places.failed` (error form)** | filter by event, `level = error` | none | the error form is the one to alert on (observability.md); the warn form is expected in small numbers |
 | **Workers AI / Neon** | Cloudflare → AI → usage; Neon → Monitoring → connections, storage | connections flat under the compute's `max_connections`; AI neurons within the free daily allocation | connection count climbing with RPS is #108; upgrade the Neon compute or move to the KV-served key lookup it proposes |
+| **`quota.exhausted`, `kv.limit_exceeded`** | filter by event (both are free-plan daily limits, §16) | none | §16: what degrades, and the trigger to upgrade |
 | **Signups** | `select count(*), max(created_at) from accounts` on prod; Clerk → Users | whatever it is — write the number down | — |
 
 After 48 hours with no rollback: tick the last box, close #51, and update
@@ -362,3 +364,71 @@ a documented ops command run by you against the prod branch
 | **Upgrade an account to paid** | `pnpm db:set-plan -- --account <org_…> --plan paid` | §7; `packages/db/README.md` "Migration workflow". |
 | **Re-index a project's reviews after a chunker change** | `pnpm db:reindex -- --project <slug\|uuid> --dry-run`, then without `--dry-run`; `--all --environment live` for every project | #127 added `sentence` chunks (migration 0008); reviews indexed before it keep `full` + `window` chunks only, so their highlights stay window-wide until re-indexed. The script marks reviews (`indexed_at = NULL`, `index_attempts = 0`) and the pipeline's five-minute sweep re-enqueues them 500 per tick, so a 5,000-review project takes about 50 minutes and one Workers AI embedding batch per review; search keeps serving the old chunks until each review is replaced. Watch `review.indexed` lines with `sentences > 0` (`wrangler tail proofql-pipeline-prod --search review.indexed`). Details: `packages/db/README.md` "Re-indexing". |
 | **Check a tenant's search cost** | `pnpm --filter @proofql/db exec tsx scripts/bench-search.ts --project <slug\|uuid>` against a branch of prod | `docs/performance.md` §2: ~2.5–3 ms per 1,000 chunks; `search_ms` p50 above ~50 ms for one `project_id` is the trigger for a per-tenant partial HNSW index. |
+
+## 16. Running on the free plan
+
+**Owner.** ProofQL runs on the **Workers Free plan** until the first paying
+customer (#143 deferred). Every allowance below is daily, resets at **00:00
+UTC**, and is shared by every tenant and every worker on the account
+(preview and prod included, if they share the account). #158 made sure that
+spending one degrades requests rather than taking every tenant down. The
+counts behind these numbers are in
+[`docs/performance.md` §7](performance.md#7-running-inside-the-workers-free-plan-2026-10-05-158).
+
+### Ceilings
+
+| Allowance | Daily limit | Roughly what it buys today (`*.workers.dev`) |
+|---|---|---|
+| Workers requests (all workers) | 100,000 | ~100,000 snippet elements rendered (one api request per `[data-proofql]`; loading the snippet itself is a free static asset), minus dashboard page views and ~300 cron runs |
+| KV reads | 100,000 | ~50,000–100,000 queries (1–2 reads each; ≤ 1 on a custom domain) |
+| KV writes | 1,000 | ~1,000 *repeated* uncached queries stored (a one-off query never writes; none at all on a custom domain), ~10,000 reviews indexed (one write per batch), every dashboard edit that changes results (one each) |
+| Hyperdrive queries | 100,000 | ~40,000 uncached queries, or ~10,000 reviews indexed |
+| Queues operations | 10,000 | **~3,300 reviews indexed** (3 operations each). This is the tightest limit for imports |
+| Workers AI | 10,000 neurons | ~30,000 reviews indexed, or far more queries. Not the constraint |
+
+Cached queries cost no database queries and, on a custom domain, no KV
+writes. Once `api.proofql.com` is routed (§2), the result and auth caches
+move to the Workers Cache API by themselves
+([`infra/environments.md`](../infra/environments.md) "Cache API").
+
+### What degrades first
+
+1. **A large import or re-index** (`pnpm db:reindex`, a CSV of thousands of
+   reviews) hits **Queues** at ~3,300 reviews a day. The rest wait for the
+   next day's sweep. Plan big imports across days, or upgrade first.
+2. **KV writes** (1,000). When they run out, results stop being stored in
+   KV and **cache purges are lost**: a hide, a policy edit or a newly
+   indexed review can take up to the cache's 24 h TTL to show in cached
+   answers. Edits still succeed. Look for `kv.limit_exceeded` with
+   `site: …generation_bump`. On a custom domain query results no longer
+   use KV writes at all.
+3. **KV reads** (100,000). Queries are then served uncached. Every query is
+   still answered, but each one spends Hyperdrive, so this leads to 4.
+4. **Hyperdrive** (100,000). Uncached queries, ingest and the dashboard
+   answer 503 with `Retry-After` until midnight UTC, logged as
+   `quota.exhausted` at level error. **Cached answers keep being served**
+   for every tenant.
+5. **Workers requests** (100,000). Cloudflare error 1027 for everything,
+   and nothing in code can help. Customer sites show their fallback text,
+   because the snippet renders nothing on an error.
+
+### Watch
+
+- [ ] Once a day in week one, then weekly: Cloudflare dashboard → **Workers
+  & Pages** → Overview (requests today), **Storage & Databases → KV** →
+  `proofql-cache-prod` → Metrics (reads, writes), **Hyperdrive** →
+  `proofql-hyperdrive-prod` → Metrics (queries), **Queues** → operations,
+  **AI** → neurons. Write the day's peak beside each limit.
+- [ ] Any `quota.exhausted` (level error) or `kv.limit_exceeded` line in
+  Workers Logs means a limit was reached that day.
+
+### The trigger to upgrade
+
+Upgrade to **Workers Paid** ($5/month, #143) when **any** allowance runs
+above **50 % of its daily limit on 3 days in a week**, or reaches 100 % even
+once in front of customers. Upgrade immediately if the first paying customer
+signs up, as the owner decided. At 50 % there is still a day's headroom for
+a traffic spike or an import. Nothing in code changes on upgrade: the same
+paths simply stop hitting limits. Load runs against preview spend the same
+shared allowances (performance.md §6), so do not run one on the free plan.
+

@@ -11,11 +11,16 @@
 //   /demo/             the hosted demo: a static small-business site using the
 //                      snippet against the seeded demo project
 //
-// Every file comes from the `public/` directory through the `ASSETS` static
-// assets binding; `run_worker_first` routes every request through
-// src/worker.ts so the cache and security headers (src/handler.ts) are set
-// in code and unit-tested, not left to the asset layer's defaults. public/
-// is built by `pnpm --filter @proofql/cdn build` (scripts/build.mjs) and
+// Every file comes from the `public/` directory and is served by Workers
+// static assets **without invoking the worker** (#158): asset requests are
+// free and unmetered, while a worker invocation counts against the Workers
+// Free plan's 100,000 requests a day — and a snippet load is one per page
+// view of every customer site. The cache, CORS, CORP and nosniff headers
+// come from public/_headers, which scripts/build.mjs writes with the same
+// values src/handler.ts uses (src/build.test.ts checks they agree).
+// `run_worker_first` is limited to `/health`; the worker also answers
+// whatever no asset matches (404s, `/` → `/demo/`, OPTIONS). public/ is
+// built by `pnpm --filter @proofql/cdn build` (scripts/build.mjs) and
 // gitignored except for public/demo/; always build before deploying — the
 // deploy workflow does.
 //
@@ -55,9 +60,9 @@
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    // Every request hits src/worker.ts first; it fetches the asset through
-    // the binding and sets the headers.
-    "run_worker_first": true,
+    // Only /health needs code; everything else is a static asset whose
+    // headers come from public/_headers (header comment, #158).
+    "run_worker_first": ["/health"],
     // `/demo` → `/demo/` → demo/index.html.
     "html_handling": "auto-trailing-slash",
     // A path that is not an asset is a plain 404 (no SPA fallback).
@@ -71,7 +76,7 @@
       "assets": {
         "directory": "./public",
         "binding": "ASSETS",
-        "run_worker_first": true,
+        "run_worker_first": ["/health"],
         "html_handling": "auto-trailing-slash",
         "not_found_handling": "none"
       }
@@ -82,7 +87,7 @@
       "assets": {
         "directory": "./public",
         "binding": "ASSETS",
-        "run_worker_first": true,
+        "run_worker_first": ["/health"],
         "html_handling": "auto-trailing-slash",
         "not_found_handling": "none"
       }

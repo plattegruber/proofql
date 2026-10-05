@@ -15,6 +15,8 @@ import type {
 } from "@proofql/core";
 import type { Db } from "@proofql/db";
 
+import type { AuthCache } from "./auth-cache.js";
+import type { EdgeCaches } from "./edge-cache.js";
 import type { RateLimiters } from "./rate-limit.js";
 import type { UsageBuffer } from "./usage-buffer.js";
 
@@ -23,7 +25,11 @@ export interface ApiBindings {
   ENVIRONMENT: string;
   /** Postgres via Hyperdrive; locally the docker compose database. */
   HYPERDRIVE: Hyperdrive;
-  /** Query-result cache, shared with pipeline (purge) and dashboard (purge). */
+  /**
+   * The project cache generations (`gen:<id>`, shared with pipeline and
+   * dashboard, which bump them) and, where the Cache API is unavailable
+   * (`*.workers.dev`), the query-result cache (src/query/cache.ts).
+   */
   CACHE: KVNamespace;
   /** Producer side of `proofql-ingest`; workers/pipeline consumes. */
   INGEST_QUEUE: Queue<IngestMessage>;
@@ -115,11 +121,16 @@ export interface AppVariables {
    * The project's cache generation as read by `requireApiKey` when it
    * validated or stored the auth-cache entry (src/auth-cache.ts), so the
    * query cache key (src/query/cache.ts) reuses it instead of reading KV
-   * again. Absent when auth did not read it (write routes, a KV fault).
+   * again. Absent when auth did not read it (write routes) or could not
+   * (a KV fault or the daily limit: the query is then uncachable).
    */
   projectGeneration?: number;
   /** The app's batched `usage` counters (src/usage-buffer.ts). */
   usage: UsageBuffer;
+  /** The app's resolved-key cache (src/auth-cache.ts). */
+  authCache: AuthCache;
+  /** Cache API handle, KV write budget, generation memo (src/edge-cache.ts). */
+  edge: EdgeCaches;
 }
 
 /** Hono generic: bindings on `c.env`, variables on `c.var` / `c.get()`. */

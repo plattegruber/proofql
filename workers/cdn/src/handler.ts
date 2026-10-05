@@ -2,8 +2,18 @@
  * The cdn worker's request handling, as pure functions over the Fetch API
  * so Vitest can drive it under Node with a fake assets binding (no workerd).
  *
+ * Since #158 the snippet files, maps, `/version.json` and `/demo/*` are
+ * served by Workers static assets **without invoking this worker** (asset
+ * requests are free; worker requests count against the free plan's
+ * 100,000 a day). Their headers come from `public/_headers`, which
+ * scripts/build.mjs generates with the values below — `src/build.test.ts`
+ * fails if the two disagree. The worker runs for `/health`
+ * (`run_worker_first`) and for whatever no asset matches: a 404, `/`,
+ * an OPTIONS preflight. Should a request for an asset reach it anyway, it
+ * still serves it with the same headers.
+ *
  * Every file comes from the `ASSETS` static-assets binding (the `public/`
- * directory, built by scripts/build.mjs); this module decides the headers:
+ * directory, built by scripts/build.mjs); the headers are:
  *
  * - `/v1.js`, `/v1.js.map`, `/version.json`, `/demo/…`: the mutable
  *   paths. `public, max-age=300, stale-while-revalidate=86400` — a release

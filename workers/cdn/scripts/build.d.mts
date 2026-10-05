@@ -9,3 +9,6 @@ export function buildCdn(options?: { outDir?: string; now?: Date }): Promise<{
   version: string;
   files: string[];
 }>;
+export const MUTABLE_CACHE_CONTROL: string;
+export const IMMUTABLE_CACHE_CONTROL: string;
+export function headersFile(hash: string): string;

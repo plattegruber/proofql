@@ -7,7 +7,12 @@
  * `artifact_key = places:<id>` — then aged by rewriting the run's dates.
  */
 
-import { generationKey, type IngestMessage, MemoryKv } from "@proofql/core";
+import {
+  exhaustedKv,
+  generationKey,
+  type IngestMessage,
+  MemoryKv,
+} from "@proofql/core";
 import { schema, upsertReviews } from "@proofql/db";
 import { project, setupTestDb } from "@proofql/db/test";
 import {
@@ -299,6 +304,27 @@ describe("refreshPlacesBootstraps", () => {
       requests: 1,
     });
     expect(out.find("places.refresh.skipped")).toEqual([]);
+  });
+
+  it("KV at its daily limits: the refresh fetches live and commits; the bump and the cache write are swallowed (#158)", async () => {
+    const seed = await bootstrapped({ ranDaysAgo: 26 });
+    const { queue, out, ctx } = harness({
+      places: [CEDAR_RIDGE_LATER, HARBOR_LIGHT],
+    });
+    const kv = exhaustedKv();
+    ctx.kv = kv;
+    const result = await refreshPlacesBootstraps(ctx);
+    expect(result).toMatchObject({ refreshed: 1, failed: 0, created: 1 });
+    expect(queue.sent.length).toBeGreaterThan(0);
+    expect(kv.calls.put).toBeGreaterThan(0);
+    const runs = await runsFor(seed.projectId);
+    expect(runs[1]).toMatchObject({ status: "succeeded" });
+    expect(out.find("places.refresh.refreshed")[0]).toMatchObject({
+      generation: null,
+    });
+    const limit = out.find("kv.limit_exceeded");
+    expect(limit.length).toBeGreaterThan(0);
+    expect(limit.every((l) => l.level === "warn")).toBe(true);
   });
 
   it("is idempotent: a second refresh of an unchanged place enqueues nothing and bumps nothing", async () => {

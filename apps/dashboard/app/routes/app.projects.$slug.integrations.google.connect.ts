@@ -12,6 +12,8 @@ import { withRequestDb } from "~/lib/db.server";
 import {
   beginConnect,
   CALLBACK_PATH,
+  ConnectError,
+  connectErrorMessage,
   connectorEnabled,
 } from "~/lib/google.server";
 import type { Route } from "./+types/app.projects.$slug.integrations.google.connect";
@@ -27,13 +29,23 @@ export async function loader(args: Route.LoaderArgs) {
   );
   if (!project) throw data(null, { status: 404 });
 
-  const url = await beginConnect({
-    env,
-    kv: env.CACHE,
-    projectId: project.id,
-    accountId: account.id,
-    redirectUri: new URL(CALLBACK_PATH, args.request.url).toString(),
-  });
+  let url: string;
+  try {
+    url = await beginConnect({
+      env,
+      kv: env.CACHE,
+      log,
+      projectId: project.id,
+      accountId: account.id,
+      redirectUri: new URL(CALLBACK_PATH, args.request.url).toString(),
+    });
+  } catch (error) {
+    // KV could not store the nonce (#158): say so before Google, not after.
+    if (error instanceof ConnectError) {
+      throw data(connectErrorMessage(error), { status: 503 });
+    }
+    throw error;
+  }
   log.log("google.connect.started", {
     project_id: project.id,
     account_id: account.id,

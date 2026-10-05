@@ -39,7 +39,13 @@ import {
   EmbeddingError,
   type EmbeddingProvider,
 } from "@proofql/ai";
-import { bumpProjectGeneration, type GenerationKv } from "@proofql/core";
+import {
+  createLogger,
+  type GenerationKv,
+  type Logger,
+  safeBumpProjectGeneration,
+  silentSink,
+} from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
 import { and, eq, isNull, notExists, sql } from "drizzle-orm";
 
@@ -49,7 +55,15 @@ export interface EmbedContext {
   db: Db;
   embedder: EmbeddingProvider;
   cache: GenerationKv;
+  /** Where a failed generation bump is reported (#158); silent when absent. */
+  log?: Logger;
 }
+
+const silentLog = createLogger({
+  service: "pipeline",
+  environment: "unknown",
+  sink: silentSink,
+});
 
 export interface EmbedResult {
   /** Chunks that had no embedding when the stage started. */
@@ -94,7 +108,14 @@ export async function embedChunks(
   }
 
   const newlyIndexed = await markIndexed(ctx.db, review.id);
-  if (newlyIndexed) await bumpProjectGeneration(ctx.cache, review.projectId);
+  // Never throws (#158): the review is indexed whatever KV says; a lost
+  // bump leaves cached results stale until their TTL, and is logged.
+  if (newlyIndexed) {
+    await safeBumpProjectGeneration(ctx.cache, review.projectId, {
+      log: ctx.log ?? silentLog,
+      site: "pipeline.index",
+    });
+  }
   await resetIndexAttempts(ctx.db, review.id);
 
   return {

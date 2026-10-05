@@ -23,8 +23,16 @@
  * reconnecting replaces the credentials and re-runs discovery, keeping the
  * locations the user had enabled. Disconnecting clears the credentials and
  * sets `status = disconnected`; the reviews stay.
+ *
+ * KV at its daily limit (Workers Free plan, #158): the nonce is the one KV
+ * value that cannot be degraded around — without it the callback cannot be
+ * verified. A failed nonce write stops the connect before the user goes to
+ * Google (`ConnectError("nonce_unavailable")`; the route answers 503), a
+ * failed read refuses the callback the same way, and a failed delete is
+ * logged and swallowed: the nonce then lives out its ten-minute TTL, still
+ * bound to the signed, expiring state and to the signed-in account.
  */
-import type { IngestMessage } from "@proofql/core";
+import { type IngestMessage, kvFaults, type Logger } from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
 import {
   applyLocationSelection,
@@ -135,6 +143,15 @@ interface NonceRecord {
   accountId: string;
 }
 
+/** A KV fault on the nonce store, through the isolate's throttled reporter. */
+function reportKv(
+  log: Logger | undefined,
+  op: "get" | "put" | "delete",
+  error: unknown,
+): void {
+  if (log) kvFaults.report(log, op, "dashboard.oauth_nonce", error);
+}
+
 export class ConnectError extends Error {
   override readonly name = "ConnectError";
   constructor(
@@ -143,6 +160,7 @@ export class ConnectError extends Error {
       | "state_bad_signature"
       | "state_expired"
       | "nonce_missing"
+      | "nonce_unavailable"
       | "nonce_mismatch"
       | "account_mismatch"
       | "no_refresh_token"
@@ -158,6 +176,8 @@ export class ConnectError extends Error {
 export async function beginConnect(input: {
   env: GoogleEnv;
   kv: OAuthKv;
+  /** Where a KV fault is reported (#158). */
+  log?: Logger;
   projectId: string;
   accountId: string;
   redirectUri: string;
@@ -172,9 +192,14 @@ export async function beginConnect(input: {
     projectId: input.projectId,
     accountId: input.accountId,
   };
-  await input.kv.put(nonceKey(nonce), JSON.stringify(record), {
-    expirationTtl: CONNECT_TTL_SECONDS,
-  });
+  try {
+    await input.kv.put(nonceKey(nonce), JSON.stringify(record), {
+      expirationTtl: CONNECT_TTL_SECONDS,
+    });
+  } catch (error) {
+    reportKv(input.log, "put", error);
+    throw new ConnectError("nonce_unavailable");
+  }
   const state = await signState(stateSecret(input.env), {
     projectId: input.projectId,
     accountId: input.accountId,
@@ -208,6 +233,8 @@ export interface CompletedConnect {
 export async function completeConnect(input: {
   env: GoogleEnv;
   kv: OAuthKv;
+  /** Where a KV fault is reported (#158). */
+  log?: Logger;
   db: Db;
   code: string;
   state: string;
@@ -236,9 +263,20 @@ export async function completeConnect(input: {
 
   // Single use: read and delete before anything else can observe it.
   const key = nonceKey(state.nonce);
-  const raw = await input.kv.get(key);
+  let raw: string | null;
+  try {
+    raw = await input.kv.get(key);
+  } catch (error) {
+    reportKv(input.log, "get", error);
+    throw new ConnectError("nonce_unavailable");
+  }
   if (raw === null) throw new ConnectError("nonce_missing");
-  await input.kv.delete(key);
+  try {
+    await input.kv.delete(key);
+  } catch (error) {
+    // Module doc: the TTL and the signed state still bound it.
+    reportKv(input.log, "delete", error);
+  }
   let record: NonceRecord;
   try {
     record = JSON.parse(raw) as NonceRecord;
@@ -462,6 +500,8 @@ export function connectErrorMessage(error: ConnectError): string {
       return "The Google sign-in took longer than ten minutes. Start again.";
     case "nonce_missing":
       return "This Google sign-in was already used or has expired. Start again.";
+    case "nonce_unavailable":
+      return "ProofQL could not verify this Google sign-in right now. Try again later.";
     case "no_refresh_token":
       return "Google did not grant offline access, so nothing was saved. Try again and accept every permission on the consent screen.";
     case "exchange_failed":

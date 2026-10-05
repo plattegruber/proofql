@@ -35,23 +35,26 @@
  *    reported as `match: "none"`. The verdict rides in the cache entry so
  *    a HIT stays labelled.
  *
- * ## Cache (`./cache.ts`, #28)
+ * ## Cache (`./cache.ts`, #28, #158)
  *
  * Between validation and the quota check the handler looks the request up
- * in KV under a key built from the project, environment, the project's
- * cache generation (already read by auth when the auth cache was consulted,
- * `c.get("projectGeneration")`), and a hash of the normalized request. A hit is served
- * as-is with `cached: true`, a fresh `took_ms`, `x-cache: HIT`, and is
- * counted as a free cache hit (`markCacheHit`) — so it is served even when
- * the project is at its monthly quota. A miss pays the quota check
- * (`enforceQueryQuota`), then the embedding and the search, and the
- * `results` are stored after the response goes out (`waitUntil`) for the
- * next caller; `x-cache: MISS`. `Cache-Control: no-cache` on the request
- * skips the lookup but still stores (`x-cache: BYPASS`). A failing KV read
- * is logged and treated as a miss: the cache can slow the endpoint down,
- * never take it down. Together with the auth cache (../auth-cache.ts) and
- * the batched usage write (../usage-buffer.ts), a HIT opens **no**
- * database connection (#108; docs/performance.md §6).
+ * under a key built from the project, environment, the project's cache
+ * generation (already read by auth, `c.get("projectGeneration")`), and a
+ * hash of the normalized request — in the Workers Cache API on a custom
+ * domain, in KV on `*.workers.dev`. A hit is served as-is with `cached:
+ * true`, a fresh `took_ms`, `x-cache: HIT`, and is counted as a free cache
+ * hit (`markCacheHit`) — so it is served even when the project is at its
+ * monthly quota. A miss pays the quota check (`enforceQueryQuota`), then
+ * the embedding and the search, and the result is stored after the
+ * response goes out (`waitUntil`) for the next caller — in KV only on its
+ * second MISS in this isolate (the write budget); `x-cache: MISS`.
+ * `Cache-Control: no-cache` on the request skips the lookup but still
+ * stores (`x-cache: BYPASS`). A failing cache read is logged and treated
+ * as a miss, and an unreadable generation makes the request uncachable:
+ * the cache can slow the endpoint down, never take it down. Together with
+ * the auth cache (../auth-cache.ts) and the batched usage write
+ * (../usage-buffer.ts), a HIT opens **no** database connection (#108;
+ * docs/performance.md §6).
  *
  * ## Logging (#30; docs/observability.md)
  *
@@ -61,7 +64,8 @@
  * (`returned`, `match`, `cached`, `took_ms`, `embedding_ms`, `search_ms`) —
  * the data the floor is tuned from. Never the query text, never an excerpt. Refused requests are
  * one `query.rejected` line from `onError` (`../errors.ts`); an embedding
- * outage is `query.embedding_failed`; a KV fault is `query.cache_error`.
+ * outage is `query.embedding_failed`; a Cache API fault is `query.cache_error`,
+ * a KV fault a throttled `kv.read_failed` / `kv.write_failed` / `kv.limit_exceeded`.
  * Every line carries `request_id` via the per-request logger.
  *
  * ## Response
@@ -108,7 +112,7 @@
  * `results` came from KV. (#42: copy this block into OpenAPI.)
  */
 
-import { parseApiKey, planFor, readProjectGeneration } from "@proofql/core";
+import { guardKvRead, guardKvWrite, parseApiKey, planFor } from "@proofql/core";
 import type { SearchFilters, SearchResult } from "@proofql/db";
 import { MAX_SEARCH_LIMIT, searchChunks } from "@proofql/db";
 import { type Context, type Handler, Hono } from "hono";
@@ -122,6 +126,7 @@ import {
   PREFLIGHT_HEADERS,
 } from "../cors.js";
 import { waitUntil } from "../db.js";
+import { edgeCacheFor, edgeCacheUrl, readGeneration } from "../edge-cache.js";
 import { ApiError } from "../errors.js";
 import { enforceQueryQuota, markCacheHit, queryQuota } from "../quota.js";
 import { logFor } from "../request-id.js";
@@ -132,7 +137,9 @@ import {
   type CacheOutcome,
   cacheKey,
   getCached,
+  getEdgeCached,
   putCached,
+  putEdgeCached,
   wantsFresh,
 } from "./cache.js";
 import {
@@ -384,16 +391,8 @@ const handleQuery: Handler<AppEnv> = async (c) => {
     match,
   };
 
-  if (cache.key !== null) {
-    // After the response: a slow KV write must not add to `took_ms`, and a
-    // failed one is a cache miss next time, not an error now.
-    waitUntil(
-      c,
-      putCached(c.env.CACHE, cache.key, body, {
-        generation: cache.generation,
-      }).catch((error: unknown) => logCacheError(c, "put", error)),
-    );
-  }
+  // After the response: a slow store must not add to `took_ms`.
+  storeResult(c, cache, body);
 
   const tookMs = Math.round(performance.now() - started);
   logCompleted(c, request, policy, {
@@ -409,48 +408,95 @@ const handleQuery: Handler<AppEnv> = async (c) => {
 };
 
 interface CacheLookup {
-  /** Null when KV could not be read; the result is then not stored either. */
+  /** Null when the request is uncachable (generation unreadable). */
   key: string | null;
   generation: number;
+  /** Where this request's entry lives: the Cache API, or KV (src/edge-cache.ts). */
+  backend: "edge" | "kv";
   hit: CachedBody | null;
   outcome: CacheOutcome;
 }
 
-/** Key the request and consult KV unless the caller asked for fresh results. */
+/** Key the request and consult the cache unless the caller asked for fresh results. */
 async function lookupCache(
   c: Context<AppEnv>,
   request: QueryRequest,
   policy: CacheKeyPolicy,
 ): Promise<CacheLookup> {
   const auth = c.get("auth");
-  const kv = c.env.CACHE;
   const fresh = wantsFresh(c.req.header("Cache-Control"));
-  try {
-    // Auth read the generation already when it consulted the auth cache;
-    // only a write route or a KV fault leaves it unset.
-    const generation =
-      c.get("projectGeneration") ??
-      (await readProjectGeneration(kv, auth.projectId));
-    const key = await cacheKey({
-      projectId: auth.projectId,
-      environment: auth.environment,
-      generation,
-      request,
-      policy,
-    });
-    if (fresh) return { key, generation, hit: null, outcome: "BYPASS" };
-    const entry = await getCached(kv, key);
-    return {
-      key,
-      generation,
-      hit:
-        entry === null ? null : { results: entry.results, match: entry.match },
-      outcome: entry === null ? "MISS" : "HIT",
-    };
-  } catch (error) {
-    logCacheError(c, "get", error);
-    return { key: null, generation: 0, hit: null, outcome: "MISS" };
+  const edge = edgeCacheFor(c);
+  const backend = edge === null ? "kv" : "edge";
+  // Auth read the generation already when it consulted the auth cache;
+  // only a KV fault leaves it unset, and then this read fails too (or
+  // succeeds, if KV recovered).
+  const generation =
+    c.get("projectGeneration") ?? (await readGeneration(c, auth.projectId));
+  if (generation === null) {
+    // Uncachable for this request: a key on a guessed generation could
+    // serve results a purge already retired (cache.ts "Purge").
+    return { key: null, generation: 0, backend, hit: null, outcome: "MISS" };
   }
+  const key = await cacheKey({
+    projectId: auth.projectId,
+    environment: auth.environment,
+    generation,
+    request,
+    policy,
+  });
+  if (fresh) return { key, generation, backend, hit: null, outcome: "BYPASS" };
+
+  let hit: CachedBody | null;
+  if (edge !== null) {
+    try {
+      hit = await getEdgeCached(edge, edgeCacheUrl(c.req.url, "q", key));
+    } catch (error) {
+      logCacheError(c, "get", error);
+      hit = null;
+    }
+  } else {
+    const entry = await guardKvRead(
+      { log: logFor(c), site: "api.query_cache" },
+      null,
+      () => getCached(c.env.CACHE, key),
+    );
+    hit =
+      entry === null ? null : { results: entry.results, match: entry.match };
+  }
+  return {
+    key,
+    generation,
+    backend,
+    hit,
+    outcome: hit === null ? "MISS" : "HIT",
+  };
+}
+
+/**
+ * Store a fresh result after the response (`waitUntil`): always in the
+ * Cache API; in KV only once the write budget allows it (cache.ts "Where
+ * results live"). A failed store is a miss next time, never an error now.
+ */
+function storeResult(c: Context<AppEnv>, cache: CacheLookup, body: CachedBody) {
+  const { key } = cache;
+  if (key === null) return;
+  const edge = cache.backend === "edge" ? edgeCacheFor(c) : null;
+  if (edge !== null) {
+    waitUntil(
+      c,
+      putEdgeCached(edge, edgeCacheUrl(c.req.url, "q", key), body, {
+        generation: cache.generation,
+      }).catch((error: unknown) => logCacheError(c, "put", error)),
+    );
+    return;
+  }
+  if (!c.get("edge").missCounter.recordMiss(key)) return;
+  waitUntil(
+    c,
+    guardKvWrite({ log: logFor(c), site: "api.query_cache" }, () =>
+      putCached(c.env.CACHE, key, body, { generation: cache.generation }),
+    ),
+  );
 }
 
 function respond(
@@ -510,7 +556,10 @@ function logCompleted(
   });
 }
 
-/** A KV fault is a slower request, not a failed one: warn, never error. */
+/**
+ * A Cache API fault is a slower request, not a failed one: warn, never
+ * error. (KV faults go through the throttled `kv.*` lines instead.)
+ */
 function logCacheError(
   c: Context<AppEnv>,
   op: "get" | "put",

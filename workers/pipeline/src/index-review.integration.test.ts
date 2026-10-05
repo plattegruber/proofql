@@ -14,6 +14,7 @@ import {
   FakeSentimentClassifier,
 } from "@proofql/ai";
 import {
+  exhaustedKv,
   generationKey,
   MemoryKv,
   type RecordingSink,
@@ -170,6 +171,24 @@ describe("indexReview via the queue handler", () => {
       message_id: msg.id,
       review_id: r.id,
       status: "indexed",
+    });
+  });
+
+  it("KV at its daily read and write limits → the review is still indexed and acked (#158)", async () => {
+    const r = await review(t.db, { rating: 5, text: "Kind staff." });
+    const kv = exhaustedKv();
+    const ctx = context({ cache: kv });
+    const msg = queued(messageFor(r));
+
+    await handleQueueBatch({ queue: "proofql-ingest", messages: [msg] }, ctx);
+
+    expect(msg.ack).toHaveBeenCalledOnce();
+    expect(msg.retry).not.toHaveBeenCalled();
+    expect((await reload(r.id)).indexedAt).not.toBeNull();
+    expect(kv.calls.get).toBe(1);
+    expect(ctx.out.only("kv.limit_exceeded")).toMatchObject({
+      level: "warn",
+      site: "pipeline.index",
     });
   });
 
@@ -340,7 +359,7 @@ describe("indexReview via the queue handler", () => {
     ]);
   });
 
-  it("a batch of many reviews → every chunk embedded, ≤50 texts per provider call, one cache bump per review", async () => {
+  it("a batch of many reviews → every chunk embedded, ≤50 texts per provider call, one cache bump for the batch", async () => {
     const p = await project(t.db);
     const rows = await Promise.all(
       Array.from({ length: 10 }, (_, i) =>
@@ -372,8 +391,9 @@ describe("indexReview via the queue handler", () => {
       expect(call.length).toBeGreaterThan(0);
     }
     expect(ctx.embedder.calls.flat()).toHaveLength(totalChunks);
-    // One generation bump per newly indexed review, all on this project.
-    expect(ctx.cache.puts).toHaveLength(rows.length);
+    // Every newly indexed review bumped, but the bumps are coalesced to one
+    // KV write per project per batch (#158): the free plan allows 1,000 a day.
+    expect(ctx.cache.puts).toHaveLength(1);
     expect(await ctx.cache.get(generationKey(p.id))).toBe(String(rows.length));
   });
 

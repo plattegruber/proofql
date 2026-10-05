@@ -2,7 +2,13 @@
 // the honeypot, the per-address window, and what reaches the insert. The
 // insert itself runs against the real schema in
 // waitlist.server.integration.test.ts.
-import { MemoryKv } from "@proofql/core";
+import {
+  createKvFaultReporter,
+  createLogger,
+  exhaustedKv,
+  MemoryKv,
+  recordingSink,
+} from "@proofql/core";
 import { describe, expect, it } from "vitest";
 
 import { createLoadContext } from "./context";
@@ -10,12 +16,14 @@ import type { WithDb } from "./db.server";
 import { WAITLIST_RATE_LIMIT, WAITLIST_THROTTLED_MESSAGE } from "./waitlist";
 import {
   CLIENT_IP_HEADER,
+  DegradingLimiter,
   FixedWindowLimiter,
   handleWaitlistSubmission,
   limiterKeyFor,
   WAITLIST_LIMIT_PREFIX,
   type WaitlistActionData,
   type WaitlistLimiter,
+  waitlistLimiterFor,
 } from "./waitlist.server";
 
 function env(overrides: Partial<Env> = {}): Env {
@@ -206,5 +214,42 @@ describe("limiterKeyFor", () => {
     expect(key).not.toContain("203.0.113.7");
     expect(key).toBe(await limiterKeyFor("203.0.113.7"));
     expect(key).not.toBe(await limiterKeyFor("203.0.113.8"));
+  });
+});
+
+describe("KV at its daily limits (#158)", () => {
+  for (const which of [{ reads: true }, { reads: false, writes: true }]) {
+    it(`degrades to the in-memory limiter when KV throws (reads ${which.reads ? "and writes" : "ok, writes"} exhausted)`, async () => {
+      const rec = recordingSink();
+      const log = createLogger({
+        service: "dashboard",
+        environment: "test",
+        sink: rec.sink,
+      });
+      const kv = exhaustedKv(which);
+      const limiter = new DegradingLimiter(
+        new FixedWindowLimiter(kv, { limit: 2, period: 60 }),
+        new FixedWindowLimiter(new MemoryKv(), { limit: 2, period: 60 }),
+        log,
+        createKvFaultReporter(),
+      );
+      expect(await limiter.limit("k")).toEqual({ success: true });
+      expect(await limiter.limit("k")).toEqual({ success: true });
+      // Still a throttle: the memory fallback counts.
+      expect(await limiter.limit("k")).toEqual({ success: false });
+      const lines = rec.find("kv.limit_exceeded");
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatchObject({
+        level: "warn",
+        site: "dashboard.waitlist_limiter",
+      });
+    });
+  }
+
+  it("the production wiring degrades: a sign-up never fails on KV", async () => {
+    const limiter = waitlistLimiterFor({
+      CACHE: exhaustedKv() as unknown as KVNamespace,
+    });
+    expect(await limiter.limit("waitlist:ip:z")).toEqual({ success: true });
   });
 });

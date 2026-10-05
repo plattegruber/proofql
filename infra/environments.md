@@ -101,10 +101,30 @@ bindings, so it has no row in the bindings table below. `wrangler dev` on
 dev` runs Astro's own dev server on 4321 with hot reload.
 
 The cdn worker has none of the above. Its only binding is `ASSETS` (Workers
-static assets, the `public/` directory, with `run_worker_first` so the
-worker sets the cache and security headers itself), plus the `ENVIRONMENT`
-var. It holds no state and reads no database, so nothing is provisioned for
+static assets, the `public/` directory), plus the `ENVIRONMENT` var. The
+snippet files, maps, `/version.json` and `/demo/*` are served by the asset
+layer **without invoking the worker** (#158: asset requests are free, worker
+requests count against the free plan's 100,000 a day), with their headers
+from the generated `public/_headers`; `run_worker_first: ["/health"]` runs
+the worker for the smoke check, and it answers whatever no asset matches. It holds no state and reads no database, so nothing is provisioned for
 it; `scripts/check-provisioning.mjs` lists it as `ok` in every environment.
+
+### Cache API: custom domains only
+
+The api keeps query results and resolved API keys in the **Workers Cache
+API** (`caches.default`, #158), which has no daily quota, so neither costs
+a KV write. Cloudflare documents working cache operations only for
+"Workers deployed to custom domains" (and Pages). On `*.workers.dev`,
+`cache.put` is accepted and silently dropped. The api therefore checks
+the request's hostname (`isWorkersDevHost`, `workers/api/src/edge-cache.ts`).
+On `*.workers.dev`, which is preview and prod until `api.proofql.com` is
+routed, it falls back: results go to KV, but only from a query's second
+miss in an isolate (the write budget), and resolved keys are kept in the
+isolate only. Routing the custom domain switches the Cache API on, with no
+config change. The Cache API is per data center and is not shared between
+workers. The project cache generations (`gen:<id>`), which the dashboard
+and pipeline bump, stay in KV either way. Background:
+`docs/performance.md` §7.
 
 Why the split: the api embeds queries (AI), reads/writes Postgres (HYPERDRIVE),
 serves from and fills the cache (CACHE), enqueues ingested reviews
@@ -114,7 +134,8 @@ numbers come from `PLANS` in `packages/core/src/plans.ts`; `namespace_id` is an
 account-unique integer we pick, nothing is provisioned; code treats all four as
 optional and falls back to an in-memory limiter, see
 `workers/api/src/rate-limit.ts`). The pipeline consumes the queue, embeds and classifies (AI),
-writes Postgres, and purges the cache for the project it just indexed; its
+writes Postgres, and purges the cache for the projects a batch indexed (one
+generation bump per project per batch, #158); its
 five-minute cron (`triggers.crons`) also *produces* to the same queue to
 re-enqueue reviews stuck with `indexed_at IS NULL` (#72), and its second
 cron (`0 */6 * * *`) polls every Google connection (#46; docs/google.md),

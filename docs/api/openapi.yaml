@@ -574,14 +574,16 @@ paths:
           results.
         - **`badge`** mirrors the project's plan: `true` means the snippet
           must render the "Reviews by ProofQL" badge (free tier).
-        - **Cache.** Results are cached in KV, keyed on project, environment,
+        - **Cache.** Results are cached server-side, keyed on project, environment,
           the normalized request, and the policy, and purged when a review is
           indexed, hidden, unhidden, edited, or deleted, or the policy
           changes. `cached: true` and `x-cache: HIT` mean `results` came from
           the cache (`took_ms` is still this request's time). Send
           `Cache-Control: no-cache` to bypass the lookup (`x-cache: BYPASS`;
-          the fresh result is still stored). Cached answers are free against
-          the monthly quota and are served even at quota.
+          the fresh result is stored when the cache accepts it). Cached
+          answers are free against the monthly quota and are served even at
+          quota. A repeat of a query is not guaranteed to be a `HIT`: the
+          cache may decline to store a result (it keeps one-off queries out).
         - If the embedding service is unavailable the response is
           `503 embedding_unavailable` — deliberately not a degraded
           full-text-only answer, which is exactly what the floor exists to
@@ -934,9 +936,9 @@ components:
         minimum: 1
     XCache:
       description: |
-        Whether `results` came from the KV cache: `HIT` (served from cache,
-        `cached: true`), `MISS` (computed and stored), or `BYPASS` (the request
-        sent `Cache-Control: no-cache`; computed and stored).
+        Whether `results` came from the result cache: `HIT` (served from cache,
+        `cached: true`), `MISS` (computed; stored when the cache accepts it),
+        or `BYPASS` (the request sent `Cache-Control: no-cache`; computed).
       required: true
       schema:
         type: string
@@ -1264,9 +1266,11 @@ components:
     ServiceUnavailable:
       description: |
         `service_unavailable`: the database refused or timed out a connection
-        (a connection storm, a paused compute). Nothing about the request was
-        wrong; retry after `Retry-After` seconds (1). The message carries the
-        request id and nothing about the cause.
+        (a connection storm, a paused compute; `Retry-After: 1`), or a daily
+        platform allowance is spent (`Retry-After` is the seconds until it
+        renews, at most a day). Nothing about the request was wrong; retry
+        after `Retry-After` seconds. The message carries the request id and
+        nothing about the cause.
       headers:
         x-request-id:
           $ref: "#/components/headers/XRequestId"
@@ -1282,7 +1286,8 @@ components:
         Retryable, never a degraded answer: `embedding_unavailable` (`q`
         could not be embedded; no full-text-only fallback) or
         `service_unavailable` (the database refused or timed out a
-        connection; `Retry-After` is set, 1 second).
+        connection, `Retry-After: 1`; or a daily platform allowance is spent,
+        `Retry-After` until it renews).
       headers:
         x-request-id:
           $ref: "#/components/headers/XRequestId"
@@ -1940,7 +1945,7 @@ components:
           description: Server time for this request, cached or not.
         cached:
           type: boolean
-          description: "`true` when `results` were served from the KV cache (`x-cache: HIT`)."
+          description: "`true` when `results` were served from the result cache (`x-cache: HIT`)."
         badge:
           type: boolean
           description: "`true` means the snippet must render the \"Reviews by ProofQL\" badge (free tier). Mirrors the project's plan on every response, cached or not."

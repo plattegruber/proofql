@@ -66,6 +66,67 @@ export async function bumpProjectGeneration(
   return next;
 }
 
+/**
+ * Defer generation bumps to one write per project (#158). The pipeline
+ * indexes a queue batch of up to ten reviews, and every review whose
+ * `indexed_at` flips bumps its project — ten KV writes for one batch of one
+ * project's import, against the free plan's 1,000 writes a day. Wrapped in
+ * this, `bumpProjectGeneration` reads the pending value instead of KV after
+ * the first bump and its `put` is held; `flush()` writes each project's
+ * final value once. Call `flush()` after the batch's database work, before
+ * acknowledging: the results only change once the last review is indexed,
+ * so one bump at the end purges exactly when it matters.
+ */
+export interface CoalescedGenerations {
+  /** Hand this to code that bumps; `gen:*` writes are held until `flush`. */
+  readonly kv: GenerationKv;
+  /** Projects with a held bump. */
+  readonly pending: readonly string[];
+  /**
+   * Write every held generation; resolves to the ones written. A failing
+   * write rejects after attempting the rest (callers guard it).
+   */
+  flush(): Promise<{ projectId: string; generation: number }[]>;
+}
+
+export function coalesceGenerationBumps(
+  kv: GenerationKv,
+): CoalescedGenerations {
+  const held = new Map<string, string>();
+  const prefix = generationKey("");
+  return {
+    kv: {
+      get: async (key) => held.get(key) ?? kv.get(key),
+      put: async (key, value) => {
+        if (key.startsWith(prefix)) held.set(key, value);
+        else await kv.put(key, value);
+      },
+    },
+    get pending() {
+      return [...held.keys()].map((key) => key.slice(prefix.length));
+    },
+    async flush() {
+      const entries = [...held.entries()];
+      held.clear();
+      const written: { projectId: string; generation: number }[] = [];
+      let failure: unknown = null;
+      for (const [key, value] of entries) {
+        try {
+          await kv.put(key, value);
+          written.push({
+            projectId: key.slice(prefix.length),
+            generation: parseGeneration(value),
+          });
+        } catch (error) {
+          failure ??= error;
+        }
+      }
+      if (failure !== null) throw failure;
+      return written;
+    },
+  };
+}
+
 /** In-memory `GenerationKv` for tests: a Map with the KV method names. */
 export class MemoryKv implements GenerationKv {
   readonly store = new Map<string, string>();

@@ -24,7 +24,12 @@
  * Workers or Node. Google shares at most five "most relevant" public
  * reviews per place; the full set needs the Business Profile connector.
  */
-import { type ReviewInput, reviewInputSchema } from "@proofql/core";
+import {
+  type KvGuardContext,
+  kvFaults,
+  type ReviewInput,
+  reviewInputSchema,
+} from "@proofql/core";
 import { z } from "zod";
 
 // --- Constants ---------------------------------------------------------------
@@ -267,11 +272,38 @@ export interface PlacesKv {
   ): Promise<void>;
 }
 
-export function kvPlacesCache(kv: PlacesKv): PlacesCache {
+/**
+ * The Places cache over a KV namespace. Never throws (#158): a failed read
+ * — including KV's daily `KV get() limit exceeded` on the Workers Free plan
+ * — is a miss, so the client fetches live from Google; a failed write is
+ * swallowed. Both are reported through `guard` (the throttled
+ * `kv.limit_exceeded` / `kv.read_failed` / `kv.write_failed` lines from
+ * `@proofql/core`) when one is given.
+ */
+export function kvPlacesCache(
+  kv: PlacesKv,
+  guard?: KvGuardContext,
+): PlacesCache {
+  const report = (op: "get" | "put", error: unknown) => {
+    if (guard)
+      (guard.reporter ?? kvFaults).report(guard.log, op, guard.site, error);
+  };
   return {
-    get: (key) => kv.get(key),
-    put: (key, value, ttlSeconds) =>
-      kv.put(key, value, { expirationTtl: ttlSeconds }),
+    get: async (key) => {
+      try {
+        return await kv.get(key);
+      } catch (error) {
+        report("get", error);
+        return null;
+      }
+    },
+    put: async (key, value, ttlSeconds) => {
+      try {
+        await kv.put(key, value, { expirationTtl: ttlSeconds });
+      } catch (error) {
+        report("put", error);
+      }
+    },
   };
 }
 

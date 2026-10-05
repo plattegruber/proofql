@@ -8,7 +8,7 @@ import {
   API_KEY_KINDS,
   type ApiKeyEnvironment,
   type ApiKeyKind,
-  bumpProjectGeneration,
+  safeBumpProjectGeneration,
 } from "@proofql/core";
 import { KeyRound } from "lucide-react";
 import { useState } from "react";
@@ -157,7 +157,10 @@ export async function action(args: Route.ActionArgs) {
         // while the project's generation is unchanged — so the bump is what
         // makes the revocation take effect on /v1/query at once. It also
         // orphans the project's cached results, which is cheap and rare.
-        await bumpProjectGeneration(env.CACHE, project.id);
+        await safeBumpProjectGeneration(env.CACHE, project.id, {
+          log,
+          site: "dashboard.generation_bump",
+        });
         log.log("api_key.revoked", {
           project_id: project.id,
           api_key_id: revoked.id,
@@ -186,7 +189,10 @@ export async function action(args: Route.ActionArgs) {
           parsed.data.origin,
         ]);
         // The allowlist rides in the api's cached auth context (#108).
-        await bumpProjectGeneration(env.CACHE, project.id);
+        await safeBumpProjectGeneration(env.CACHE, project.id, {
+          log,
+          site: "dashboard.generation_bump",
+        });
         log.log("project.origins_changed", {
           project_id: project.id,
           count: project.allowedOrigins.length + 1,
@@ -204,7 +210,10 @@ export async function action(args: Route.ActionArgs) {
           (origin) => origin !== parsed.data.origin,
         );
         await setAllowedOrigins(db, ids, next);
-        await bumpProjectGeneration(env.CACHE, project.id);
+        await safeBumpProjectGeneration(env.CACHE, project.id, {
+          log,
+          site: "dashboard.generation_bump",
+        });
         log.log("project.origins_changed", {
           project_id: project.id,
           count: next.length,

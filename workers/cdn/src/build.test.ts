@@ -6,9 +6,18 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   buildCdn,
   contentHash,
+  headersFile,
+  IMMUTABLE_CACHE_CONTROL,
   isBuildOutput,
+  MUTABLE_CACHE_CONTROL,
   retargetSourceMap,
 } from "../scripts/build.mjs";
+import {
+  cacheControlFor,
+  IMMUTABLE_CACHE_CONTROL as HANDLER_IMMUTABLE,
+  MUTABLE_CACHE_CONTROL as HANDLER_MUTABLE,
+  securityHeaders,
+} from "./handler.js";
 
 describe("build helpers", () => {
   it("hashes to 8 hex characters of sha256", () => {
@@ -67,7 +76,14 @@ describe("buildCdn", () => {
     const hashed = `v1.${result.hash}.js`;
     expect(result.hash).toMatch(/^[0-9a-f]{8}$/);
     expect(result.files).toEqual(
-      ["v1.js", "v1.js.map", hashed, `${hashed}.map`, "version.json"].sort(),
+      [
+        "_headers",
+        "v1.js",
+        "v1.js.map",
+        hashed,
+        `${hashed}.map`,
+        "version.json",
+      ].sort(),
     );
     expect((await readdir(outDir)).sort()).toEqual(result.files);
 
@@ -118,6 +134,71 @@ describe("buildCdn", () => {
     expect(names).toContain("demo");
     expect(await readFile(join(outDir, "demo", "index.html"), "utf8")).toBe(
       "<title>keep</title>",
+    );
+  });
+});
+
+/**
+ * Parse a `_headers` file the way Workers static assets do for exact paths
+ * and a trailing splat (the only forms the build writes): every matching
+ * rule contributes, and a header named by two rules is comma-joined.
+ */
+function headersFor(file: string, pathname: string): Record<string, string> {
+  const rules: { pattern: string; headers: [string, string][] }[] = [];
+  for (const line of file.split("\n")) {
+    if (line.trim() === "" || line.startsWith("#")) continue;
+    if (!/^\s/.test(line)) {
+      rules.push({ pattern: line.trim(), headers: [] });
+      continue;
+    }
+    const [name, ...rest] = line.trim().split(":");
+    rules.at(-1)?.headers.push([name as string, rest.join(":").trim()]);
+  }
+  const out: Record<string, string> = {};
+  for (const { pattern, headers } of rules) {
+    const matches = pattern.endsWith("*")
+      ? pathname.startsWith(pattern.slice(0, -1))
+      : pathname === pattern;
+    if (!matches) continue;
+    for (const [name, value] of headers) {
+      out[name] = out[name] === undefined ? value : `${out[name]}, ${value}`;
+    }
+  }
+  return out;
+}
+
+describe("_headers (#158): static assets reproduce the worker's headers", () => {
+  const hash = "0123abcd";
+  const file = headersFile(hash);
+
+  it("keeps the build's constants equal to the handler's", () => {
+    expect(MUTABLE_CACHE_CONTROL).toBe(HANDLER_MUTABLE);
+    expect(IMMUTABLE_CACHE_CONTROL).toBe(HANDLER_IMMUTABLE);
+  });
+
+  it.each([
+    "/v1.js",
+    "/v1.js.map",
+    `/v1.${hash}.js`,
+    `/v1.${hash}.js.map`,
+    "/version.json",
+    "/demo/",
+    "/demo/index.html",
+    "/demo/styles.css",
+  ])("serves %s with exactly the headers the worker would set", (path) => {
+    expect(headersFor(file, path)).toEqual({
+      "Cache-Control": cacheControlFor(path),
+      ...securityHeaders(path),
+    });
+  });
+
+  it("stays well inside the platform's 100 rules and 2,000 characters per line", () => {
+    const rules = file
+      .split("\n")
+      .filter((l) => l !== "" && !l.startsWith("#") && !/^\s/.test(l));
+    expect(rules.length).toBeLessThan(100);
+    expect(Math.max(...file.split("\n").map((l) => l.length))).toBeLessThan(
+      2000,
     );
   });
 });
