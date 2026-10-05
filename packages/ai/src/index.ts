@@ -15,6 +15,15 @@ export {
   type WorkersAiEmbedderOptions,
 } from "./embedding.js";
 export {
+  BGE_RERANKER_BASE_MODEL,
+  createWorkersAiReranker,
+  FAKE_RERANKER_MODEL,
+  FakeReranker,
+  fakeRerankScore,
+  RerankError,
+  type Reranker,
+} from "./rerank.js";
+export {
   createWorkersAiSentimentClassifier,
   DEFAULT_NEUTRAL_THRESHOLD,
   DISTILBERT_SST2_MODEL,
