@@ -151,11 +151,11 @@ Google connector (#46, [`google-poll.ts`](../workers/pipeline/src/google-poll.ts
 |---|---|---|---|
 | `google.poll.skipped` | warn | `reason: not_configured`, `missing[]` | The tick found no `CREDENTIALS_KEY` / `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (or a `TBD-` placeholder) and did nothing. Expected in every deployed environment until #44 is approved. |
 | `google.tick.started` | info | `connections`, `connection_ids[]`, `initial_sync` | A tick began; `initial_sync` counts connections with `metadata.initial_sync_pending`, which go first. |
-| `google.tick.completed` | info | `connections`, `synced`, `needs_reauth`, `failed`, `deferred`, `rate_limited`, `received`, `created`, `updated`, `skipped`, `rejected`, `requests`, `paced_wait_ms`, `took_ms` | Every tick. `deferred > 0` means the tick stopped early (429 or budget); `requests` is the Google data-API call count the pacer admitted. |
+| `google.tick.completed` | info | `connections`, `synced`, `needs_reauth`, `failed`, `deferred`, `rate_limited`, `received`, `created`, `updated`, `skipped`, `rejected`, `requests`, `indexing_deferred`, `paced_wait_ms`, `took_ms` | Every tick. `deferred > 0` means the tick stopped early (429 or budget); `requests` is the Google data-API call count the pacer admitted. `indexing_deferred` counts index messages not sent (#162): after the Queues daily limit the tick stops calling the queue, and the sweep indexes those reviews. |
 | `google.tick.budget_exhausted` | warn | `budget_ms`, `deferred` | The ten-minute budget ran out between connections. Persistent ⇒ raise the budget or the quota (docs/google.md "Quota math"). |
 | `google.sync.started` | info | `locations`, `location_ids[]`, `initial_sync` | A connection's run opened. |
 | `google.sync.location` | info | `pages`, `received`, `created`, `updated`, `star_only`, `invalid`, `rejected`, `cursor_before`, `cursor_after` | One location finished (its cursor is persisted right after). |
-| `google.sync.completed` | info | `locations`, `received`, `created`, `updated`, `skipped`, `rejected`, `took_ms` | The run closed `succeeded`; `last_synced_at` stamped. |
+| `google.sync.completed` | info | `locations`, `received`, `created`, `updated`, `skipped`, `rejected`, `indexing_deferred`, `superseded`, `took_ms` | The run closed `succeeded`; `last_synced_at` stamped. `indexing_deferred` is this connection's share of the tick's unsent index messages (#162); a refused send never fails the sync. |
 | `google.sync.failed` | warn / error | the completed fields plus `error_message` (warn: the run closed `failed` with that reason), or `error` + `stage` (error: the token refresh threw something other than `invalid_grant`) | The run did not succeed. The warn form is the 429 / budget / per-location case and resumes next tick; the error form is the one to look at. |
 | `google.sync.no_locations` | info | `mapped` | The connection has no enabled verified location; nothing to poll, the pending flag is cleared. |
 | `google.token_refreshed` | info | `expiry` | The access token was refreshed and re-encrypted. |
@@ -173,11 +173,11 @@ Places bootstrap refresh (#116, [`places-refresh.ts`](../workers/pipeline/src/pl
 |---|---|---|---|
 | `places.refresh.skipped` | warn | `reason: not_configured`, `missing: ["GOOGLE_PLACES_API_KEY"]` | The tick found no Places key (or a `TBD-` placeholder) and did nothing. Expected until the key is set on the pipeline (docs/secrets.md). |
 | `places.refresh.started` | info | `candidates`, `limit`, `after_days`, `oldest_run_at` | A tick began; `candidates` is how many `(project, environment, place)` triples are due (latest `places` run older than 25 days — a day for a failed one — no active google connection, bootstrap rows still present), capped at `limit` (200), oldest first. |
-| `places.refresh.refreshed` | info | `received`, `created`, `updated`, `skipped`, `rejected`, `deleted`, `enqueued`, `generation` | One place refreshed and its run closed `succeeded`. `deleted` is the bootstrap rows Google no longer returned (also in the run's `error` note); `generation` is the project's new cache generation, or `null` when nothing changed. |
+| `places.refresh.refreshed` | info | `received`, `created`, `updated`, `skipped`, `rejected`, `deleted`, `enqueued`, `indexing_deferred`, `generation` | One place refreshed and its run closed `succeeded`. `deleted` is the bootstrap rows Google no longer returned (also in the run's `error` note); `generation` is the project's new cache generation, or `null` when nothing changed. `indexing_deferred` counts index messages not sent (#162); the run still succeeds and the sweep indexes the reviews. |
 | `places.refresh.cap_reached` | warn | `rejected`, `limit`, `review_count` | The plan's review cap refused new reviews (`onLimit: "truncate"`); the count lands in the run's `failed`. |
 | `places.refresh.failed` | warn / error | warn: `status`, `code`, `error_message` — Google refused (404: the place is gone; 403: the key; 429: quota) and the run closed `failed` with the human description; error: `error` — something after the run row opened threw | The warn form retries the place tomorrow; the error form is the one to look at. |
 | `places.refresh.rate_limited` | warn | `deferred` | Google answered 429; the tick stopped and `deferred` places wait for tomorrow. A steady rate is the signal that the free Place Details quota is spent (docs/places.md "Quota math"). |
-| `places.refresh.completed` | info | `candidates`, `refreshed`, `failed`, `deferred`, `rate_limited`, `received`, `created`, `updated`, `skipped`, `rejected`, `deleted`, `enqueued`, `requests`, `took_ms` | Every tick that ran. `requests` is the Place Details calls sent to Google; it should equal `refreshed + failed`. |
+| `places.refresh.completed` | info | `candidates`, `refreshed`, `failed`, `deferred`, `rate_limited`, `received`, `created`, `updated`, `skipped`, `rejected`, `deleted`, `enqueued`, `indexing_deferred`, `requests`, `took_ms` | Every tick that ran. `requests` is the Place Details calls sent to Google; it should equal `refreshed + failed`. |
 
 ### dashboard
 
@@ -205,7 +205,7 @@ Places bootstrap refresh (#116, [`places-refresh.ts`](../workers/pipeline/src/pl
 | `google.connect.completed` | info | `project_id`, `connection_id`, `locations`, `verified`, `discovery_error?` | The callback stored encrypted credentials and ran discovery. `discovery_error` set means the connection exists but Google refused to list locations (the flash says so; Reconnect retries). |
 | `google.connect.rejected` | info | `account_id`, `reason` (`state_expired` \| `state_bad_signature` \| `nonce_missing` \| `account_mismatch` \| `no_refresh_token` \| `exchange_failed` \| …), `detail?` | The callback refused the connect and wrote nothing. `nonce_missing` is a replayed or expired callback; `no_refresh_token` means Google withheld offline access. |
 | `google.connect.denied` | info | `account_id`, `error` | Google returned `?error=` (the user cancelled) or no code. |
-| `google.locations_saved` | info | `project_id`, `connection_id`, `enabled`, `location_ids[]`, `sync_enqueued` | The location picker was saved; `sync_enqueued` says a `connection.sync` went on the queue. |
+| `google.locations_saved` | info | `project_id`, `connection_id`, `enabled`, `location_ids[]`, `sync_enqueued`, `sync_deferred` | The location picker was saved; `sync_enqueued` says a `connection.sync` went on the queue. `sync_deferred` says the send was refused (#162; a `quota.exhausted` or `ingest.enqueue_deferred` with `site: dashboard.connection_sync` precedes it): `initial_sync_pending` stays set, so the next Google poll takes the connection first, and the flash says "Sync queued". |
 | `google.disconnected` | info | `project_id`, `connection_id` | Credentials cleared, `status = disconnected`. |
 
 The import rows are the dashboard's first mutating surface; the loaders'
@@ -249,12 +249,15 @@ the pipeline's five-minute sweep re-enqueues them, and the api's
 
 | Event | Level | Fields | When |
 |---|---|---|---|
-| `quota.exhausted` | error | `resource: "queues"`, `site`, `messages`, `retry_after`, `renews_at` (the next 00:00 UTC), `error` | The send failed with the Workers Free plan's daily Queues limit (`Queue sendBatch failed: Free tier limit exceeded`, Queues error 10253): the 10,000 operations are spent. Ingest keeps accepting reviews; indexing resumes after 00:00 UTC. One line per refused request; a CSV import stops sending after the first one, and the sweep stops its tick. |
+| `quota.exhausted` | error | `resource: "queues"`, `site`, `messages`, `retry_after`, `renews_at` (the next 00:00 UTC), `error` | The send failed with the Workers Free plan's daily Queues limit (`Queue sendBatch failed: Free tier limit exceeded`, Queues error 10253): the 10,000 operations are spent. Ingest keeps accepting reviews; indexing resumes after 00:00 UTC. One line per refused request; a CSV import stops sending after the first one, the sweep stops its tick, and the Google poll and Places refresh stop calling the queue for the rest of their tick (#162). |
 | `ingest.enqueue_deferred` | warn | `site`, `messages`, `error` | Any other send failure. The sweep covers it within minutes. |
 
 `site` is `api.ingest` (with `project_id` and `key_environment`),
 `dashboard.csv_import` (with `ingest_run_id`), `dashboard.places_import`
-(with the run's bindings) or `pipeline.sweep`.
+(with the run's bindings), `dashboard.connection_sync` (the location
+picker's `connection.sync`), `pipeline.sweep`, `pipeline.google_poll` (with
+the connection, run and location bindings) or `pipeline.places_refresh`
+(with the project, place and run bindings).
 
 ## Tuning the similarity floor
 

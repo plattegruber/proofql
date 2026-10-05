@@ -13,17 +13,8 @@
       "id": "p01",
       "q": "dental implants",
       "kind": "positive",
-      "expect": [
-        "g01",
-        "g25",
-        "g32",
-        "g55",
-        "g48",
-        "c01"
-      ],
-      "acceptable": [
-        "g59"
-      ],
+      "expect": ["g01", "g25", "g32", "g55", "g48", "c01"],
+      "acceptable": ["g59"],
       "rows": [
         {
           "key": "g25",
@@ -131,20 +122,8 @@
       "id": "p02",
       "q": "what is Dr. Patel like for implant surgery",
       "kind": "positive",
-      "expect": [
-        "g01",
-        "g25",
-        "g32",
-        "g55",
-        "c01"
-      ],
-      "acceptable": [
-        "g48",
-        "g21",
-        "y06",
-        "y08",
-        "g09"
-      ],
+      "expect": ["g01", "g25", "g32", "g55", "c01"],
+      "acceptable": ["g48", "g21", "y06", "y08", "g09"],
       "rows": [
         {
           "key": "g55",
@@ -252,21 +231,9 @@
       "id": "p03",
       "q": "replacing a missing tooth",
       "kind": "positive",
-      "tags": [
-        "paraphrase"
-      ],
-      "expect": [
-        "g01",
-        "g25",
-        "g32",
-        "g55",
-        "g59"
-      ],
-      "acceptable": [
-        "c01",
-        "g48",
-        "y01"
-      ],
+      "tags": ["paraphrase"],
+      "expect": ["g01", "g25", "g32", "g55", "g59"],
+      "acceptable": ["c01", "g48", "y01"],
       "rows": [
         {
           "key": "g59",
@@ -374,14 +341,7 @@
       "id": "p04",
       "q": "Invisalign",
       "kind": "positive",
-      "expect": [
-        "g04",
-        "g16",
-        "g37",
-        "g53",
-        "y03",
-        "c09"
-      ],
+      "expect": ["g04", "g16", "g37", "g53", "y03", "c09"],
       "rows": [
         {
           "key": "g04",
@@ -489,17 +449,8 @@
       "id": "p05",
       "q": "straightening my teeth without metal braces",
       "kind": "positive",
-      "tags": [
-        "paraphrase"
-      ],
-      "expect": [
-        "g04",
-        "g16",
-        "g37",
-        "g53",
-        "y03",
-        "c09"
-      ],
+      "tags": ["paraphrase"],
+      "expect": ["g04", "g16", "g37", "g53", "y03", "c09"],
       "rows": [
         {
           "key": "y01",
@@ -607,20 +558,9 @@
       "id": "p06",
       "q": "clear aligners for a teenager",
       "kind": "positive",
-      "tags": [
-        "paraphrase"
-      ],
-      "expect": [
-        "g37"
-      ],
-      "acceptable": [
-        "g04",
-        "g16",
-        "g53",
-        "y03",
-        "c09",
-        "y12"
-      ],
+      "tags": ["paraphrase"],
+      "expect": ["g37"],
+      "acceptable": ["g04", "g16", "g53", "y03", "c09", "y12"],
       "rows": [
         {
           "key": "y12",
@@ -728,21 +668,9 @@
       "id": "p07",
       "q": "scared of needles and terrified of the dentist",
       "kind": "positive",
-      "tags": [
-        "paraphrase"
-      ],
-      "expect": [
-        "g09",
-        "g40",
-        "g43",
-        "c05",
-        "y12"
-      ],
-      "acceptable": [
-        "y08",
-        "g32",
-        "g52"
-      ],
+      "tags": ["paraphrase"],
+      "expect": ["g09", "g40", "g43", "c05", "y12"],
+      "acceptable": ["y08", "g32", "g52"],
       "rows": [
         {
           "key": "g09",
@@ -850,16 +778,8 @@
       "id": "p08",
       "q": "sedation options for anxious patients",
       "kind": "positive",
-      "expect": [
-        "g09",
-        "g32",
-        "y08",
-        "c05",
-        "g40"
-      ],
-      "acceptable": [
-        "g43"
-      ],
+      "expect": ["g09", "g32", "y08", "c05", "g40"],
+      "acceptable": ["g43"],
       "rows": [
         {
           "key": "c05",
@@ -967,18 +887,9 @@
       "id": "p09",
       "q": "being put to sleep for an extraction",
       "kind": "positive",
-      "tags": [
-        "paraphrase"
-      ],
-      "expect": [
-        "y08",
-        "g09",
-        "g32"
-      ],
-      "acceptable": [
-        "c05",
-        "g40"
-      ],
+      "tags": ["paraphrase"],
+      "expect": ["y08", "g09", "g32"],
+      "acceptable": ["c05", "g40"],
       "rows": [
         {
           "key": "c05",
@@ -1086,20 +997,8 @@
       "id": "p10",
       "q": "pediatric dentist for my toddler",
       "kind": "positive",
-      "expect": [
-        "g10",
-        "g27",
-        "g45",
-        "c04",
-        "g63",
-        "y05"
-      ],
-      "acceptable": [
-        "g17",
-        "y14",
-        "g37",
-        "y12"
-      ],
+      "expect": ["g10", "g27", "g45", "c04", "g63", "y05"],
+      "acceptable": ["g17", "y14", "g37", "y12"],
       "rows": [
         {
           "key": "y01",
@@ -1207,22 +1106,9 @@
       "id": "p11",
       "q": "my kid is nervous about the dentist",
       "kind": "positive",
-      "tags": [
-        "paraphrase"
-      ],
-      "expect": [
-        "g27",
-        "g45",
-        "g10",
-        "c04",
-        "g63",
-        "y12"
-      ],
-      "acceptable": [
-        "y05",
-        "g17",
-        "y14"
-      ],
+      "tags": ["paraphrase"],
+      "expect": ["g27", "g45", "g10", "c04", "g63", "y12"],
+      "acceptable": ["y05", "g17", "y14"],
       "rows": [
         {
           "key": "c05",
@@ -1330,26 +1216,8 @@
       "id": "p12",
       "q": "gentle hygienist",
       "kind": "positive",
-      "expect": [
-        "g02",
-        "g12",
-        "g22",
-        "g29",
-        "g33",
-        "g52",
-        "y01",
-        "g47",
-        "g58"
-      ],
-      "acceptable": [
-        "g03",
-        "y05",
-        "g42",
-        "c08",
-        "g43",
-        "y14",
-        "g09"
-      ],
+      "expect": ["g02", "g12", "g22", "g29", "g33", "g52", "y01", "g47", "g58"],
+      "acceptable": ["g03", "y05", "g42", "c08", "g43", "y14", "g09"],
       "rows": [
         {
           "key": "g02",
@@ -1457,25 +1325,9 @@
       "id": "p13",
       "q": "a deep cleaning that didn't hurt",
       "kind": "positive",
-      "tags": [
-        "paraphrase"
-      ],
-      "expect": [
-        "g12",
-        "g33",
-        "g52",
-        "g02"
-      ],
-      "acceptable": [
-        "g22",
-        "g29",
-        "g47",
-        "g58",
-        "y01",
-        "g03",
-        "g43",
-        "c08"
-      ],
+      "tags": ["paraphrase"],
+      "expect": ["g12", "g33", "g52", "g02"],
+      "acceptable": ["g22", "g29", "g47", "g58", "y01", "g03", "g43", "c08"],
       "rows": [
         {
           "key": "g12",
@@ -1583,23 +1435,8 @@
       "id": "p14",
       "q": "free parking",
       "kind": "positive",
-      "expect": [
-        "g15",
-        "g25",
-        "g44",
-        "y02",
-        "c09",
-        "y14"
-      ],
-      "acceptable": [
-        "g56",
-        "g03",
-        "g26",
-        "y07",
-        "g60",
-        "g04",
-        "g43"
-      ],
+      "expect": ["g15", "g25", "g44", "y02", "c09", "y14"],
+      "acceptable": ["g56", "g03", "g26", "y07", "g60", "g04", "g43"],
       "rows": [
         {
           "key": "g15",
@@ -1707,22 +1544,8 @@
       "id": "p15",
       "q": "is parking difficult at the downtown office",
       "kind": "positive",
-      "expect": [
-        "g03",
-        "g26",
-        "y07",
-        "g60",
-        "g04",
-        "g43"
-      ],
-      "acceptable": [
-        "g15",
-        "g44",
-        "y02",
-        "g25",
-        "c09",
-        "y14"
-      ],
+      "expect": ["g03", "g26", "y07", "g60", "g04", "g43"],
+      "acceptable": ["g15", "g44", "y02", "g25", "c09", "y14"],
       "rows": [
         {
           "key": "g03",
@@ -1830,16 +1653,8 @@
       "id": "p16",
       "q": "Saturday appointments",
       "kind": "positive",
-      "expect": [
-        "g05",
-        "g25",
-        "g44",
-        "y14"
-      ],
-      "acceptable": [
-        "g21",
-        "g51"
-      ],
+      "expect": ["g05", "g25", "g44", "y14"],
+      "acceptable": ["g21", "g51"],
       "rows": [
         {
           "key": "y14",
@@ -1947,14 +1762,7 @@
       "id": "p17",
       "q": "dental emergency after hours",
       "kind": "positive",
-      "expect": [
-        "g05",
-        "g21",
-        "g51",
-        "y06",
-        "c10",
-        "y14"
-      ],
+      "expect": ["g05", "g21", "g51", "y06", "c10", "y14"],
       "rows": [
         {
           "key": "y14",
@@ -2062,19 +1870,9 @@
       "id": "p18",
       "q": "chipped my tooth over the weekend",
       "kind": "positive",
-      "tags": [
-        "paraphrase"
-      ],
-      "expect": [
-        "g05",
-        "g51",
-        "y14"
-      ],
-      "acceptable": [
-        "g21",
-        "y06",
-        "c10"
-      ],
+      "tags": ["paraphrase"],
+      "expect": ["g05", "g51", "y14"],
+      "acceptable": ["g21", "y06", "c10"],
       "rows": [
         {
           "key": "g05",
@@ -2182,20 +1980,8 @@
       "id": "p19",
       "q": "do they take my insurance",
       "kind": "positive",
-      "expect": [
-        "g07",
-        "g19",
-        "g35",
-        "g48",
-        "y11",
-        "g32"
-      ],
-      "acceptable": [
-        "y03",
-        "y14",
-        "g56",
-        "c01"
-      ],
+      "expect": ["g07", "g19", "g35", "g48", "y11", "g32"],
+      "acceptable": ["y03", "y14", "g56", "c01"],
       "rows": [
         {
           "key": "g07",
@@ -2303,21 +2089,8 @@
       "id": "p20",
       "q": "payment plans and transparent pricing",
       "kind": "positive",
-      "expect": [
-        "g04",
-        "g20",
-        "g25",
-        "c09",
-        "g48",
-        "g35",
-        "g32",
-        "c01",
-        "y14"
-      ],
-      "acceptable": [
-        "g19",
-        "g08"
-      ],
+      "expect": ["g04", "g20", "g25", "c09", "g48", "g35", "g32", "c01", "y14"],
+      "acceptable": ["g19", "g08"],
       "rows": [
         {
           "key": "g20",
@@ -2425,23 +2198,9 @@
       "id": "p21",
       "q": "no surprise bills",
       "kind": "positive",
-      "tags": [
-        "paraphrase"
-      ],
-      "expect": [
-        "g48",
-        "g35",
-        "g32",
-        "g20",
-        "y14",
-        "g19"
-      ],
-      "acceptable": [
-        "g04",
-        "g25",
-        "c09",
-        "c01"
-      ],
+      "tags": ["paraphrase"],
+      "expect": ["g48", "g35", "g32", "g20", "y14", "g19"],
+      "acceptable": ["g04", "g25", "c09", "c01"],
       "rows": [
         {
           "key": "g48",
@@ -2549,23 +2308,8 @@
       "id": "p22",
       "q": "friendly and helpful front desk staff",
       "kind": "positive",
-      "expect": [
-        "g07",
-        "g17",
-        "y11",
-        "c10",
-        "g09",
-        "g56",
-        "g43"
-      ],
-      "acceptable": [
-        "g03",
-        "g04",
-        "y14",
-        "c08",
-        "c02",
-        "y02"
-      ],
+      "expect": ["g07", "g17", "y11", "c10", "g09", "g56", "g43"],
+      "acceptable": ["g03", "g04", "y14", "c08", "c02", "y02"],
       "rows": [
         {
           "key": "g03",
@@ -2673,14 +2417,8 @@
       "id": "p23",
       "q": "teeth whitening",
       "kind": "positive",
-      "expect": [
-        "g24",
-        "y13"
-      ],
-      "acceptable": [
-        "g08",
-        "g49"
-      ],
+      "expect": ["g24", "y13"],
+      "acceptable": ["g08", "g49"],
       "rows": [
         {
           "key": "y13",
@@ -2788,13 +2526,8 @@
       "id": "p24",
       "q": "veneers",
       "kind": "positive",
-      "expect": [
-        "g49"
-      ],
-      "acceptable": [
-        "g24",
-        "y13"
-      ],
+      "expect": ["g49"],
+      "acceptable": ["g24", "y13"],
       "rows": [
         {
           "key": "g49",
@@ -2902,16 +2635,8 @@
       "id": "p25",
       "q": "crown done in one visit",
       "kind": "positive",
-      "expect": [
-        "g41"
-      ],
-      "acceptable": [
-        "g05",
-        "y06",
-        "y10",
-        "g19",
-        "y14"
-      ],
+      "expect": ["g41"],
+      "acceptable": ["g05", "y06", "y10", "g19", "y14"],
       "rows": [
         {
           "key": "g41",
@@ -3019,13 +2744,8 @@
       "id": "p26",
       "q": "root canal",
       "kind": "positive",
-      "expect": [
-        "g14",
-        "y10"
-      ],
-      "acceptable": [
-        "g41"
-      ],
+      "expect": ["g14", "y10"],
+      "acceptable": ["g41"],
       "rows": [
         {
           "key": "g14",
@@ -3133,16 +2853,8 @@
       "id": "p27",
       "q": "painless fillings",
       "kind": "positive",
-      "expect": [
-        "g30",
-        "g60",
-        "g27",
-        "c04"
-      ],
-      "acceptable": [
-        "g08",
-        "g29"
-      ],
+      "expect": ["g30", "g60", "g27", "c04"],
+      "acceptable": ["g08", "g29"],
       "rows": [
         {
           "key": "g60",
@@ -3250,12 +2962,8 @@
       "id": "p28",
       "q": "night guard for grinding my teeth",
       "kind": "positive",
-      "expect": [
-        "g38"
-      ],
-      "acceptable": [
-        "y06"
-      ],
+      "expect": ["g38"],
+      "acceptable": ["y06"],
       "rows": [
         {
           "key": "g38",
@@ -3363,15 +3071,8 @@
       "id": "p29",
       "q": "a bridge after losing teeth",
       "kind": "positive",
-      "expect": [
-        "g59",
-        "y01"
-      ],
-      "acceptable": [
-        "g01",
-        "g25",
-        "g55"
-      ],
+      "expect": ["g59", "y01"],
+      "acceptable": ["g01", "g25", "g55"],
       "rows": [
         {
           "key": "g59",
@@ -3479,9 +3180,7 @@
       "id": "p30",
       "q": "wheelchair accessible office for my elderly mother",
       "kind": "positive",
-      "expect": [
-        "g56"
-      ],
+      "expect": ["g56"],
       "rows": [
         {
           "key": "g56",
@@ -3589,21 +3288,9 @@
       "id": "p31",
       "q": "a dentist who doesn't upsell",
       "kind": "positive",
-      "tags": [
-        "paraphrase"
-      ],
-      "expect": [
-        "g08",
-        "g26",
-        "g42",
-        "g53",
-        "g20"
-      ],
-      "acceptable": [
-        "g61",
-        "g43",
-        "c01"
-      ],
+      "tags": ["paraphrase"],
+      "expect": ["g08", "g26", "g42", "g53", "g20"],
+      "acceptable": ["g61", "g43", "c01"],
       "rows": [
         {
           "key": "g08",
@@ -3711,13 +3398,8 @@
       "id": "p32",
       "q": "online booking and appointment reminders",
       "kind": "positive",
-      "expect": [
-        "c02"
-      ],
-      "acceptable": [
-        "g58",
-        "g07"
-      ],
+      "expect": ["c02"],
+      "acceptable": ["g58", "g07"],
       "rows": [
         {
           "key": "c02",
@@ -3825,17 +3507,8 @@
       "id": "p33",
       "q": "first visit as a new patient",
       "kind": "positive",
-      "expect": [
-        "g61",
-        "g58",
-        "g43",
-        "g10"
-      ],
-      "acceptable": [
-        "y14",
-        "g29",
-        "c08"
-      ],
+      "expect": ["g61", "g58", "g43", "g10"],
+      "acceptable": ["y14", "g29", "c08"],
       "rows": [
         {
           "key": "g61",
@@ -3943,16 +3616,8 @@
       "id": "p34",
       "q": "3D scan instead of impressions",
       "kind": "positive",
-      "expect": [
-        "g04",
-        "g25",
-        "c09"
-      ],
-      "acceptable": [
-        "g41",
-        "g32",
-        "g61"
-      ],
+      "expect": ["g04", "g25", "c09"],
+      "acceptable": ["g41", "g32", "g61"],
       "rows": [
         {
           "key": "g04",
@@ -4060,13 +3725,8 @@
       "id": "p35",
       "q": "wisdom teeth removal",
       "kind": "positive",
-      "expect": [
-        "y08"
-      ],
-      "acceptable": [
-        "g09",
-        "g63"
-      ],
+      "expect": ["y08"],
+      "acceptable": ["g09", "g63"],
       "rows": [
         {
           "key": "y13",
@@ -4174,23 +3834,9 @@
       "id": "p36",
       "q": "¿Aceptan mi seguro dental?",
       "kind": "positive",
-      "tags": [
-        "cross-language"
-      ],
-      "expect": [
-        "g07",
-        "g19",
-        "g35",
-        "g48",
-        "y11",
-        "g32"
-      ],
-      "acceptable": [
-        "y03",
-        "y14",
-        "g56",
-        "c01"
-      ],
+      "tags": ["cross-language"],
+      "expect": ["g07", "g19", "g35", "g48", "y11", "g32"],
+      "acceptable": ["y03", "y14", "g56", "c01"],
       "rows": [
         {
           "key": "g26",
@@ -4298,21 +3944,9 @@
       "id": "p37",
       "q": "Zahnarzt für ängstliche Patienten",
       "kind": "positive",
-      "tags": [
-        "cross-language"
-      ],
-      "expect": [
-        "g09",
-        "g40",
-        "g43",
-        "c05",
-        "y12"
-      ],
-      "acceptable": [
-        "y08",
-        "g32",
-        "g52"
-      ],
+      "tags": ["cross-language"],
+      "expect": ["g09", "g40", "g43", "c05", "y12"],
+      "acceptable": ["y08", "g32", "g52"],
       "rows": [
         {
           "key": "g40",
@@ -6256,9 +5890,7 @@
       "id": "f01",
       "q": "sent me to collections over a disputed crown bill",
       "kind": "policy-filtered",
-      "expect": [
-        "g13"
-      ],
+      "expect": ["g13"],
       "rows": [
         {
           "key": "c10",
@@ -6366,9 +5998,7 @@
       "id": "f02",
       "q": "they lost my appointment and I drove home",
       "kind": "policy-filtered",
-      "expect": [
-        "g18"
-      ],
+      "expect": ["g18"],
       "rows": [
         {
           "key": "g15",
@@ -6476,10 +6106,7 @@
       "id": "f03",
       "q": "the appointment ran so late my child had a meltdown",
       "kind": "policy-filtered",
-      "expect": [
-        "g34",
-        "c07"
-      ],
+      "expect": ["g34", "c07"],
       "rows": [
         {
           "key": "c10",
@@ -6587,9 +6214,7 @@
       "id": "f04",
       "q": "the next emergency slot was nine days away",
       "kind": "policy-filtered",
-      "expect": [
-        "g28"
-      ],
+      "expect": ["g28"],
       "rows": [
         {
           "key": "g51",
@@ -6697,11 +6322,7 @@
       "id": "f05",
       "q": "quoted one price and billed another",
       "kind": "policy-filtered",
-      "expect": [
-        "c03",
-        "c06",
-        "y04"
-      ],
+      "expect": ["c03", "c06", "y04"],
       "rows": [
         {
           "key": "g20",

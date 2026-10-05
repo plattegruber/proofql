@@ -399,8 +399,22 @@ move to the Workers Cache API by themselves
    `indexing: "deferred"`, and CSV and Places imports still finish. The
    reviews are stored but stay unindexed, so they do not appear in query
    results yet. Indexing catches up after 00:00 UTC, when the five-minute
-   sweep re-enqueues them, 500 per tick. Look for `quota.exhausted` with
-   `resource: "queues"`. Plan big imports across days, or upgrade first.
+   sweep re-enqueues them, 500 per tick. The Google poll, the Places
+   refresh and the location picker's `connection.sync` degrade the same way
+   (#162): runs succeed and cursors advance, and a refused first sync stays
+   pending for the next poll. The dashboard's import and onboarding progress
+   says indexing is delayed instead of "searchable within seconds". Look for
+   `quota.exhausted` with `resource: "queues"`. Plan big imports across
+   days, or upgrade first.
+
+**Dashboard polling cost.** An open import or onboarding progress page
+reloads its counts every 2 s for the first minute, every 10 s until five
+minutes, every 30 s until thirty minutes, and then stops with a "Check
+again" button (#162). That is at most 104 page loads per open tab, each
+one Workers request and ~3–5 Hyperdrive queries, so ~500 queries. A flat
+2 s poll left open on a deferred import used to cost ~1,800 requests and
+~9,000 queries an hour, against the 100,000 queries the whole account gets
+per day.
 2. **KV writes** (1,000). When they run out, results stop being stored in
    KV and **cache purges are lost**: a hide, a policy edit or a newly
    indexed review can take up to the cache's 24 h TTL to show in cached
