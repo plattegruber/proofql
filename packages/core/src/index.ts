@@ -15,6 +15,7 @@ export * from "./limits.js";
 export * from "./log.js";
 export * from "./plans.js";
 export * from "./queue.js";
+export * from "./queue-guard.js";
 export * from "./relevance.js";
 export * from "./review.js";
 export * from "./sentiment.js";

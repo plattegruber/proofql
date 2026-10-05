@@ -172,6 +172,13 @@ paths:
         anything is written, so a batch either lands whole or not at all
         (`422 review_limit_reached`). The request body may be at most 1 MiB
         (`413 payload_too_large`); 100 maximal reviews fit comfortably.
+
+        Indexing can be deferred. If the reviews were stored but could not be
+        queued for indexing (for example, the platform's daily queue
+        allowance is spent), the response is still `200`, with
+        `indexing: "deferred"`. Those reviews report `status: "indexing"` and
+        are indexed automatically within minutes of the queue accepting work
+        again (at the latest shortly after 00:00 UTC). Do not resend them.
       requestBody:
         required: true
         content:
@@ -213,7 +220,9 @@ paths:
           description: |
             Every review in the request was stored (inserted or updated), in
             request order. `status` is `indexing` until the pipeline has
-            embedded it, then `indexed`.
+            embedded it, then `indexed`. `indexing: "deferred"` means the
+            reviews were stored but indexing them was postponed; they are
+            indexed later without another request.
           headers:
             x-request-id:
               $ref: "#/components/headers/XRequestId"
@@ -233,6 +242,15 @@ paths:
                         external_id: accounts/1/locations/2/reviews/abc
                         source: google
                         status: indexing
+                deferred:
+                  summary: Stored, indexing deferred
+                  value:
+                    reviews:
+                      - id: 2f1c9e5a-3b7d-4c1e-9f0a-6d2b8e4a1c3f
+                        external_id: accounts/1/locations/2/reviews/abc
+                        source: google
+                        status: indexing
+                    indexing: deferred
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1701,6 +1719,14 @@ components:
           description: One entry per review in the request, in request order.
           items:
             $ref: "#/components/schemas/IngestedReview"
+        indexing:
+          type: string
+          enum: [deferred]
+          description: |
+            Present only when the reviews were stored but could not be queued
+            for indexing. They keep `status: "indexing"` and are indexed
+            automatically once the queue accepts work again (at the latest
+            shortly after 00:00 UTC); there is nothing to retry.
 
     ReviewResource:
       type: object

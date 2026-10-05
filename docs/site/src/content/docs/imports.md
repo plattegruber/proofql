@@ -63,6 +63,8 @@ Upsert rules, keyed on `(project, environment, source, external_id)` where proje
 - Existing review, `text` unchanged: the other fields are updated; `status` is unchanged.
 - The same `(source, external_id)` twice in one batch collapses to the last occurrence.
 
+If the reviews were stored but could not be queued for indexing, the receipt adds `"indexing": "deferred"`. The reviews keep `status: "indexing"` and are indexed automatically once the queue accepts work again, at the latest shortly after 00:00 UTC. Do not resend them.
+
 The plan's review cap is checked before anything is written, so a batch lands whole or not at all ([`422 review_limit_reached`](/errors#review_limit_reached)). Use the **test** key while you build the integration: test rows live beside live rows and can be wiped without touching them.
 
 Afterwards, [`GET /v1/reviews`](/api/operations/listreviews) pages through the project, [`PATCH /v1/reviews/{id}`](/api/operations/updatereview) hides or unhides a review or replaces its `metadata`, and [`DELETE /v1/reviews/{id}`](/api/operations/deletereview) removes it along with its excerpts. Hiding is the usual move for a review you do not want on the site: it stays in your account, disappears from every query, and comes back with one call.

@@ -5,7 +5,12 @@
  * faked too, so `waitUntil` work (last_used_at) can be awaited and asserted.
  */
 
-import { generateApiKey, type IngestMessage, PRICING_URL } from "@proofql/core";
+import {
+  generateApiKey,
+  type IngestMessage,
+  PRICING_URL,
+  recordingSink,
+} from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
 import { project, review, setupTestDb } from "@proofql/db/test";
 import { and, eq } from "drizzle-orm";
@@ -18,15 +23,24 @@ import type { IngestResponse } from "./reviews.js";
 
 const t = setupTestDb();
 
-/** Records every `sendBatch` call; `send` is unused by the route. */
-function fakeQueue() {
+/** What workerd throws once the free plan's daily Queues operations are spent (#159). */
+const QUEUE_LIMIT_MESSAGE = "Queue sendBatch failed: Free tier limit exceeded";
+
+/**
+ * Records every `sendBatch` call; `send` is unused by the route. With
+ * `failWith`, every `sendBatch` throws that message instead.
+ */
+function fakeQueue(failWith?: string) {
   const batches: IngestMessage[][] = [];
   const queue = {
     batches,
+    attempts: 0,
     send: async () => {
       throw new Error("route must use sendBatch");
     },
     sendBatch: async (messages: Iterable<{ body: IngestMessage }>) => {
+      queue.attempts += 1;
+      if (failWith !== undefined) throw new Error(failWith);
       batches.push([...messages].map((m) => m.body));
     },
   };
@@ -55,8 +69,9 @@ async function post(
   plaintext: string,
   body: unknown,
   queue = fakeQueue(),
+  out = recordingSink(),
 ) {
-  const app = createApp({ db });
+  const app = createApp({ db, logSink: out.sink });
   const ctx = fakeCtx();
   const res = await app.request(
     "/v1/reviews",
@@ -74,7 +89,7 @@ async function post(
   await ctx.flush();
   // biome-ignore lint/suspicious/noExplicitAny: test reads both success and error shapes
   const json = (await res.json()) as any;
-  return { res, json, queue, ctx };
+  return { res, json, queue, ctx, out };
 }
 
 async function storedReviews(db: Db, projectId: string) {
@@ -105,6 +120,7 @@ describe("POST /v1/reviews", () => {
 
     expect(res.status).toBe(200);
     const body = json as IngestResponse;
+    expect(body.indexing).toBeUndefined();
     expect(body.reviews).toHaveLength(2);
     expect(
       body.reviews.map((r) => [r.external_id, r.source, r.status]),
@@ -192,6 +208,94 @@ describe("POST /v1/reviews", () => {
     expect(afterSecond?.lastUsedAt?.getTime()).toBe(
       afterFirst?.lastUsedAt?.getTime(),
     );
+  });
+
+  it("Queues daily limit: stores the reviews, answers 200 with indexing deferred, logs quota.exhausted (#159)", async () => {
+    const p = await project(t.db);
+    const { plaintext } = await issueKey(t.db, p.id);
+
+    const { res, json, queue, out } = await post(
+      t.db,
+      plaintext,
+      [reviewBody(1), reviewBody(2)],
+      fakeQueue(QUEUE_LIMIT_MESSAGE),
+    );
+
+    expect(res.status).toBe(200);
+    const body = json as IngestResponse;
+    expect(body.indexing).toBe("deferred");
+    expect(body.reviews.map((r) => [r.external_id, r.status])).toEqual([
+      ["ext-1", "indexing"],
+      ["ext-2", "indexing"],
+    ]);
+    expect(queue.attempts).toBe(1);
+
+    // The rows are committed and unindexed: the sweep will pick them up.
+    const stored = await storedReviews(t.db, p.id);
+    expect(stored.map((r) => [r.externalId, r.indexedAt])).toEqual([
+      ["ext-1", null],
+      ["ext-2", null],
+    ]);
+    const [run] = await runs(t.db, p.id);
+    expect(run).toMatchObject({
+      status: "succeeded",
+      received: 2,
+      created: 2,
+      failed: 0,
+    });
+
+    expect(out.only("quota.exhausted")).toMatchObject({
+      level: "error",
+      resource: "queues",
+      site: "api.ingest",
+      messages: 2,
+      project_id: p.id,
+      key_environment: "live",
+      renews_at: expect.stringMatching(/T00:00:00\.000Z$/),
+      error: { message: QUEUE_LIMIT_MESSAGE },
+    });
+    expect(out.find("request.failed")).toHaveLength(0);
+  });
+
+  it("any other queue failure: 200 with indexing deferred and ingest.enqueue_deferred at warn", async () => {
+    const p = await project(t.db);
+    const { plaintext } = await issueKey(t.db, p.id);
+
+    const { res, json, out } = await post(
+      t.db,
+      plaintext,
+      reviewBody(1),
+      fakeQueue("Queue sendBatch failed: Unknown error"),
+    );
+
+    expect(res.status).toBe(200);
+    expect(json).toMatchObject({
+      indexing: "deferred",
+      reviews: [{ external_id: "ext-1", status: "indexing" }],
+    });
+    expect(out.only("ingest.enqueue_deferred")).toMatchObject({
+      level: "warn",
+      site: "api.ingest",
+      messages: 1,
+    });
+    expect(out.find("quota.exhausted")).toHaveLength(0);
+  });
+
+  it("nothing to index: a failing queue is never called and nothing is deferred", async () => {
+    const p = await project(t.db);
+    const { plaintext } = await issueKey(t.db, p.id);
+    expect((await post(t.db, plaintext, reviewBody(1))).res.status).toBe(200);
+
+    // Same text again: an update with nothing to enqueue.
+    const again = await post(
+      t.db,
+      plaintext,
+      reviewBody(1),
+      fakeQueue(QUEUE_LIMIT_MESSAGE),
+    );
+    expect(again.res.status).toBe(200);
+    expect(again.json.indexing).toBeUndefined();
+    expect(again.queue.attempts).toBe(0);
   });
 
   it("accepts a single object body", async () => {

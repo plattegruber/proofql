@@ -26,7 +26,11 @@ import {
   HARBOR_LIGHT_ID,
   QUIET_CORNER_ID,
 } from "../../test/fake-places";
-import { fakeQueue } from "../../test/fake-r2";
+import {
+  failingQueue,
+  fakeQueue,
+  QUEUE_LIMIT_MESSAGE,
+} from "../../test/fake-r2";
 import {
   importPlaceReviews,
   PlacesImportError,
@@ -149,6 +153,49 @@ describe("importPlaceReviews", () => {
       .from(schema.projects)
       .where(eq(schema.projects.id, p.id));
     expect(row?.n).toBe(5);
+  });
+
+  it("Queues daily limit: the import succeeds with indexing deferred and logs quota.exhausted (#159)", async () => {
+    const p = await project(t.db);
+    const { places } = harness();
+    const queue = failingQueue();
+    const out = recordingSink();
+    const log = createLogger({
+      service: "dashboard",
+      environment: "test",
+      sink: out.sink,
+    });
+
+    const result = await importPlaceReviews(
+      { db: t.db, places, queue, log },
+      { projectId: p.id, environment: "live", placeId: CEDAR_RIDGE_ID },
+    );
+
+    expect(result).toMatchObject({
+      created: 5,
+      enqueued: 0,
+      indexingDeferred: true,
+    });
+    expect(result.run).toMatchObject({ status: "succeeded", error: null });
+    expect(queue.attempts).toBe(1);
+    const reviews = await t.db.query.reviews.findMany({
+      where: eq(schema.reviews.projectId, p.id),
+    });
+    expect(reviews).toHaveLength(5);
+    expect(reviews.every((r) => r.indexedAt === null)).toBe(true);
+    expect(out.only("quota.exhausted")).toMatchObject({
+      level: "error",
+      resource: "queues",
+      site: "dashboard.places_import",
+      messages: 5,
+      ingest_run_id: result.run.id,
+      error: { message: QUEUE_LIMIT_MESSAGE },
+    });
+    expect(out.only("places.imported")).toMatchObject({
+      enqueued: 0,
+      indexing_deferred: true,
+    });
+    expect(out.find("places.failed")).toHaveLength(0);
   });
 
   it("is idempotent: a second import updates the same rows, enqueues nothing, and reads the place from KV", async () => {

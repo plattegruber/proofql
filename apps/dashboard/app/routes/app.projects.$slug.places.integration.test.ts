@@ -12,8 +12,12 @@ import { account, project, setupTestDb } from "@proofql/db/test";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createLoadContext } from "~/lib/context";
-import { CEDAR_RIDGE_ID, fakePlacesApi } from "../../test/fake-places";
-import { fakeQueue } from "../../test/fake-r2";
+import {
+  CEDAR_RIDGE_ID,
+  fakePlacesApi,
+  HARBOR_LIGHT_ID,
+} from "../../test/fake-places";
+import { failingQueue, fakeQueue } from "../../test/fake-r2";
 import { action, type PlacesActionData } from "./app.projects.$slug.places";
 
 const t = setupTestDb();
@@ -178,6 +182,36 @@ describe("places action", () => {
     });
     expect(all.filter((r) => r.environment === "test")).toHaveLength(5);
     expect(all).toHaveLength(10);
+  });
+
+  it("import: past the Queues daily limit still redirects to the run page; the run succeeds and the review waits for the sweep (#159)", async () => {
+    const queue = failingQueue();
+    const { env } = testEnv({
+      INGEST_QUEUE: { sendBatch: queue.sendBatch } as unknown as Queue,
+    });
+    const result = (await post(
+      { intent: "import", place_id: HARBOR_LIGHT_ID },
+      env,
+    )) as Response;
+    expect(result).toBeInstanceOf(Response);
+    expect(result.status).toBe(302);
+    const location = result.headers.get("Location") ?? "";
+    expect(location).toMatch(
+      new RegExp(`^/app/projects/${slug}/import/[0-9a-f-]{36}$`),
+    );
+    expect(queue.attempts).toBe(1);
+
+    const run = await t.db.query.ingestRuns.findFirst({
+      where: eq(schema.ingestRuns.id, location.split("/").at(-1) as string),
+    });
+    expect(run).toMatchObject({ status: "succeeded", created: 1 });
+    const harbor = (
+      await t.db.query.reviews.findMany({
+        where: eq(schema.reviews.projectId, projectId),
+      })
+    ).filter((r) => r.externalId.startsWith(`places/${HARBOR_LIGHT_ID}/`));
+    expect(harbor).toHaveLength(1);
+    expect(harbor[0]?.indexedAt).toBeNull();
   });
 
   it("import: a place with nothing to import, and a bad id, answer in the voice", async () => {

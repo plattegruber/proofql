@@ -75,3 +75,21 @@ export function fakeQueue() {
     },
   };
 }
+
+/** What workerd throws once the free plan's daily Queues operations are spent (#159). */
+export const QUEUE_LIMIT_MESSAGE =
+  "Queue sendBatch failed: Free tier limit exceeded";
+
+/** An ingest queue whose every `sendBatch` throws `message`; counts the attempts. */
+export function failingQueue(message = QUEUE_LIMIT_MESSAGE) {
+  const queue = {
+    attempts: 0,
+    async sendBatch(
+      _messages: Iterable<{ body: import("@proofql/core").IngestMessage }>,
+    ): Promise<void> {
+      queue.attempts += 1;
+      throw new Error(message);
+    },
+  };
+  return queue;
+}

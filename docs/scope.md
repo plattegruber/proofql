@@ -101,7 +101,7 @@ Keys are hashed at rest with SHA-256; the plaintext is shown once. Test keys hit
 
 ### Ingest
 
-`POST /v1/reviews` with a secret key. Body is one review or an array (1 to 100), at most 1 MiB (`413 payload_too_large`). Upsert keyed on `(project, environment, source, external_id)`, where project and environment come from the key.
+`POST /v1/reviews` with a secret key. Body is one review or an array (1 to 100), at most 1 MiB (`413 payload_too_large`). Upsert keyed on `(project, environment, source, external_id)`, where project and environment come from the key. If the queue write after the commit fails (the free plan's daily Queues allowance, #159), the response is still `200` with `indexing: "deferred"` and the sweep indexes the rows later.
 
 ```json
 {

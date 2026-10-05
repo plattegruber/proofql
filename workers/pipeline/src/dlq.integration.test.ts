@@ -146,7 +146,12 @@ describe("handleDeadLetters", () => {
       { db: t.db, queue, log: sweepLog.log },
       { olderThanMinutes: 5, limit: 500 },
     );
-    expect(result).toEqual({ enqueued: 0, exhausted: 1, batches: 0 });
+    expect(result).toEqual({
+      enqueued: 0,
+      deferred: 0,
+      exhausted: 1,
+      batches: 0,
+    });
     expect(queue.sent).toEqual([]);
     expect(sweepLog.out.only("sweep.exhausted")).toMatchObject({
       review_ids: [stuck.id],
