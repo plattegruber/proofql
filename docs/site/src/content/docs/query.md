@@ -5,7 +5,7 @@ description: What score measures, why an empty result beats an irrelevant one, h
 
 ## Relevance
 
-Every result from [`/v1/query`](/api/operations/queryreviews) carries a `score`: the **cosine similarity between your query and the returned excerpt**, in `[0, 1]`. Both are embedded with the same multilingual model (`bge-m3`, 1,024 dimensions), so the number means the same thing across queries, across projects, and across time. A `score` of `0.9` is a review that is plainly about what you asked; `0.6` is in the neighbourhood; `0.4` shares a few words at most.
+Every result from [`/v1/query`](/api/operations/queryreviews) carries a `score`: the **cosine similarity between your query and the returned excerpt**, in `[0, 1]`. Both are embedded with the same multilingual model (`bge-m3`, 1,024 dimensions), so the number means the same thing across queries, across projects, and across time. A `score` of `0.8` or more is a review that is plainly about what you asked; around `0.7` is a clear match; `0.55`–`0.65` is the neighbourhood, the same domain and often a different topic (a parking review against an implants query lands there); below `0.5` is unrelated.
 
 Two things `score` is not:
 
@@ -34,7 +34,7 @@ Three nodes, no `innerHTML`: a review can contain `<script>` and it stays text. 
 
 ## Empty beats irrelevant
 
-A testimonials block that shows a review about parking on the implants page does more damage than an empty block: the visitor learns that the quotes are decoration. So ProofQL never pads. Candidates whose `score` is below the project's **similarity floor** (`similarity_floor`, default `0.55`) are dropped inside the search statement, and when nothing clears it the response is `results: []` with a `200`. The snippet renders nothing on an empty result and leaves whatever the element already contained.
+A testimonials block that shows a review about parking on the implants page does more damage than an empty block: the visitor learns that the quotes are decoration. So ProofQL never pads. Candidates whose `score` is below the project's **similarity floor** (`similarity_floor`, default `0.66`) are dropped inside the search statement, and when nothing clears it the response is `results: []` with a `200`. The snippet renders nothing on an empty result and leaves whatever the element already contained.
 
 The same rule holds under failure. If the embedding service is unavailable the endpoint answers `503 embedding_unavailable` rather than falling back to a keyword-only search, because a keyword hit with no vector proximity is exactly the irrelevant result the floor exists to drop. Full-text-only hits are dropped for the same reason when a `q` is present.
 
@@ -77,16 +77,28 @@ Changing any of the three, or hiding a review, bumps the project's cache generat
 
 ## Tuning the floor
 
-`0.55` is a deliberate default for English reviews queried in English, chosen so that a page with a real topic shows two or three excerpts and a page with no matching reviews shows none. Two reasons to move it:
+`0.66` is the default because it is the lowest floor at which **an in-domain query with no answer in the corpus returns nothing**. It was measured, not guessed (#138): a set of labelled queries against the demo dental corpus, embedded with the same `bge-m3` model the API uses, with every returned review's `score` recorded at a scratch floor of `0.30`. The queries are of three kinds: 35 a dental practice's page would ask and the corpus answers (labelled with the reviews that answer them, many of them paraphrases that share no words, like "scared of needles" for the anxiety reviews); 17 that sound like the same practice but have no answer ("orthodontic headgear", "the lobby coffee kiosk swallowed my coins"); and 5 whose only answers are low-rated reviews the policy hides, where showing a five-star review about something else would be the failure.
 
-- **Too many empties** on pages that *should* match, typically a multilingual corpus (cross-language similarities sit lower than monolingual ones) or very short reviews. Try `0.50`.
-- **Irrelevant excerpts rendering** on pages with a narrow topic. Raise it in steps of `0.05` until the empties start, then back off one step.
+| Floor | Answerable queries with a genuine answer | Queries that must be empty but are not | Pooled precision |
+|---|---|---|---|
+| `0.55` (previous default) | 97% | 64% | 30% |
+| `0.60` | 91% | 45% | 49% |
+| `0.63` | 77% | 23% | 58% |
+| **`0.66`** | **66%** | **0%** | **67%** |
+| `0.70` | 37% | 0% | 70% |
+
+The two populations overlap: the best score an unanswerable query gets has a median of `0.59` and reaches `0.65`, while the reviews that genuinely answer a query have a median of `0.62`. No single floor gives both, so the default takes the side the product is built on, *empty beats irrelevant*, and accepts that about a third of answerable queries come back empty. Short, one- or two-word queries pay most of that ("dental implants" tops out at `0.655`, "Invisalign" at `0.649`); a longer phrasing of the same page's topic usually clears it, and [`fallback: "recent"`](#honest-fallback) turns the empty block into an honestly labelled one. Two reasons to move it for your project:
+
+- **Too many empties** on pages that *should* match: short page queries, a multilingual corpus (cross-language similarities sit lower than monolingual ones), or very short reviews. Lower it `0.02` at a time; in the measurements above, `0.63` keeps three quarters of answerable queries answered at the cost of an unrelated quote on roughly one unanswerable page in four.
+- **Irrelevant excerpts rendering** on pages with a narrow topic. Raise it `0.02` at a time until the empties start, then back off one step.
+
+The measurement is repeatable. `pnpm db:tune-floor` (in `packages/db`) runs the labelled fixtures against a deployed API, saves every score to `docs/floor-tuning/<date>.json`, and prints precision, recall, the share of answerable queries answered, and the false-positive rate on the must-be-empty queries for every floor from `0.50` to `0.80`, with the lowest floor that keeps that rate at or under 5%. `--replay <file>` recomputes the same report from a saved run without the API. Re-run it when the embedding model or the chunker changes.
 
 Tune from data, not from one query. Every answered query writes one `query.completed` log line with the knobs that shaped it and what came of them:
 
 ```json
 {"event":"query.completed","project_id":"…","has_q":true,"q_length":15,"limit":3,
- "min_rating":4,"similarity_floor":0.55,"returned":2,"cached":"MISS",
+ "min_rating":4,"similarity_floor":0.66,"returned":2,"cached":"MISS",
  "took_ms":41,"embedding_ms":28,"search_ms":6}
 ```
 
