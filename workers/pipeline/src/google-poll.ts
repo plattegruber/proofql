@@ -21,6 +21,13 @@
  *    batch commits; then advance that location's cursor to the newest
  *    `updateTime` seen and persist it at once, so a tick cut short never
  *    re-walks a finished location.
+ *    A refused send never fails the sync (#162): the rows are committed
+ *    with `indexed_at` null and the five-minute sweep indexes them. All
+ *    sends of a tick share one `createEnqueueSession` (@proofql/core), so
+ *    after the Workers Free plan's daily Queues limit (`quota.exhausted`)
+ *    the tick stops calling the queue and counts the rest as
+ *    `indexing_deferred`; cursors, runs and `last_synced_at` are written
+ *    as usual.
  * 4. Close the run with the counts, stamp `last_synced_at`, clear
  *    `metadata.initial_sync_pending`. On a connection's **first** successful
  *    sync (`last_synced_at` was null, or the pending flag was set) the same
@@ -52,6 +59,8 @@
  */
 
 import {
+  createEnqueueSession,
+  type EnqueueSession,
   type GenerationKv,
   type IngestMessage,
   type Logger,
@@ -90,7 +99,7 @@ import {
 } from "@proofql/google";
 import { and, eq, inArray, like, sql } from "drizzle-orm";
 
-import { chunked, type IngestQueue, QUEUE_SEND_BATCH_MAX } from "./sweep.js";
+import { chunked, type IngestQueue } from "./sweep.js";
 
 const { connections, ingestRuns, projects, reviews } = schema;
 
@@ -160,6 +169,11 @@ export interface GooglePollResult {
   rejected: number;
   /** Google data-API requests made. */
   requests: number;
+  /**
+   * Index messages not sent (the Queues daily limit, or another send
+   * failure); the reviews are stored unindexed and the sweep indexes them.
+   */
+  indexingDeferred: number;
   /** `not_configured` when the connector's secrets are absent; the tick did nothing. */
   skippedReason?: "not_configured";
 }
@@ -235,6 +249,7 @@ export async function pollGoogleConnections(
     skipped: 0,
     rejected: 0,
     requests: 0,
+    indexingDeferred: 0,
   };
 
   if (!configured(ctx.env)) {
@@ -292,6 +307,10 @@ export async function pollGoogleConnections(
     sleep,
     now,
     deadline: startedAt + budgetMs,
+    enqueue: createEnqueueSession(ctx.queue, {
+      log,
+      site: "pipeline.google_poll",
+    }),
   };
 
   for (let i = 0; i < ordered.length; i++) {
@@ -317,6 +336,7 @@ export async function pollGoogleConnections(
       break;
     }
   }
+  result.indexingDeferred = deps.enqueue.deferred;
 
   log.log("google.tick.completed", {
     connections: result.connections,
@@ -331,6 +351,7 @@ export async function pollGoogleConnections(
     skipped: result.skipped,
     rejected: result.rejected,
     requests: result.requests,
+    indexing_deferred: result.indexingDeferred,
     paced_wait_ms: pacer.waitedMs,
     took_ms: now().getTime() - startedAt,
   });
@@ -358,6 +379,8 @@ interface SyncDeps {
   sleep: (ms: number) => Promise<void>;
   now: () => Date;
   deadline: number;
+  /** Every send of the tick; stops calling the queue after the daily limit. */
+  enqueue: EnqueueSession;
 }
 
 interface SyncOutcome {
@@ -380,6 +403,7 @@ async function syncConnection(
   const metadata = parseConnectionMetadata(connection.metadata);
   const locations = pollableLocations(metadata);
   const startedAt = now();
+  const deferredBefore = deps.enqueue.deferred;
 
   // --- credentials ----------------------------------------------------------
   let credentials: GoogleCredentials;
@@ -614,6 +638,7 @@ async function syncConnection(
     updated: counts.updated,
     skipped: counts.skipped,
     rejected: counts.rejected,
+    indexing_deferred: deps.enqueue.deferred - deferredBefore,
     superseded,
     took_ms: finishedAt.getTime() - startedAt.getTime(),
   });
@@ -707,11 +732,8 @@ async function syncLocation(
           review_count: result.reviewCount,
         });
       }
-      for (const messages of chunked(result.toEnqueue, QUEUE_SEND_BATCH_MAX)) {
-        await ctx.queue.sendBatch(
-          messages.map((body) => ({ body: body as IngestMessage })),
-        );
-      }
+      // Never throws (#162): a refused send leaves the rows for the sweep.
+      await deps.enqueue.send(result.toEnqueue as IngestMessage[], { log });
     }
 
     if (!page.nextPageToken) done = true;

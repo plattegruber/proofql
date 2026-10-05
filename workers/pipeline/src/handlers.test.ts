@@ -440,6 +440,7 @@ describe("connection.sync messages", () => {
     skipped: 0,
     rejected: 0,
     requests: 1,
+    indexingDeferred: 0,
   };
 
   it("routes to the sync, never the indexer, and acks on success", async () => {

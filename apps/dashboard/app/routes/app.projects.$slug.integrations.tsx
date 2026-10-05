@@ -4,7 +4,11 @@
 // the last sync, Reconnect (a plain link into the OAuth flow) and an
 // inline-confirmed Disconnect. Saving the picker sets
 // `initial_sync_pending` and enqueues a `connection.sync`, so the first
-// reviews land within seconds (docs/google.md).
+// reviews land within seconds (docs/google.md). A refused send (the
+// Workers Free plan's daily Queues limit, #162) is not an error: the flag
+// stays set, so the pipeline's next Google poll takes the connection first,
+// and the flash says the sync is queued.
+import { enqueueOrDefer } from "@proofql/core";
 import { data, Form, redirect, useNavigation } from "react-router";
 
 import { InlineConfirm } from "~/components/form/inline-confirm";
@@ -77,24 +81,32 @@ export async function action(args: Route.ActionArgs) {
       saveLocationSelection(db, { projectId: project.id, enabledIds }),
     );
     if (!saved) throw data("No Google connection to save to", { status: 409 });
-    if (saved.enabled.length > 0) {
-      // After the commit, never inside it: the pipeline re-reads the row.
-      await env.INGEST_QUEUE.send(saved.message);
-    }
+    const syncing = saved.enabled.length > 0;
+    // After the commit, never inside it: the pipeline re-reads the row.
+    // Never throws: `initial_sync_pending` is committed, so a refused send
+    // only delays the sync to the next poll.
+    const enqueue = syncing
+      ? await enqueueOrDefer(env.INGEST_QUEUE, [saved.message], {
+          log,
+          site: "dashboard.connection_sync",
+        })
+      : { sent: false as const, quota: false };
     log.log("google.locations_saved", {
       project_id: project.id,
       connection_id: saved.connection.id,
       enabled: saved.enabled.length,
       location_ids: saved.enabled.map((l) => l.id),
-      sync_enqueued: saved.enabled.length > 0,
+      sync_enqueued: syncing && enqueue.sent,
+      sync_deferred: syncing && !enqueue.sent,
     });
     return redirect(back, {
       headers: await setFlash(env, {
         tone: "positive",
         message: "Locations saved",
-        detail:
-          saved.enabled.length === 0
-            ? "No location is enabled, so nothing will be polled."
+        detail: !syncing
+          ? "No location is enabled, so nothing will be polled."
+          : !enqueue.sent
+            ? "Sync queued; it will start automatically, at the latest within a few hours."
             : `Syncing ${saved.enabled.length} location${saved.enabled.length === 1 ? "" : "s"} now; reviews appear within a minute, then every six hours.`,
       }),
     });

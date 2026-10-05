@@ -16,7 +16,7 @@ const SNIPPET =
 const base: LoaderData = {
   project: { name: "Cedar Ridge Dental", slug: "cedar" },
   query: "implant parking",
-  counts: { reviews: 80, indexed: 80, indexing: 0 },
+  counts: { reviews: 80, indexed: 80, indexing: 0, deferred: false },
   hasKey: true,
   snippet: SNIPPET,
   demoHref:
@@ -105,7 +105,7 @@ describe("onboarding step 4", () => {
     renderStep({
       ...base,
       query: null,
-      counts: { reviews: 5, indexed: 5, indexing: 0 },
+      counts: { reviews: 5, indexed: 5, indexing: 0, deferred: false },
       snippet: tag,
     });
     expect(
@@ -123,7 +123,7 @@ describe("onboarding step 4", () => {
     renderStep({
       ...base,
       query: null,
-      counts: { reviews: 0, indexed: 0, indexing: 0 },
+      counts: { reviews: 0, indexed: 0, indexing: 0, deferred: false },
       snippet: SNIPPET.replace(' data-query="implant parking"', ""),
     });
     expect(await screen.findByText(/No reviews are indexed yet/)).toBeTruthy();

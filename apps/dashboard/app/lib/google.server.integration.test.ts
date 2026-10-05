@@ -8,7 +8,7 @@
  * and keeps the reviews. Runs in the local auth stub.
  */
 
-import { exhaustedKv } from "@proofql/core";
+import { createLogger, exhaustedKv, recordingSink } from "@proofql/core";
 import { schema } from "@proofql/db";
 import { DEMO_ACCOUNT_CLERK_ORG_ID } from "@proofql/db/seed";
 import { account, project, review, setupTestDb } from "@proofql/db/test";
@@ -21,6 +21,7 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createLoadContext } from "~/lib/context";
+import { readFlash } from "~/lib/flash.server";
 import { loader as callback } from "~/routes/app.integrations.google.callback";
 import {
   action as integrationsAction,
@@ -32,6 +33,7 @@ import {
   type RunningFakeGoogle,
   startFakeGoogle,
 } from "../../test/fake-google-server";
+import { failingQueue, QUEUE_LIMIT_MESSAGE } from "../../test/fake-r2";
 import { ConnectError, completeConnect } from "./google.server";
 
 const t = setupTestDb();
@@ -115,7 +117,7 @@ function harness(overrides: Record<string, string> = {}) {
   } as unknown as ExecutionContext;
   const context = () => createLoadContext({ env, ctx });
   const settle = () => Promise.all(pending);
-  return { kv, queue, env, context, settle };
+  return { kv, queue, env, ctx, context, settle };
 }
 
 const ORIGIN = "https://dash.test";
@@ -427,6 +429,61 @@ describe("location mapping and disconnect", () => {
         (await connection(p.id))?.metadata,
       ).locations.every((l) => !l.enabled),
     ).toBe(true);
+  });
+
+  it("Queues daily limit: saving still succeeds, keeps initial_sync_pending for the next poll, and says the sync is queued (#162)", async () => {
+    const p = await project(t.db, { accountId: demo.id, slug: "quota" });
+    const h = harness();
+    await runCallback(
+      h,
+      await consent(
+        (await startConnect(h, "quota")).headers.get("Location") as string,
+      ),
+    );
+    const queue = failingQueue();
+    h.env.INGEST_QUEUE = queue as unknown as Queue;
+    const out = recordingSink();
+    const log = createLogger({
+      service: "dashboard",
+      environment: "test",
+      sink: out.sink,
+    });
+    const context = () => createLoadContext({ env: h.env, ctx: h.ctx, log });
+
+    const saved = await saveLocations({ ...h, context }, "quota", ["201"]);
+
+    expect(saved.status).toBe(302);
+    expect(saved.headers.get("Location")).toBe(
+      "/app/projects/quota/integrations",
+    );
+    expect(queue.attempts).toBe(1);
+    const row = await connection(p.id);
+    const metadata = parseConnectionMetadata(row?.metadata);
+    expect(metadata.initial_sync_pending).toBe(true);
+    expect(metadata.locations.find((l) => l.id === "201")?.enabled).toBe(true);
+    const { flash } = await readFlash(
+      h.env,
+      new Request(`${ORIGIN}/app`, {
+        headers: { Cookie: saved.headers.get("Set-Cookie") ?? "" },
+      }),
+    );
+    expect(flash).toMatchObject({
+      tone: "positive",
+      message: "Locations saved",
+      detail:
+        "Sync queued; it will start automatically, at the latest within a few hours.",
+    });
+    expect(out.only("quota.exhausted")).toMatchObject({
+      level: "error",
+      resource: "queues",
+      site: "dashboard.connection_sync",
+      messages: 1,
+      error: { message: QUEUE_LIMIT_MESSAGE },
+    });
+    expect(out.only("google.locations_saved")).toMatchObject({
+      sync_enqueued: false,
+      sync_deferred: true,
+    });
   });
 
   it("disconnecting clears the credentials, keeps the mapping and the reviews", async () => {

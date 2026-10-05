@@ -619,6 +619,8 @@ export interface IndexingCounts {
   /** Of those, how many the pipeline has indexed / still has to. */
   indexed: number;
   indexing: number;
+  /** Some have waited past two minutes: indexing is delayed (#162; app/lib/indexing.ts). */
+  deferred: boolean;
 }
 
 /** Every review indexed and at least one review: the indexing step is done. */
@@ -628,6 +630,3 @@ export function indexingSettled(counts: IndexingCounts): boolean {
 
 /** How long step 3 waits with zero reviews before offering a way back. */
 export const NO_REVIEWS_HINT_AFTER_MS = 60_000;
-
-/** The step-3 polling interval. */
-export const INDEXING_POLL_MS = 2_000;

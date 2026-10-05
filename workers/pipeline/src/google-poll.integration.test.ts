@@ -42,6 +42,21 @@ class FakeQueue implements IngestQueue {
   }
 }
 
+/** What workerd throws once the free plan's daily Queues operations are spent (#159). */
+const QUEUE_LIMIT_MESSAGE = "Queue sendBatch failed: Free tier limit exceeded";
+
+/** A queue whose every `sendBatch` throws `message`; counts the attempts. */
+class FailingQueue extends FakeQueue {
+  attempts = 0;
+  constructor(readonly message = QUEUE_LIMIT_MESSAGE) {
+    super();
+  }
+  override async sendBatch(): Promise<void> {
+    this.attempts += 1;
+    throw new Error(this.message);
+  }
+}
+
 /** The fixture locations as the dashboard would map them (#45). */
 function mapped(
   overrides: Partial<
@@ -127,7 +142,7 @@ function tick(
   options: Partial<GooglePollOptions> & Partial<GooglePollContext> = {},
 ) {
   const { log, out } = testLogger();
-  const queue = new FakeQueue();
+  const queue = (options.queue as FakeQueue | undefined) ?? new FakeQueue();
   const cache = new MemoryKv();
   const ctx: GooglePollContext = {
     db: t.db,
@@ -388,6 +403,83 @@ describe("pollGoogleConnections", () => {
     expect(next).toMatchObject({ synced: 2, failed: 0, rateLimited: false });
     expect(await reviewsFor(first.projectId)).toHaveLength(113);
     expect(await reviewsFor(second.projectId)).toHaveLength(113);
+  });
+
+  it("Queues daily limit: the tick keeps its progress, sends once, and leaves the reviews for the sweep (#162)", async () => {
+    const a = await connect({ pending: true });
+    const b = await connect({ pending: true });
+    const queue = new FailingQueue();
+    const { run, out } = tick({ queue });
+
+    const result = await run();
+
+    expect(result).toMatchObject({
+      connections: 2,
+      synced: 2,
+      failed: 0,
+      created: 226,
+      indexingDeferred: 226,
+    });
+    // One refused call; every later send in the tick is skipped.
+    expect(queue.attempts).toBe(1);
+    for (const c of [a, b]) {
+      const [ingestRun] = await runsFor(c.projectId);
+      expect(ingestRun).toMatchObject({
+        status: "succeeded",
+        created: 113,
+        error: null,
+      });
+      const row = await reload(c.id);
+      expect(Object.keys(JSON.parse(row.cursor ?? "{}")).sort()).toEqual([
+        "201",
+        "202",
+      ]);
+      expect(row.lastSyncedAt).not.toBeNull();
+      expect(
+        (row.metadata as Record<string, unknown>).initial_sync_pending,
+      ).toBeUndefined();
+      const stored = await reviewsFor(c.projectId);
+      expect(stored).toHaveLength(113);
+      expect(stored.every((r) => r.indexedAt === null)).toBe(true);
+    }
+    expect(out.only("quota.exhausted")).toMatchObject({
+      level: "error",
+      resource: "queues",
+      site: "pipeline.google_poll",
+      error: { message: QUEUE_LIMIT_MESSAGE },
+    });
+    expect(out.find("google.sync.completed")).toHaveLength(2);
+    expect(
+      out.find("google.sync.completed").map((l) => l.indexing_deferred),
+    ).toEqual([113, 113]);
+    expect(out.only("google.tick.completed")).toMatchObject({
+      synced: 2,
+      failed: 0,
+      indexing_deferred: 226,
+    });
+
+    // The next tick finds nothing new and sends nothing: the sweep owns
+    // the unindexed rows now.
+    clock += 6 * 3600_000;
+    const next = tick();
+    expect(await next.run()).toMatchObject({ synced: 2, created: 0 });
+    expect(next.queue.sent).toHaveLength(0);
+  });
+
+  it("any other send failure is logged at warn, does not fail the sync, and every batch is still tried", async () => {
+    const connection = await connect();
+    const queue = new FailingQueue("Queue sendBatch failed: Unknown error");
+    const { run, out } = tick({ queue });
+
+    const result = await run();
+
+    expect(result).toMatchObject({ synced: 1, indexingDeferred: 113 });
+    // One send per committed page batch: 201 has two pages, 202 one.
+    expect(queue.attempts).toBe(3);
+    expect(out.find("ingest.enqueue_deferred")).toHaveLength(3);
+    expect(out.find("quota.exhausted")).toHaveLength(0);
+    const [ingestRun] = await runsFor(connection.projectId);
+    expect(ingestRun?.status).toBe("succeeded");
   });
 
   it("invalid_grant on refresh marks the connection needs_reauth and clears its credentials", async () => {

@@ -25,7 +25,8 @@ CLOUDFLARE_ENV=preview pnpm --filter @proofql/dashboard build && pnpm --filter @
 | `app/routes/app.projects.$slug.import.*` | The CSV/JSON import (#38): `import` (step 1, upload → R2 + `ingest_runs` row), `import/:runId/map` (step 2, detected mapping as selects, live validation in the browser), `import/:runId` (steps 3–4, progress polling and the result), `import/:runId/errors.csv` (the per-row error report). |
 | `app/lib/csv.server.ts` | The import engine: upload, preview, plan, `runImport` (streams the file from R2, `normalizeRow` from `@proofql/core`, `upsertReviews` from `@proofql/db` in batches of 100, enqueues index messages), progress and the error report. Resumable from the run's counts. |
 | `app/lib/background.server.ts` | Hands `runImport` to `ctx.waitUntil` with its own DB client. |
-| `app/components/import-progress.tsx` | `ImportProgress` + `useImportPolling`: the "spin" the onboarding (#53) reuses. |
+| `app/components/import-progress.tsx` | `ImportProgress` + `useImportPolling`: the "spin" the onboarding (#53) reuses. Polling backs off and stops after 30 minutes with "Check again" (#162). |
+| `app/lib/indexing.ts`, `app/lib/indexing.server.ts` | When indexing counts as delayed (a refused send, or reviews unindexed for over two minutes), its copy, the polling schedule, and the one-statement indexed/waiting tally (#162). |
 | `app/routes/app._index.tsx` | Overview (#36, #54): plan, badge state, an Upgrade link, and per project reviews / limit and this month's uncached queries / limit (`app/components/usage-meter.tsx`, `app/lib/usage.server.ts` reading the `usage` row the api counts into, `app/lib/usage.ts` for the meter math). |
 | `app/lib/account.server.ts` | `requireAccount(args)` — **the auth seam** (below). |
 | `app/lib/signup-gate.ts`, `app/lib/waitlist*.ts` | The public-signup switch and the waitlist behind it (#51, below). |

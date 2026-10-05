@@ -1,8 +1,11 @@
 // Import steps 3 and 4 (#38): the run page polls the `ingest_runs` counts
-// and the indexed count every two seconds until the run has finished and
-// the pipeline has caught up, then shows the result with the error report
-// and a way into the Reviews tab. The polling view is `ImportProgress`,
-// shared with the onboarding (#53).
+// and the indexed count (backing off from every two seconds, #162) until
+// the run has finished and the pipeline has caught up, then shows the
+// result with the error report and a way into the Reviews tab. The polling
+// view is `ImportProgress`, shared with the onboarding (#53). When indexing
+// is deferred (`?indexing=deferred` from a Places import whose send was
+// refused, or reviews unindexed for over two minutes) it says so instead of
+// "searchable within seconds".
 import { useEffect, useRef, useState } from "react";
 import { data, Form, Link, redirect } from "react-router";
 
@@ -10,6 +13,7 @@ import {
   ImportProgress,
   type ImportProgressData,
   importSettled,
+  PollingStopped,
   useImportPolling,
 } from "~/components/import-progress";
 import { PageHeader } from "~/components/shell/page-header";
@@ -30,6 +34,7 @@ import {
   importMapPath,
   importPath,
 } from "~/lib/import-paths";
+import { INDEXING_DEFERRED, INDEXING_PARAM } from "~/lib/indexing";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/app.projects.$slug.import.$runId";
 
@@ -55,6 +60,9 @@ async function loadRun(args: Route.LoaderArgs | Route.ActionArgs) {
 export async function loader(args: Route.LoaderArgs) {
   const { project, run, progress } = await loadRun(args);
   if (!isStarted(run)) throw redirect(importMapPath(project.slug, run.id));
+  const deferredByRequest =
+    new URL(args.request.url).searchParams.get(INDEXING_PARAM) ===
+    INDEXING_DEFERRED;
   const view: ImportProgressData = {
     status: run.status,
     received: run.received,
@@ -65,6 +73,7 @@ export async function loader(args: Route.LoaderArgs) {
     processed: progress.processed,
     indexed: progress.indexed,
     indexing: progress.indexing,
+    deferred: progress.indexing > 0 && (progress.deferred || deferredByRequest),
     error: run.error,
   };
   return {
@@ -97,7 +106,7 @@ export const meta: Route.MetaFunction = ({ data }) => [
 export default function ImportRun({ loaderData }: Route.ComponentProps) {
   const { project, run, progress } = loaderData;
   const settled = importSettled(progress);
-  useImportPolling(!settled);
+  const polling = useImportPolling(!settled);
   const stalled = useStallDetector(
     progress.status === "running",
     progress.processed,
@@ -117,6 +126,7 @@ export default function ImportRun({ loaderData }: Route.ComponentProps) {
       />
       <div className="max-w-2xl flex flex-col gap-6">
         <ImportProgress progress={progress} />
+        <PollingStopped polling={polling} />
 
         {stalled && (
           <Form

@@ -203,12 +203,14 @@ describe("paths and progress", () => {
   });
 
   it("settles only with at least one review and nothing left to index", () => {
-    expect(indexingSettled({ reviews: 0, indexed: 0, indexing: 0 })).toBe(
-      false,
-    );
-    expect(indexingSettled({ reviews: 3, indexed: 2, indexing: 1 })).toBe(
-      false,
-    );
-    expect(indexingSettled({ reviews: 3, indexed: 3, indexing: 0 })).toBe(true);
+    expect(
+      indexingSettled({ reviews: 0, indexed: 0, indexing: 0, deferred: false }),
+    ).toBe(false);
+    expect(
+      indexingSettled({ reviews: 3, indexed: 2, indexing: 1, deferred: false }),
+    ).toBe(false);
+    expect(
+      indexingSettled({ reviews: 3, indexed: 3, indexing: 0, deferred: false }),
+    ).toBe(true);
   });
 });

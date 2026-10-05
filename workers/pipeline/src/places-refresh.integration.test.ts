@@ -56,6 +56,18 @@ class FakeQueue implements IngestQueue {
   }
 }
 
+/** What workerd throws once the free plan's daily Queues operations are spent (#159). */
+const QUEUE_LIMIT_MESSAGE = "Queue sendBatch failed: Free tier limit exceeded";
+
+/** A queue whose every `sendBatch` throws the daily-limit error; counts the attempts. */
+class FailingQueue implements IngestQueue {
+  attempts = 0;
+  async sendBatch(): Promise<void> {
+    this.attempts += 1;
+    throw new Error(QUEUE_LIMIT_MESSAGE);
+  }
+}
+
 afterEach(async () => {
   await t.db.delete(projects);
 });
@@ -203,6 +215,7 @@ describe("refreshPlacesBootstraps", () => {
       rejected: 0,
       deleted: 1,
       enqueued: 2,
+      indexingDeferred: 0,
       requests: 1,
     });
 
@@ -325,6 +338,57 @@ describe("refreshPlacesBootstraps", () => {
     const limit = out.find("kv.limit_exceeded");
     expect(limit.length).toBeGreaterThan(0);
     expect(limit.every((l) => l.level === "warn")).toBe(true);
+  });
+
+  it("Queues daily limit: every run still succeeds, one send is tried, and the reviews wait for the sweep (#162)", async () => {
+    const first = await bootstrapped({ ranDaysAgo: 27 });
+    const second = await bootstrapped({ ranDaysAgo: 26 });
+    const { kv, out, ctx } = harness({ places: [CEDAR_RIDGE_LATER] });
+    const queue = new FailingQueue();
+    ctx.queue = queue;
+
+    const result = await refreshPlacesBootstraps(ctx);
+
+    // Each project: r-kids-2 re-indexed and r-garden-6 new, so 2 messages.
+    expect(result).toMatchObject({
+      candidates: 2,
+      refreshed: 2,
+      failed: 0,
+      created: 2,
+      deleted: 2,
+      enqueued: 0,
+      indexingDeferred: 4,
+    });
+    expect(queue.attempts).toBe(1);
+    for (const seed of [first, second]) {
+      const runs = await runsFor(seed.projectId);
+      expect(runs[1]).toMatchObject({ status: "succeeded", created: 1 });
+      expect(runs[1]?.finishedAt).not.toBeNull();
+      const garden = await t.db.query.reviews.findFirst({
+        where: and(
+          eq(reviews.projectId, seed.projectId),
+          eq(reviews.externalId, `places/${CEDAR_RIDGE_ID}/reviews/r-garden-6`),
+        ),
+      });
+      expect(garden?.indexedAt).toBeNull();
+      // Changed text: the cache generation still moves.
+      expect(await kv.get(generationKey(seed.projectId))).not.toBeNull();
+    }
+    expect(out.only("quota.exhausted")).toMatchObject({
+      level: "error",
+      resource: "queues",
+      site: "pipeline.places_refresh",
+      messages: 2,
+      error: { message: QUEUE_LIMIT_MESSAGE },
+    });
+    expect(
+      out.find("places.refresh.refreshed").map((l) => l.indexing_deferred),
+    ).toEqual([2, 2]);
+    expect(out.find("places.refresh.failed")).toHaveLength(0);
+    expect(out.only("places.refresh.completed")).toMatchObject({
+      refreshed: 2,
+      indexing_deferred: 4,
+    });
   });
 
   it("is idempotent: a second refresh of an unchanged place enqueues nothing and bumps nothing", async () => {

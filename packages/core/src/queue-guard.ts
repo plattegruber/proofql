@@ -118,3 +118,65 @@ export async function enqueueOrDefer(
     return { sent: false, quota };
   }
 }
+
+/** Queues accepts at most 100 messages per `sendBatch`. */
+export const ENQUEUE_BATCH_MAX = 100;
+
+/**
+ * Sends for one unit of work that enqueues after several commits (a
+ * pipeline cron tick, #162). Every call goes through
+ * {@link enqueueOrDefer}, in batches of at most {@link ENQUEUE_BATCH_MAX},
+ * so a refused send never throws. After the first daily-limit error the
+ * session stops calling the queue: every later send would fail the same
+ * way until 00:00 UTC, so it counts the messages as deferred instead, as
+ * the sweep and the CSV import do. A non-quota failure defers only that
+ * batch; the next one is still tried.
+ */
+export interface EnqueueSession {
+  /** Send `messages`; returns how many were sent. Never throws. */
+  send(
+    messages: readonly IngestMessage[],
+    options?: { log?: Logger | undefined },
+  ): Promise<number>;
+  /** Messages not sent so far; the sweep indexes their reviews later. */
+  readonly deferred: number;
+  /** The daily limit was hit; nothing more is sent this session. */
+  readonly exhausted: boolean;
+}
+
+export function createEnqueueSession(
+  queue: IngestProducer,
+  options: { log?: Logger | undefined; site: string },
+): EnqueueSession {
+  let deferred = 0;
+  let exhausted = false;
+  return {
+    get deferred() {
+      return deferred;
+    },
+    get exhausted() {
+      return exhausted;
+    },
+    async send(messages, call = {}) {
+      let sent = 0;
+      for (let at = 0; at < messages.length; at += ENQUEUE_BATCH_MAX) {
+        const batch = messages.slice(at, at + ENQUEUE_BATCH_MAX);
+        if (exhausted) {
+          deferred += batch.length;
+          continue;
+        }
+        const outcome = await enqueueOrDefer(queue, batch, {
+          log: call.log ?? options.log,
+          site: options.site,
+        });
+        if (outcome.sent) {
+          sent += batch.length;
+        } else {
+          deferred += batch.length;
+          if (outcome.quota) exhausted = true;
+        }
+      }
+      return sent;
+    },
+  };
+}

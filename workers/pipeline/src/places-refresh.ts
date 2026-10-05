@@ -33,6 +33,12 @@
  *    the index messages, close the run with the counts (deletions in the
  *    run's human note, the schema has no column for them), and bump the
  *    project's cache generation when anything changed.
+ *    A refused send never fails the run (#162): the rows are committed
+ *    with `indexed_at` null and the five-minute sweep indexes them. The
+ *    tick's sends share one `createEnqueueSession` (@proofql/core), so
+ *    after the Workers Free plan's daily Queues limit (`quota.exhausted`)
+ *    the rest of the tick refreshes without calling the queue and counts
+ *    the messages as `indexing_deferred`.
  * 4. Google errors fail only that project's run (`places.refresh.failed`,
  *    `error` = the human description); a 429 stops the whole tick, since
  *    the key's quota is shared and more requests only dig deeper.
@@ -42,6 +48,8 @@
  */
 
 import {
+  createEnqueueSession,
+  type EnqueueSession,
   type GenerationKv,
   type IngestMessage,
   type Logger,
@@ -71,7 +79,7 @@ import {
   sql,
 } from "drizzle-orm";
 
-import { chunked, type IngestQueue, QUEUE_SEND_BATCH_MAX } from "./sweep.js";
+import type { IngestQueue } from "./sweep.js";
 
 const { connections, ingestRuns, projects, reviews } = schema;
 
@@ -130,6 +138,8 @@ export interface PlacesRefreshResult {
   deleted: number;
   /** Index messages enqueued. */
   enqueued: number;
+  /** Index messages not sent; the reviews wait, unindexed, for the sweep. */
+  indexingDeferred: number;
   /** Place Details requests sent to Google. */
   requests: number;
   /** `not_configured` when the key is absent; the tick did nothing. */
@@ -364,6 +374,7 @@ export async function refreshPlacesBootstraps(
     rejected: 0,
     deleted: 0,
     enqueued: 0,
+    indexingDeferred: 0,
     requests: 0,
   };
 
@@ -394,9 +405,13 @@ export async function refreshPlacesBootstraps(
     oldest_run_at: candidates[0]?.lastRunAt.toISOString() ?? null,
   });
 
+  const enqueue = createEnqueueSession(ctx.queue, {
+    log,
+    site: "pipeline.places_refresh",
+  });
   for (let i = 0; i < candidates.length; i++) {
     const candidate = candidates[i] as RefreshCandidate;
-    const outcome = await refreshOne(ctx, client, candidate, log, now);
+    const outcome = await refreshOne(ctx, client, enqueue, candidate, log, now);
     result.requests = client.requests;
     if (outcome.status === "refreshed") {
       result.refreshed += 1;
@@ -407,6 +422,7 @@ export async function refreshPlacesBootstraps(
       result.rejected += outcome.rejected;
       result.deleted += outcome.deleted;
       result.enqueued += outcome.enqueued;
+      result.indexingDeferred += outcome.indexingDeferred;
     } else {
       result.failed += 1;
       if (outcome.rateLimited) {
@@ -434,6 +450,7 @@ export async function refreshPlacesBootstraps(
     rejected: result.rejected,
     deleted: result.deleted,
     enqueued: result.enqueued,
+    indexing_deferred: result.indexingDeferred,
     requests: result.requests,
     took_ms: now().getTime() - startedAt.getTime(),
   });
@@ -450,17 +467,19 @@ type RefreshOutcome =
       rejected: number;
       deleted: number;
       enqueued: number;
+      indexingDeferred: number;
     }
   | { status: "failed"; rateLimited: boolean };
 
 async function refreshOne(
   ctx: PlacesRefreshContext,
   client: PlacesClient,
+  enqueue: EnqueueSession,
   candidate: RefreshCandidate,
   parent: Logger,
   now: () => Date,
 ): Promise<RefreshOutcome> {
-  const { db, queue } = ctx;
+  const { db } = ctx;
   const { projectId, environment, placeId } = candidate;
   const [opened] = await db
     .insert(ingestRuns)
@@ -502,9 +521,9 @@ async function refreshOne(
     });
 
     const messages: IngestMessage[] = upserted.toEnqueue;
-    for (const batch of chunked(messages, QUEUE_SEND_BATCH_MAX)) {
-      await queue.sendBatch(batch.map((body) => ({ body })));
-    }
+    // Never throws (#162): a refused send leaves the rows for the sweep.
+    const enqueued = await enqueue.send(messages, { log });
+    const indexingDeferred = messages.length - enqueued;
 
     const skipped = upserted.skipped + mapped.skipped.length;
     const rejected = upserted.rejected.length;
@@ -524,6 +543,7 @@ async function refreshOne(
 
     let generation: number | null = null;
     if (
+      // Re-indexed text changes results whether or not the send went out.
       refreshChanged({
         created: upserted.created,
         deleted,
@@ -552,7 +572,8 @@ async function refreshOne(
       skipped,
       rejected,
       deleted,
-      enqueued: messages.length,
+      enqueued,
+      indexing_deferred: indexingDeferred,
       generation,
     });
     return {
@@ -563,7 +584,8 @@ async function refreshOne(
       skipped,
       rejected,
       deleted,
-      enqueued: messages.length,
+      enqueued,
+      indexingDeferred,
     };
   } catch (error) {
     const places = error instanceof PlacesError ? error : null;

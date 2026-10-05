@@ -19,7 +19,7 @@
  */
 import type { Logger } from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
-import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   createCookieSessionStorage,
   data,
@@ -33,6 +33,7 @@ import { type CreatedApiKey, createApiKey } from "./api-keys.server";
 import { getCloudflare } from "./context";
 import { withRequestDb } from "./db.server";
 import type { FlashEnv } from "./flash.server";
+import { indexingTally } from "./indexing.server";
 import {
   type IndexingCounts,
   type OnboardingStep,
@@ -213,17 +214,8 @@ export async function projectIndexing(
     eq(schema.reviews.projectId, projectId),
     eq(schema.reviews.environment, "live"),
   );
-  const [indexedRow] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(schema.reviews)
-    .where(and(scope, isNotNull(schema.reviews.indexedAt)));
-  const [indexingRow] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(schema.reviews)
-    .where(and(scope, isNull(schema.reviews.indexedAt)));
-  const indexed = indexedRow?.n ?? 0;
-  const indexing = indexingRow?.n ?? 0;
-  return { reviews: indexed + indexing, indexed, indexing };
+  const { indexed, indexing, deferred } = await indexingTally(db, scope);
+  return { reviews: indexed + indexing, indexed, indexing, deferred };
 }
 
 // --- Step 4: the suggested query ---------------------------------------------
