@@ -64,7 +64,7 @@ describe("indexingHint", () => {
     );
     expect(indexingHint(1_280, true)).toBe(INDEXING_DELAYED_COPY);
     expect(INDEXING_DELAYED_COPY).toBe(
-      "Indexing is delayed and will finish automatically, usually within the hour; you can leave this page.",
+      "Indexing is delayed and will finish automatically; you can leave this page. Reviews appear in results as they are indexed, at the latest after midnight UTC.",
     );
     expect(indexingHint(0, true)).toBeUndefined();
   });

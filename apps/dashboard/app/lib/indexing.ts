@@ -31,7 +31,7 @@ export const INDEXING_DEFERRED = "deferred";
 
 /** What the progress UI says while indexing is deferred. */
 export const INDEXING_DELAYED_COPY =
-  "Indexing is delayed and will finish automatically, usually within the hour; you can leave this page.";
+  "Indexing is delayed and will finish automatically; you can leave this page. Reviews appear in results as they are indexed, at the latest after midnight UTC.";
 
 /** The meter's hint under "Reviews indexed", or undefined when nothing waits. */
 export function indexingHint(

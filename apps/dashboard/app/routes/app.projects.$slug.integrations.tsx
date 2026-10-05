@@ -106,7 +106,7 @@ export async function action(args: Route.ActionArgs) {
         detail: !syncing
           ? "No location is enabled, so nothing will be polled."
           : !enqueue.sent
-            ? "Sync queued; it will start shortly."
+            ? "Sync queued; it will start automatically, at the latest within a few hours."
             : `Syncing ${saved.enabled.length} location${saved.enabled.length === 1 ? "" : "s"} now; reviews appear within a minute, then every six hours.`,
       }),
     });

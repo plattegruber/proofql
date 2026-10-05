@@ -470,7 +470,8 @@ describe("location mapping and disconnect", () => {
     expect(flash).toMatchObject({
       tone: "positive",
       message: "Locations saved",
-      detail: "Sync queued; it will start shortly.",
+      detail:
+        "Sync queued; it will start automatically, at the latest within a few hours.",
     });
     expect(out.only("quota.exhausted")).toMatchObject({
       level: "error",
