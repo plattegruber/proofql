@@ -138,7 +138,7 @@ Rules and properties:
 - **Guarded.** Refuses a `DATABASE_URL` whose host is not loopback unless
   `--force` is passed (`src/seed/guard.ts`).
 - **`SEED_VERSION`** (`src/seed/constants.ts`, currently 5) is written
-  into the account name — `"ProofQL Demo (seed v5)"` — so any local
+  into the account name — `"ProofQL Demo (seed v6)"` — so any local
   database shows which fixture set it holds. Bump it with **any** change to
   what the seed produces and call the bump out in the PR: integration
   tests and the playground import `DEMO_REVIEW_FIXTURES` from

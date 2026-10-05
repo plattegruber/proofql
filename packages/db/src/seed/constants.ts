@@ -39,8 +39,15 @@
  * are sentence-precise: 90 full + 30 window + 236 sentence chunks (live:
  * 80 / 28 / 218; test: 10 / 2 / 18), sentence chunks on 87 of the 90
  * reviews (the other three are single sentences).
+ *
+ * v6 (#138): same reviews and chunks; the demo project's
+ * `similarity_floor` is now 0.66 (it takes the column default, which
+ * migration 0009 moved from 0.55 with `DEFAULT_SIMILARITY_FLOOR`), and the
+ * search holds full-text matches to the lower word-match tier (0.53). The
+ * fake-embedded local corpus answers fewer loosely worded queries than at
+ * v5; the cdn demo page's three queries still clear (0.754 / 0.798 / 0.775).
  */
-export const SEED_VERSION = 5;
+export const SEED_VERSION = 6;
 
 /**
  * Natural key of the demo account. The wipe step finds any previous seed
