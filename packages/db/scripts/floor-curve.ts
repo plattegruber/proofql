@@ -46,6 +46,11 @@ export interface ObservedRow {
    * Filled by `tune-floor --annotate`; absent on runs not annotated.
    */
   readonly lexical?: boolean;
+  /**
+   * The reranker's score for this row (#147), from a run against an api
+   * with `RERANK=true` (`x-rerank-scores`). Absent otherwise.
+   */
+  readonly rerank?: number;
 }
 
 /** Whether a row survives a filter; flat floor or two-tier. */
@@ -489,6 +494,47 @@ export function computeTwoTier(
       total: rows.length,
     },
   };
+}
+
+// ---- reranker threshold (#147) ---------------------------------------------
+
+/** Reranker gate: a row passes when its reranker score reaches `threshold`. */
+export function rerankAt(threshold: number): RowPasses {
+  return (row) => row.rerank !== undefined && row.rerank >= threshold;
+}
+
+export interface RerankPoint extends FloorPoint {
+  readonly threshold: number;
+}
+
+/**
+ * Thresholds to sweep: reranker scores are sigmoid outputs, bunched near
+ * 0 for unrelated passages, so the low end gets finer steps.
+ */
+export const RERANK_THRESHOLDS: readonly number[] = [
+  0.001,
+  0.002,
+  0.005,
+  0.01,
+  0.02,
+  0.03,
+  0.05,
+  0.07,
+  ...floorSteps(0.1, 0.95, 0.05),
+];
+
+/** The reranker-threshold curve over the tuned positives and must-be-empty queries. */
+export function computeRerankCurve(
+  queries: readonly ObservedQuery[],
+  thresholds: readonly number[] = RERANK_THRESHOLDS,
+): RerankPoint[] {
+  const positives = tunedPositives(queries);
+  const negatives = mustBeEmpty(queries);
+  return thresholds.map((threshold) => ({
+    ...pointWith(positives, negatives, rerankAt(threshold)),
+    floor: threshold,
+    threshold,
+  }));
 }
 
 /** Every query's verdict under `passes`, failures first. */

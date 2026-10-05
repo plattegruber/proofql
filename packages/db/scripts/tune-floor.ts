@@ -65,6 +65,11 @@
  *                      passes at `high`, or at `low` when it is lexical) over
  *                      high 0.62–0.70 × low 0.50–0.60 and rank the pairs
  *                      with the negatives' FP rate ≤ 5% by per-page answers
+ *   --rerank           with --replay: sweep the reranker threshold (#147) over
+ *                      a run collected against an api deployed with
+ *                      `RERANK=true RERANK_THRESHOLD=0` (every candidate
+ *                      comes back with its `x-rerank-scores` entry), and
+ *                      report reranker latency and estimated neurons/query
  *
  * Caveat for offline grids: the search collapses each review to its best
  * chunk by *fused* rank, so a scratch run records one chunk per review —
@@ -100,6 +105,7 @@ import { parseScriptArgs } from "./args.js";
 import {
   type Curve,
   computeCurve,
+  computeRerankCurve,
   computeTwoTier,
   DEFAULT_CURVE_OPTIONS,
   type FloorPoint,
@@ -107,6 +113,7 @@ import {
   type ObservedQuery,
   type ObservedRow,
   type QueryVerdict,
+  rerankAt,
   tunedPositives,
   twoTier,
   verdictsAt,
@@ -137,6 +144,12 @@ export interface SavedRun {
   };
   readonly queries: readonly (ObservedQuery & {
     readonly rows: readonly SavedRow[];
+    /** The response's `took_ms` (#147; absent on older runs). */
+    readonly took_ms?: number;
+    /** `x-rerank-ms`, when the api reranked (#147). */
+    readonly rerank_ms?: number;
+    /** `x-rerank-chars`: characters of excerpt sent to the reranker. */
+    readonly rerank_chars?: number;
   })[];
   /** Derived from `queries`; a replay recomputes and ignores it. */
   readonly summary: Curve;
@@ -170,6 +183,20 @@ interface ApiResult {
 interface ApiResponse {
   results: ApiResult[];
   match: string;
+  took_ms: number;
+}
+
+/** A response plus the reranker headers (absent unless `RERANK=true`). */
+interface Observed {
+  body: ApiResponse;
+  rerankScores: number[] | null;
+  rerankMs: number | null;
+  rerankChars: number | null;
+}
+
+function numberHeader(res: Response, name: string): number | null {
+  const v = res.headers.get(name);
+  return v === null ? null : Number(v);
 }
 
 const MAX_ATTEMPTS = 6;
@@ -181,7 +208,7 @@ async function queryApi(
   origin: string,
   q: string,
   limit: number,
-): Promise<ApiResponse> {
+): Promise<Observed> {
   const url = new URL("/v1/query", api);
   url.searchParams.set("key", key);
   url.searchParams.set("q", q);
@@ -192,7 +219,20 @@ async function queryApi(
     const res = await fetch(url, {
       headers: { Origin: origin, "Cache-Control": "no-cache" },
     });
-    if (res.ok) return (await res.json()) as ApiResponse;
+    if (res.ok) {
+      const scores = res.headers.get("x-rerank-scores");
+      return {
+        body: (await res.json()) as ApiResponse,
+        rerankScores:
+          scores === null
+            ? null
+            : scores === ""
+              ? []
+              : scores.split(",").map(Number),
+        rerankMs: numberHeader(res, "x-rerank-ms"),
+        rerankChars: numberHeader(res, "x-rerank-chars"),
+      };
+    }
     const body = (await res.text()).slice(0, 300);
     const retryable = res.status === 429 || res.status >= 500;
     if (!retryable || attempt >= MAX_ATTEMPTS) {
@@ -221,21 +261,32 @@ async function observe(
   const out: SavedRun["queries"][number][] = [];
   let unknown = 0;
   for (const [i, fixture] of RELEVANCE_QUERIES.entries()) {
-    const res = await queryApi(api, key, origin, fixture.q, limit);
-    const rows = res.results.flatMap((r) => {
+    const observed = await queryApi(api, key, origin, fixture.q, limit);
+    const res = observed.body;
+    const rows = res.results.flatMap((r, index) => {
       if (r.score === null) return [];
       const reviewKey = keyByText.get(r.review.text ?? "");
       if (reviewKey === undefined) unknown++;
+      const rerank = observed.rerankScores?.[index];
       return [
         {
           key: reviewKey ?? `?${r.review.id}`,
           similarity: r.score,
           review_id: r.review.id,
           chunk_id: r.excerpt_id,
+          ...(rerank === undefined ? {} : { rerank }),
         },
       ];
     });
-    out.push({ ...toObserved(fixture, []), rows });
+    out.push({
+      ...toObserved(fixture, []),
+      rows,
+      took_ms: res.took_ms,
+      ...(observed.rerankMs === null ? {} : { rerank_ms: observed.rerankMs }),
+      ...(observed.rerankChars === null
+        ? {}
+        : { rerank_chars: observed.rerankChars }),
+    });
     const top = rows[0];
     console.error(
       `  ${String(i + 1).padStart(2)}/${RELEVANCE_QUERIES.length} ${fixture.id} ${fixture.kind.padEnd(15)} ${rows.length.toString().padStart(2)} rows` +
@@ -539,6 +590,95 @@ function reportTwoTier(run: SavedRun): void {
   }
 }
 
+// ---- reranker (#147) ---------------------------------------------------------
+
+/**
+ * Tokens per character for bge's XLM-RoBERTa tokenizer on English review
+ * text, for the neuron estimate (~4 characters per token).
+ */
+const CHARS_PER_TOKEN = 4;
+/** Workers AI pricing page: bge-reranker-base, neurons per M input tokens. */
+const RERANKER_NEURONS_PER_M_TOKENS = 283;
+
+function reportRerank(run: SavedRun): void {
+  const rows = run.queries.flatMap((q) => q.rows);
+  const scored = rows.filter((row) => row.rerank !== undefined).length;
+  console.log(
+    `Run ${run.generated_at} (${run.queries.length} queries); ${scored}/${rows.length} rows carry a reranker score.`,
+  );
+  if (scored === 0) {
+    console.log(
+      "WARNING: no reranker scores — collect against an api with RERANK=true and RERANK_THRESHOLD=0.",
+    );
+    return;
+  }
+  const curve = computeRerankCurve(run.queries);
+  const positives = tunedPositives(run.queries).length;
+  console.log(
+    "\nthreshold  answered        top-3 clean  empty pos  FP rate (neg)   precision  recall",
+  );
+  for (const p of curve) {
+    console.log(
+      `  ${p.threshold.toFixed(3)}   ${pct(p.answeredRate)} (${String(p.answered).padStart(2)})   ${String(p.topClean).padStart(5)}/${positives}     ${String(p.emptyPositives).padStart(4)}     ${pct(p.negativeRate)} (${String(p.negativeQueriesHit).padStart(2)})    ${pct(p.precision)}   ${pct(p.recall)}`,
+    );
+  }
+  const safe = curve.filter(
+    (p) => p.negativeRate <= DEFAULT_CURVE_OPTIONS.maxNegativeRate,
+  );
+  const best = [...safe].sort(
+    (a, b) =>
+      b.answeredRate - a.answeredRate ||
+      a.negativeRate - b.negativeRate ||
+      (b.precision ?? 0) - (a.precision ?? 0),
+  )[0];
+  if (best === undefined) {
+    console.log("\nNo threshold meets the FP cap.");
+  } else {
+    console.log(
+      `\nBest threshold under the FP cap: ${best.threshold} (${best.answered}/${positives} answered, FP ${pct(best.negativeRate).trim()}).`,
+    );
+    const passes = rerankAt(best.threshold);
+    for (const v of verdictsWith(run.queries, passes).filter(
+      (x) => !isClean(x),
+    )) {
+      console.log(describe(v));
+    }
+  }
+  const ms = run.queries.flatMap((q) =>
+    q.rerank_ms === undefined ? [] : [q.rerank_ms],
+  );
+  const took = run.queries.flatMap((q) =>
+    q.took_ms === undefined ? [] : [q.took_ms],
+  );
+  const chars = run.queries.flatMap((q) =>
+    q.rerank_chars === undefined ? [] : [q.rerank_chars + 20 * q.q.length],
+  );
+  const pctl = (values: number[], p: number) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[
+      Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1)
+    ];
+  };
+  if (ms.length > 0) {
+    console.log(
+      `\nReranker call: p50 ${pctl(ms, 0.5)} ms, p95 ${pctl(ms, 0.95)} ms, max ${Math.max(...ms)} ms (n=${ms.length}).`,
+    );
+  }
+  if (took.length > 0) {
+    console.log(
+      `took_ms: p50 ${pctl(took, 0.5)} ms, p95 ${pctl(took, 0.95)} ms (n=${took.length}).`,
+    );
+  }
+  if (chars.length > 0) {
+    const tokens = chars.map((c) => c / CHARS_PER_TOKEN);
+    const mean = tokens.reduce((a, b) => a + b, 0) / tokens.length;
+    const neurons = (mean * RERANKER_NEURONS_PER_M_TOKENS) / 1e6;
+    console.log(
+      `Reranker input: ~${Math.round(mean)} tokens/query (20 × (query + excerpt), ${CHARS_PER_TOKEN} chars/token) → ~${neurons.toFixed(3)} neurons/query at ${RERANKER_NEURONS_PER_M_TOKENS} neurons/M tokens.`,
+    );
+  }
+}
+
 // ---- main ------------------------------------------------------------------
 
 async function main(): Promise<void> {
@@ -557,6 +697,7 @@ async function main(): Promise<void> {
       annotate: { type: "string" },
       "two-tier": { type: "boolean", default: false },
       "lexical-rule": { type: "string", default: LEXICAL_RULE },
+      rerank: { type: "boolean", default: false },
     },
   });
   const at = values.at === undefined ? undefined : Number(values.at);
@@ -582,6 +723,7 @@ async function main(): Promise<void> {
     if (run.version !== 1)
       usage(`unsupported run version ${String(run.version)}`);
     if (values["two-tier"]) reportTwoTier(run);
+    else if (values.rerank) reportRerank(run);
     else report(run, at);
     return;
   }
