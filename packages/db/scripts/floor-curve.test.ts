@@ -133,6 +133,19 @@ describe("pointAt", () => {
     expect(p.negativeQueriesHit).toBe(1); // only f01 (0.62) is above 0.6
     expect(p.negativeRate).toBe(0.5);
     expect(p.negativeRows).toBe(1);
+    // Query level: p01 has a hit, and its top 3 (g01, g59 acceptable,
+    // g25) are on topic; the unrelated g44 is fourth, below the fold.
+    expect(p.answered).toBe(1);
+    expect(p.answeredRate).toBe(1);
+    expect(p.topClean).toBe(1);
+    const leadsWithNoise: ObservedQuery = {
+      ...positive,
+      rows: [{ key: "g44", similarity: 0.9 }, ...positive.rows],
+    };
+    expect(pointAt([leadsWithNoise], [], 0.6)).toMatchObject({
+      answered: 1,
+      topClean: 0,
+    });
   });
 
   it("has null precision and counts an empty positive when nothing clears the floor", () => {
@@ -176,6 +189,7 @@ describe("computeCurve", () => {
       recommended: 0.63, // first floor above f01's 0.62
       lowestSafe: 0.63,
       highestRecall: 0.65, // g25 at 0.65 still counts (>=)
+      chosen: 0.63,
     });
   });
 
@@ -189,6 +203,8 @@ describe("computeCurve", () => {
     expect(strict.recommendation.recommended).toBeNull();
     expect(strict.recommendation.lowestSafe).toBe(0.63);
     expect(strict.recommendation.highestRecall).toBeNull();
+    // The conflict resolves toward the false-positive cap.
+    expect(strict.recommendation.chosen).toBe(0.63);
   });
 });
 

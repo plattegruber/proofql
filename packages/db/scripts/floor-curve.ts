@@ -63,6 +63,19 @@ export interface FloorPoint {
   readonly misses: number;
   /** Positive queries with no row at all at this floor. */
   readonly emptyPositives: number;
+  /**
+   * Query-level: positives with at least one expected review at or above
+   * the floor — "the page shows a genuine answer". The number a snippet
+   * owner feels, since a block shows ~3 quotes, not every matching review.
+   */
+  readonly answered: number;
+  readonly answeredRate: number;
+  /**
+   * Query-level: positives whose first `TOP_N` rows at the floor (in rank
+   * order, what `limit=3` renders) are all expected or acceptable and
+   * include at least one expected review.
+   */
+  readonly topClean: number;
   /** Negatives (incl. policy-filtered) with at least one row. */
   readonly negativeQueriesHit: number;
   readonly negativeRate: number;
@@ -87,6 +100,13 @@ export interface Recommendation {
   readonly lowestSafe: number | null;
   /** Highest floor with recall at or over the bar. */
   readonly highestRecall: number | null;
+  /**
+   * The default to ship: `recommended` when the targets agree, otherwise
+   * `lowestSafe` — scope.md §1, "empty beats irrelevant", ranks a page
+   * showing nothing above a page showing an unrelated quote, so the cap on
+   * false positives wins the conflict and recall is what gives.
+   */
+  readonly chosen: number | null;
 }
 
 export interface QueryVerdict {
@@ -129,6 +149,9 @@ export interface Curve {
     readonly crossLanguage: number;
   };
 }
+
+/** Rows a typical snippet renders (`data-limit="3"`), for `topClean`. */
+export const TOP_N = 3;
 
 export const DEFAULT_CURVE_OPTIONS = {
   from: 0.5,
@@ -227,12 +250,26 @@ export function pointAt(
   let fp = 0;
   let misses = 0;
   let emptyPositives = 0;
+  let answered = 0;
+  let topClean = 0;
   for (const query of positives) {
     const v = verdictAt(query, floor);
     tp += v.hits.length;
     fp += v.falsePositives.length;
     misses += v.missed.length;
     if (!query.rows.some((row) => row.similarity >= floor)) emptyPositives++;
+    if (v.hits.length > 0) answered++;
+    const ok = new Set([...query.expect, ...(query.acceptable ?? [])]);
+    const top = query.rows
+      .filter((row) => row.similarity >= floor)
+      .slice(0, TOP_N);
+    if (
+      top.length > 0 &&
+      top.every((row) => ok.has(row.key)) &&
+      top.some((row) => query.expect.includes(row.key))
+    ) {
+      topClean++;
+    }
   }
   let negativeQueriesHit = 0;
   let negativeRows = 0;
@@ -249,6 +286,9 @@ export function pointAt(
     falsePositives: fp,
     misses,
     emptyPositives,
+    answered,
+    answeredRate: positives.length === 0 ? 1 : answered / positives.length,
+    topClean,
     negativeQueriesHit,
     negativeRate:
       negatives.length === 0 ? 0 : negativeQueriesHit / negatives.length,
@@ -305,6 +345,7 @@ export function computeCurve(
       recommended: both?.floor ?? null,
       lowestSafe,
       highestRecall,
+      chosen: both?.floor ?? lowestSafe,
     },
     counts: {
       positives: positives.length,

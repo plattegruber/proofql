@@ -97,6 +97,13 @@ export interface SavedRun {
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "../../..");
 
+/**
+ * Where relative `--replay`/`--out` paths start: the directory `pnpm` was
+ * invoked from (`INIT_CWD`), not `packages/db`, which is where
+ * `pnpm --filter` runs the script.
+ */
+const INVOKED_FROM = process.env.INIT_CWD ?? process.cwd();
+
 function usage(message: string): never {
   console.error(`db:tune-floor: ${message}`);
   console.error(
@@ -225,7 +232,7 @@ function printCurve(curve: Curve): void {
       `${counts.negatives} negatives, ${counts.policyFiltered} policy-filtered (must return nothing).\n`,
   );
   console.log(
-    "floor  precision  recall   FP rate (neg)  neg rows  empty positives  TP  FP  miss",
+    "floor  precision  recall   answered  top-3 clean  empty pos  FP rate (neg)  neg rows   TP  FP  miss",
   );
   for (const p of curve.floors) {
     const flag =
@@ -233,8 +240,8 @@ function printCurve(curve: Curve): void {
         ? " ✓"
         : "";
     console.log(
-      `${p.floor.toFixed(2)}   ${pct(p.precision)}    ${pct(p.recall)}   ${pct(p.negativeRate)} (${String(p.negativeQueriesHit).padStart(2)})` +
-        `   ${String(p.negativeRows).padStart(5)}    ${String(p.emptyPositives).padStart(7)}        ${String(p.truePositives).padStart(3)} ${String(p.falsePositives).padStart(3)} ${String(p.misses).padStart(4)}${flag}`,
+      `${p.floor.toFixed(2)}   ${pct(p.precision)}    ${pct(p.recall)}  ${pct(p.answeredRate)}   ${String(p.topClean).padStart(5)}/${counts.positives}` +
+        `     ${String(p.emptyPositives).padStart(4)}     ${pct(p.negativeRate)} (${String(p.negativeQueriesHit).padStart(2)})   ${String(p.negativeRows).padStart(5)}  ${String(p.truePositives).padStart(4)} ${String(p.falsePositives).padStart(3)} ${String(p.misses).padStart(4)}${flag}`,
     );
   }
   const d = curve.distributions;
@@ -266,6 +273,15 @@ function printCurve(curve: Curve): void {
     );
     console.log(
       `  highest floor with recall over the bar:  ${rec.highestRecall === null ? "none in range" : rec.highestRecall.toFixed(2)}`,
+    );
+  }
+  if (rec.chosen !== null && rec.recommended === null) {
+    const p = curve.floors.find((point) => point.floor === rec.chosen);
+    console.log(
+      `Chosen default: ${rec.chosen.toFixed(2)} — the false-positive cap wins (empty beats irrelevant).` +
+        (p
+          ? ` There: ${p.answered}/${counts.positives} positives answered, ${p.emptyPositives} empty, pooled recall ${pct(p.recall).trim()}.`
+          : ""),
     );
   }
 }
@@ -371,7 +387,7 @@ async function main(): Promise<void> {
       usage("--replay takes no live-mode arguments");
     }
     const run = JSON.parse(
-      readFileSync(resolve(values.replay), "utf8"),
+      readFileSync(resolve(INVOKED_FROM, values.replay), "utf8"),
     ) as SavedRun;
     if (run.version !== 1)
       usage(`unsupported run version ${String(run.version)}`);
@@ -390,9 +406,10 @@ async function main(): Promise<void> {
     usage("--limit must be an integer from 1 to 20");
   }
   const date = new Date().toISOString().slice(0, 10);
-  const out = resolve(
-    values.out ?? resolve(REPO_ROOT, "docs/floor-tuning", `${date}.json`),
-  );
+  const out =
+    values.out === undefined
+      ? resolve(REPO_ROOT, "docs/floor-tuning", `${date}.json`)
+      : resolve(INVOKED_FROM, values.out);
 
   console.error(
     `db:tune-floor: ${RELEVANCE_QUERIES.length} queries against ${values.api} (mode=reviews, limit=${limit})`,
