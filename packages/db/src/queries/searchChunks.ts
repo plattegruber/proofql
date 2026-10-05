@@ -54,8 +54,12 @@
  * - **The floor has two tiers** (#138). A chunk survives when its
  *   similarity clears `policy.similarityFloor`, or when it clears the
  *   lower *lexical floor* (`lexicalFloorFor(similarityFloor)` from
- *   `@proofql/core`, the floor minus 0.13) **and** the text branch matched
- *   it. Everything else is dropped before the collapse, so a chunk that
+ *   `@proofql/core`, the floor minus 0.13) **and** it matches the query's
+ *   words: at least half of the query's content words that are not
+ *   generic (`GENERIC_QUERY_WORDS`) are in the chunk, or the text branch
+ *   matched it outright (`./lexicalMatch.ts`, rule `half-specific`, #147).
+ *   So "dental implants" passes on an implant review that never says
+ *   "dental". Everything else is dropped before the collapse, so a chunk that
  *   is not semantically close never comes back however well its words
  *   match ("empty beats irrelevant"; scope.md §3), and a short keyword
  *   query that literally matches a review is not blanked by a floor tuned
@@ -96,7 +100,7 @@
  * back thin: which candidates the floor dropped. With
  * `includeBelowFloor: true` the vector branch keeps every embedded
  * candidate and each result carries `belowFloor` (the two-tier rule above
- * says drop) and `lexical` (the text branch matched it). The above-floor
+ * says drop) and `lexical` (it matches the query's words). The above-floor
  * rows are **exactly** the default result — same rows, same order, same
  * `score` — because every surviving chunk clears the lexical floor, the
  * rows the default statement leaves out of the vector branch sort after
@@ -115,7 +119,11 @@
  * review's `full` chunk as the excerpt and `similarity`/`score` null.
  */
 
-import { lexicalFloorFor } from "@proofql/core";
+import {
+  GENERIC_QUERY_WORDS,
+  LEXICAL_RULE,
+  lexicalFloorFor,
+} from "@proofql/core";
 import { type SQL, sql } from "drizzle-orm";
 
 import type { Db } from "../client.js";
@@ -123,6 +131,7 @@ import { EMBEDDING_DIMENSIONS } from "../schema/reviewChunks.js";
 import type { ReviewMetadata } from "../schema/reviews.js";
 import type { Environment } from "../schema/shared.js";
 import { normalizeRrf, RRF_K } from "./fusion.js";
+import { lexicalMatchSql } from "./lexicalMatch.js";
 
 /** Upper bound on `limit`; the API contract's maximum page. */
 export const MAX_SEARCH_LIMIT = 20;
@@ -205,8 +214,10 @@ export interface SearchResult {
    */
   belowFloor: boolean;
   /**
-   * The full-text branch matched this chunk, so it was held to the lexical
-   * floor rather than the floor. False in no-query mode and without text.
+   * The chunk matches the query's words (`./lexicalMatch.ts`, at least half
+   * of the specific content words, or every term), so it was held to the
+   * lexical floor rather than the floor. False in no-query mode and
+   * without text.
    */
   lexical: boolean;
   review: SearchResultReview;
@@ -391,6 +402,13 @@ function hybridStatement(
   // branch stops at the floor as before.
   const lexicalFloor = queryText ? lexicalFloorFor(floor) : floor;
 
+  // The floor's word-match test (#147): partial keyword coverage, not the
+  // ranking branch's every-term match. Only rows already in `vec` (at or
+  // above the lexical floor by default) pay for it.
+  const lexical = queryText
+    ? lexicalMatchSql(sql`v.tsv`, queryText, LEXICAL_RULE, GENERIC_QUERY_WORDS)
+    : sql`false`;
+
   const textBranch = queryText
     ? sql`
       SELECT id,
@@ -415,12 +433,12 @@ function hybridStatement(
         AND ${publishable(params)}
     ),
     vec AS (
-      SELECT id, review_id, text, start_offset, occurred_at, breadth, similarity,
+      SELECT id, review_id, text, start_offset, occurred_at, breadth, similarity, tsv,
              row_number() OVER (
                ORDER BY similarity DESC, occurred_at DESC NULLS LAST, breadth, id
              ) AS rank
       FROM (
-        SELECT id, review_id, text, start_offset, occurred_at, breadth,
+        SELECT id, review_id, text, start_offset, occurred_at, breadth, tsv,
                1 - (embedding <=> ${vector}::halfvec(${sql.raw(String(EMBEDDING_DIMENSIONS))})) AS similarity
         FROM candidates
         WHERE embedding IS NOT NULL
@@ -437,17 +455,20 @@ function hybridStatement(
       }
     ),
     kw AS (${textBranch}),
-    fused AS (
-      SELECT v.id, v.review_id, v.text, v.start_offset, v.occurred_at, v.breadth,
-             v.similarity,
-             (kw.id IS NOT NULL) AS lexical,
-             NOT (v.similarity >= ${floor}
-                  OR (kw.id IS NOT NULL AND v.similarity >= ${lexicalFloor}))
-               AS below_floor,
-             (COALESCE(1.0 / (${RRF_K} + v.rank), 0)
-              + COALESCE(1.0 / (${RRF_K} + kw.rank), 0))::float8 AS rrf
+    matched AS (
+      SELECT v.*, kw.rank AS kw_rank, ${lexical} AS lexical
       FROM vec v
       LEFT JOIN kw ON kw.id = v.id
+    ),
+    fused AS (
+      SELECT id, review_id, text, start_offset, occurred_at, breadth,
+             similarity, lexical,
+             NOT (similarity >= ${floor}
+                  OR (lexical AND similarity >= ${lexicalFloor}))
+               AS below_floor,
+             (COALESCE(1.0 / (${RRF_K} + rank), 0)
+              + COALESCE(1.0 / (${RRF_K} + kw_rank), 0))::float8 AS rrf
+      FROM matched
     ),
     ${params.includeBelowFloor ? debugTail(params) : defaultTail(params)}
   `;

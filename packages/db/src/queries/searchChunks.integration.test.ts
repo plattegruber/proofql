@@ -333,6 +333,52 @@ describe("relevance: the two-tier floor (#138)", () => {
     expect(debug.every((r) => r.belowFloor && !r.lexical)).toBe(true);
   });
 
+  it("passes a partial keyword match: one specific word of two (#147)", async () => {
+    const p = await project(t.db);
+    // p01 on bge-m3: no implant review says "dental", so the every-term
+    // match never fired; "implants" alone is half of the content words
+    // and "dental" is generic anyway.
+    const implant = await withSimilarity(
+      p.id,
+      "My implant feels like a real tooth.",
+      0.6,
+    );
+    // Equally close, shares only the generic word: held to the floor.
+    await withSimilarity(p.id, "The dental team ran on time.", 0.6);
+
+    const results = await searchChunks(
+      t.db,
+      twoTierQuery(p.id, "dental implants"),
+    );
+    expect(results.map((r) => r.reviewId)).toEqual([implant.id]);
+    expect(results[0]?.lexical).toBe(true);
+  });
+
+  it("keeps a must-be-empty query empty when it shares only a generic word (#147)", async () => {
+    const p = await project(t.db);
+    // n02 "dental tourism abroad": every review says "dental" somewhere.
+    await withSimilarity(p.id, "Best dental office in town, truly.", 0.62);
+    await withSimilarity(p.id, "Dental cleaning was quick and thorough.", 0.6);
+
+    const q = twoTierQuery(p.id, "dental tourism abroad");
+    expect(await searchChunks(t.db, q)).toEqual([]);
+    const debug = await searchChunks(t.db, { ...q, includeBelowFloor: true });
+    expect(debug).toHaveLength(2);
+    expect(debug.every((r) => r.belowFloor && !r.lexical)).toBe(true);
+  });
+
+  it("needs at least half of the specific words, not one of five (#147)", async () => {
+    const p = await project(t.db);
+    // "charging", "station", "electric", "car", "lot": one of five is not
+    // a word match (n14 shape).
+    await withSimilarity(p.id, "Plenty of room in the parking lot.", 0.62);
+    const q = twoTierQuery(
+      p.id,
+      "charging station for electric cars in the lot",
+    );
+    expect(await searchChunks(t.db, q)).toEqual([]);
+  });
+
   it("debug: a low-tier pass is above the floor, and the page equals the default", async () => {
     const p = await project(t.db);
     await withSimilarity(p.id, "Veneers on my front teeth look natural.", 0.6);
