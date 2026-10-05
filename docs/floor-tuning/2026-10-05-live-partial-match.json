@@ -1,0 +1,2221 @@
+{
+  "version": 1,
+  "generated_at": "2026-10-05T00:48:45.589Z",
+  "source": {
+    "api": "https://proofql-api-preview.gruberplatte.workers.dev",
+    "mode": "reviews",
+    "limit": 20,
+    "embedding": "@cf/baai/bge-m3 via Workers AI (query and corpus)",
+    "fixtures": 59,
+    "project_floor": 0.66,
+    "project_lexical_floor": 0.53
+  },
+  "queries": [
+    {
+      "id": "p01",
+      "q": "dental implants",
+      "kind": "positive",
+      "expect": [
+        "g01",
+        "g25",
+        "g32",
+        "g55",
+        "g48",
+        "c01"
+      ],
+      "acceptable": [
+        "g59"
+      ],
+      "rows": [],
+      "took_ms": 629
+    },
+    {
+      "id": "p02",
+      "q": "what is Dr. Patel like for implant surgery",
+      "kind": "positive",
+      "expect": [
+        "g01",
+        "g25",
+        "g32",
+        "g55",
+        "c01"
+      ],
+      "acceptable": [
+        "g48",
+        "g21",
+        "y06",
+        "y08",
+        "g09"
+      ],
+      "rows": [
+        {
+          "key": "g55",
+          "similarity": 0.6985651405739267,
+          "review_id": "f9af4aba-c10d-4363-958a-1ea621c0ab7d",
+          "chunk_id": "82907a04-bd8f-4cae-8927-8d5a0d25adc3"
+        },
+        {
+          "key": "c01",
+          "similarity": 0.6886975883108815,
+          "review_id": "6018d362-0653-42ed-b124-746b4d9153e2",
+          "chunk_id": "31f95587-570d-4386-821f-cf039cb37092"
+        },
+        {
+          "key": "g32",
+          "similarity": 0.6691705874459254,
+          "review_id": "140ce186-5511-4611-858c-666064363e30",
+          "chunk_id": "a63eaa5f-9f76-4711-b10f-f6c87e5ffa2e"
+        }
+      ],
+      "took_ms": 367
+    },
+    {
+      "id": "p03",
+      "q": "replacing a missing tooth",
+      "kind": "positive",
+      "tags": [
+        "paraphrase"
+      ],
+      "expect": [
+        "g01",
+        "g25",
+        "g32",
+        "g55",
+        "g59"
+      ],
+      "acceptable": [
+        "c01",
+        "g48",
+        "y01"
+      ],
+      "rows": [
+        {
+          "key": "g59",
+          "similarity": 0.6771107730389703,
+          "review_id": "c6566161-a230-4210-8424-ea69c883e31f",
+          "chunk_id": "86709faa-f5b7-4987-89b3-99e76b17df83"
+        },
+        {
+          "key": "g29",
+          "similarity": 0.6604969005112602,
+          "review_id": "c7c3f2f5-8f3b-4013-8235-48e7210e6bfd",
+          "chunk_id": "06a7cf57-1869-484d-8823-1702a9f031d2"
+        }
+      ],
+      "took_ms": 608
+    },
+    {
+      "id": "p04",
+      "q": "Invisalign",
+      "kind": "positive",
+      "expect": [
+        "g04",
+        "g16",
+        "g37",
+        "g53",
+        "y03",
+        "c09"
+      ],
+      "rows": [
+        {
+          "key": "g04",
+          "similarity": 0.6488698250319584,
+          "review_id": "67c92848-f3fa-4770-962c-40489c1e833c",
+          "chunk_id": "9518317c-cd9c-4222-b1ce-3615767b6cb5"
+        },
+        {
+          "key": "y03",
+          "similarity": 0.6315395007337157,
+          "review_id": "e1b2171f-6244-49a7-9f0a-a4d639d9fa28",
+          "chunk_id": "e1da8337-6674-4ced-8ca1-945204f76ef8"
+        },
+        {
+          "key": "g16",
+          "similarity": 0.6029957569016519,
+          "review_id": "f4c28da0-84ea-44de-b53d-e5d4f5f80513",
+          "chunk_id": "2be89f95-7cf5-499d-a404-20d653a3a26b"
+        },
+        {
+          "key": "g37",
+          "similarity": 0.5972067974698388,
+          "review_id": "6fc3ad3b-c558-42d1-9d51-d914d288b2f4",
+          "chunk_id": "c0f0a1bf-d859-4468-9b35-d291b4c2e97c"
+        },
+        {
+          "key": "c09",
+          "similarity": 0.5429955631243438,
+          "review_id": "846d631b-5a97-49e5-93d6-b721f2911a87",
+          "chunk_id": "5f53d5dc-8852-4b42-b3d3-c5cb31749b4a"
+        },
+        {
+          "key": "g53",
+          "similarity": 0.5394463346950972,
+          "review_id": "014f9b88-abd2-4618-beec-c7b12b817dd3",
+          "chunk_id": "fa0495b8-eb96-4581-8396-00c14bcc5c1f"
+        }
+      ],
+      "took_ms": 294
+    },
+    {
+      "id": "p05",
+      "q": "straightening my teeth without metal braces",
+      "kind": "positive",
+      "tags": [
+        "paraphrase"
+      ],
+      "expect": [
+        "g04",
+        "g16",
+        "g37",
+        "g53",
+        "y03",
+        "c09"
+      ],
+      "rows": [],
+      "took_ms": 325
+    },
+    {
+      "id": "p06",
+      "q": "clear aligners for a teenager",
+      "kind": "positive",
+      "tags": [
+        "paraphrase"
+      ],
+      "expect": [
+        "g37"
+      ],
+      "acceptable": [
+        "g04",
+        "g16",
+        "g53",
+        "y03",
+        "c09",
+        "y12"
+      ],
+      "rows": [],
+      "took_ms": 338
+    },
+    {
+      "id": "p07",
+      "q": "scared of needles and terrified of the dentist",
+      "kind": "positive",
+      "tags": [
+        "paraphrase"
+      ],
+      "expect": [
+        "g09",
+        "g40",
+        "g43",
+        "c05",
+        "y12"
+      ],
+      "acceptable": [
+        "y08",
+        "g32",
+        "g52"
+      ],
+      "rows": [
+        {
+          "key": "g09",
+          "similarity": 0.7056132617208187,
+          "review_id": "31e3ac88-6677-4969-8600-2a7ca53d5655",
+          "chunk_id": "b2361911-3edc-45d4-ae7b-290a9809549f"
+        }
+      ],
+      "took_ms": 261
+    },
+    {
+      "id": "p08",
+      "q": "sedation options for anxious patients",
+      "kind": "positive",
+      "expect": [
+        "g09",
+        "g32",
+        "y08",
+        "c05",
+        "g40"
+      ],
+      "acceptable": [
+        "g43"
+      ],
+      "rows": [
+        {
+          "key": "c05",
+          "similarity": 0.6687318556189226,
+          "review_id": "49ded916-ccb8-41cf-b8c6-00b42e7a0d1b",
+          "chunk_id": "357a5dcc-c28d-4844-8aad-5fa17a17d510"
+        }
+      ],
+      "took_ms": 411
+    },
+    {
+      "id": "p09",
+      "q": "being put to sleep for an extraction",
+      "kind": "positive",
+      "tags": [
+        "paraphrase"
+      ],
+      "expect": [
+        "y08",
+        "g09",
+        "g32"
+      ],
+      "acceptable": [
+        "c05",
+        "g40"
+      ],
+      "rows": [],
+      "took_ms": 367
+    },
+    {
+      "id": "p10",
+      "q": "pediatric dentist for my toddler",
+      "kind": "positive",
+      "expect": [
+        "g10",
+        "g27",
+        "g45",
+        "c04",
+        "g63",
+        "y05"
+      ],
+      "acceptable": [
+        "g17",
+        "y14",
+        "g37",
+        "y12"
+      ],
+      "rows": [
+        {
+          "key": "g45",
+          "similarity": 0.538078278567985,
+          "review_id": "be30eec3-5ce0-461d-afce-1e4142312cd2",
+          "chunk_id": "0a122042-d456-4382-b6ef-2351f3a831c7"
+        }
+      ],
+      "took_ms": 317
+    },
+    {
+      "id": "p11",
+      "q": "my kid is nervous about the dentist",
+      "kind": "positive",
+      "tags": [
+        "paraphrase"
+      ],
+      "expect": [
+        "g27",
+        "g45",
+        "g10",
+        "c04",
+        "g63",
+        "y12"
+      ],
+      "acceptable": [
+        "y05",
+        "g17",
+        "y14"
+      ],
+      "rows": [
+        {
+          "key": "c05",
+          "similarity": 0.7053329838895341,
+          "review_id": "49ded916-ccb8-41cf-b8c6-00b42e7a0d1b",
+          "chunk_id": "357a5dcc-c28d-4844-8aad-5fa17a17d510"
+        },
+        {
+          "key": "g09",
+          "similarity": 0.6987987182670302,
+          "review_id": "31e3ac88-6677-4969-8600-2a7ca53d5655",
+          "chunk_id": "b2361911-3edc-45d4-ae7b-290a9809549f"
+        },
+        {
+          "key": "g40",
+          "similarity": 0.6928601368677269,
+          "review_id": "5b44b761-799e-43ca-bfaf-fb331b142248",
+          "chunk_id": "774a10b2-9995-402f-ba91-84132d147a76"
+        },
+        {
+          "key": "y14",
+          "similarity": 0.595390685045587,
+          "review_id": "864cb086-49eb-4742-ae91-fd3b07ac5caa",
+          "chunk_id": "92bb16e7-e506-4da1-9a08-bc5259ece4e2"
+        }
+      ],
+      "took_ms": 322
+    },
+    {
+      "id": "p12",
+      "q": "gentle hygienist",
+      "kind": "positive",
+      "expect": [
+        "g02",
+        "g12",
+        "g22",
+        "g29",
+        "g33",
+        "g52",
+        "y01",
+        "g47",
+        "g58"
+      ],
+      "acceptable": [
+        "g03",
+        "y05",
+        "g42",
+        "c08",
+        "g43",
+        "y14",
+        "g09"
+      ],
+      "rows": [
+        {
+          "key": "g02",
+          "similarity": 0.6492068410980965,
+          "review_id": "a1bf59f7-8184-4364-93bb-1b9d406382a5",
+          "chunk_id": "1fb0e541-01f9-4aba-9e71-c81295b0d8dc"
+        },
+        {
+          "key": "g03",
+          "similarity": 0.725834794629516,
+          "review_id": "863f24ab-d547-4601-8132-ec03dbb0f790",
+          "chunk_id": "7ba79a41-de58-4951-97b2-51257108223d"
+        },
+        {
+          "key": "g42",
+          "similarity": 0.7216662753760844,
+          "review_id": "267abb39-3cf8-4ee8-addc-dc9c03031db3",
+          "chunk_id": "e5fa6381-2a40-43ba-9933-f1c57987e1e9"
+        },
+        {
+          "key": "g22",
+          "similarity": 0.6980596297004256,
+          "review_id": "f3f839c1-e704-4dba-a147-195ba6ac5119",
+          "chunk_id": "83cbcf22-6ee5-4c9d-98d8-92727a8f7584"
+        },
+        {
+          "key": "y12",
+          "similarity": 0.6846514245848702,
+          "review_id": "9ec009d3-e303-4d50-aafb-24c131eb02cb",
+          "chunk_id": "00bfccce-3991-447a-8cb3-13209c6b279c"
+        },
+        {
+          "key": "g19",
+          "similarity": 0.6810374838992523,
+          "review_id": "c47623c6-5c5e-4f16-b53d-5de6713cf7c1",
+          "chunk_id": "e2befe69-7d9e-4a86-991e-34226e9409de"
+        },
+        {
+          "key": "g52",
+          "similarity": 0.6619728475922826,
+          "review_id": "4043901f-c5c6-456f-8b1d-357471aee425",
+          "chunk_id": "c14b7635-38ea-4c1a-814a-20268f133898"
+        },
+        {
+          "key": "g43",
+          "similarity": 0.6553176926329521,
+          "review_id": "f2684ba7-216a-4a4a-b648-2760ee01beda",
+          "chunk_id": "04e9b786-43da-4e6c-940f-0ddfd0d0639b"
+        },
+        {
+          "key": "g29",
+          "similarity": 0.6438793942111872,
+          "review_id": "c7c3f2f5-8f3b-4013-8235-48e7210e6bfd",
+          "chunk_id": "1329cddd-4028-46db-8a9f-7faf328c8dcd"
+        },
+        {
+          "key": "y07",
+          "similarity": 0.6087990380019072,
+          "review_id": "b6bbcfda-cd41-4475-af23-c1e25f673713",
+          "chunk_id": "77b342fb-6d17-499e-bd3c-b01b4418a9de"
+        }
+      ],
+      "took_ms": 634
+    },
+    {
+      "id": "p13",
+      "q": "a deep cleaning that didn't hurt",
+      "kind": "positive",
+      "tags": [
+        "paraphrase"
+      ],
+      "expect": [
+        "g12",
+        "g33",
+        "g52",
+        "g02"
+      ],
+      "acceptable": [
+        "g22",
+        "g29",
+        "g47",
+        "g58",
+        "y01",
+        "g03",
+        "g43",
+        "c08"
+      ],
+      "rows": [
+        {
+          "key": "g12",
+          "similarity": 0.829634696992892,
+          "review_id": "3bd9b5ad-e2d9-459c-840e-771bdaac1d9c",
+          "chunk_id": "deb688b4-7b44-4017-b042-7494dbd04b56"
+        },
+        {
+          "key": "g52",
+          "similarity": 0.7392428461228296,
+          "review_id": "4043901f-c5c6-456f-8b1d-357471aee425",
+          "chunk_id": "c14b7635-38ea-4c1a-814a-20268f133898"
+        },
+        {
+          "key": "g43",
+          "similarity": 0.691321912765543,
+          "review_id": "f2684ba7-216a-4a4a-b648-2760ee01beda",
+          "chunk_id": "04e9b786-43da-4e6c-940f-0ddfd0d0639b"
+        },
+        {
+          "key": "y01",
+          "similarity": 0.6724886518925131,
+          "review_id": "0b0e790e-e762-4d9d-9870-916558cbe70c",
+          "chunk_id": "1f2b8ff4-8ab1-4433-9d0f-60caa205b3c7"
+        },
+        {
+          "key": "g03",
+          "similarity": 0.5709892621143474,
+          "review_id": "863f24ab-d547-4601-8132-ec03dbb0f790",
+          "chunk_id": "30f3a667-3285-44a6-9d5b-5a1db1dd4f8d"
+        }
+      ],
+      "took_ms": 406
+    },
+    {
+      "id": "p14",
+      "q": "free parking",
+      "kind": "positive",
+      "expect": [
+        "g15",
+        "g25",
+        "g44",
+        "y02",
+        "c09",
+        "y14"
+      ],
+      "acceptable": [
+        "g56",
+        "g03",
+        "g26",
+        "y07",
+        "g60",
+        "g04",
+        "g43"
+      ],
+      "rows": [
+        {
+          "key": "g15",
+          "similarity": 0.6706419482103538,
+          "review_id": "f5e2a22f-f8ef-41d6-91e7-8aae7fb0b5c6",
+          "chunk_id": "efd0c11e-cdbc-40f6-af75-dbbcc61738b6"
+        },
+        {
+          "key": "g44",
+          "similarity": 0.7880290300150818,
+          "review_id": "546f1158-1b82-4578-9a5f-ea26b53702de",
+          "chunk_id": "b441ec63-fdca-4a15-aa61-c5b9d41733ed"
+        },
+        {
+          "key": "g25",
+          "similarity": 0.6514192753439543,
+          "review_id": "e30a2a79-c045-4f19-8942-7b3a7a38ce95",
+          "chunk_id": "a3991157-4f47-4ea4-9600-d5c7a78260b6"
+        },
+        {
+          "key": "c09",
+          "similarity": 0.7040812100769295,
+          "review_id": "846d631b-5a97-49e5-93d6-b721f2911a87",
+          "chunk_id": "05db884c-81b2-421e-8f6f-ac78a5f7962c"
+        },
+        {
+          "key": "y14",
+          "similarity": 0.6623668248682445,
+          "review_id": "864cb086-49eb-4742-ae91-fd3b07ac5caa",
+          "chunk_id": "64af3d15-6d5a-472d-98c3-00ad6caa09d3"
+        },
+        {
+          "key": "y02",
+          "similarity": 0.6954666209776107,
+          "review_id": "7a991c6e-f8be-41c8-bdce-9bf5beac69a1",
+          "chunk_id": "bc6a3674-6bbc-4bf9-8c43-085c962c9b14"
+        },
+        {
+          "key": "g60",
+          "similarity": 0.6309674473627428,
+          "review_id": "b4079489-7856-42d6-88d8-9b26519a1b5e",
+          "chunk_id": "925ee063-d2ee-476c-98b8-3f82c87bd46e"
+        },
+        {
+          "key": "y07",
+          "similarity": 0.6277797283644441,
+          "review_id": "b6bbcfda-cd41-4475-af23-c1e25f673713",
+          "chunk_id": "77b342fb-6d17-499e-bd3c-b01b4418a9de"
+        },
+        {
+          "key": "g26",
+          "similarity": 0.6077661269675579,
+          "review_id": "0d41fbdb-cd9e-48d9-9071-215dcfba3071",
+          "chunk_id": "39302584-c136-464a-bc47-853eb5791d6f"
+        },
+        {
+          "key": "g04",
+          "similarity": 0.5965985954890775,
+          "review_id": "67c92848-f3fa-4770-962c-40489c1e833c",
+          "chunk_id": "985508fc-7b93-498a-b1b1-7d19c98e1abc"
+        },
+        {
+          "key": "g43",
+          "similarity": 0.5921858574022332,
+          "review_id": "f2684ba7-216a-4a4a-b648-2760ee01beda",
+          "chunk_id": "9218879a-b04d-4338-b2b7-cb0d0c5921d9"
+        },
+        {
+          "key": "g03",
+          "similarity": 0.5545442215879091,
+          "review_id": "863f24ab-d547-4601-8132-ec03dbb0f790",
+          "chunk_id": "c455ba19-0cad-4572-ab29-28bf6133ada0"
+        },
+        {
+          "key": "g09",
+          "similarity": 0.5381713998858081,
+          "review_id": "31e3ac88-6677-4969-8600-2a7ca53d5655",
+          "chunk_id": "0a2f997f-8be3-42e0-8bfd-ef6224af1b0e"
+        }
+      ],
+      "took_ms": 357
+    },
+    {
+      "id": "p15",
+      "q": "is parking difficult at the downtown office",
+      "kind": "positive",
+      "expect": [
+        "g03",
+        "g26",
+        "y07",
+        "g60",
+        "g04",
+        "g43"
+      ],
+      "acceptable": [
+        "g15",
+        "g44",
+        "y02",
+        "g25",
+        "c09",
+        "y14"
+      ],
+      "rows": [
+        {
+          "key": "g03",
+          "similarity": 0.829345370265531,
+          "review_id": "863f24ab-d547-4601-8132-ec03dbb0f790",
+          "chunk_id": "c455ba19-0cad-4572-ab29-28bf6133ada0"
+        },
+        {
+          "key": "g43",
+          "similarity": 0.747504489925185,
+          "review_id": "f2684ba7-216a-4a4a-b648-2760ee01beda",
+          "chunk_id": "9218879a-b04d-4338-b2b7-cb0d0c5921d9"
+        },
+        {
+          "key": "g04",
+          "similarity": 0.6122540053562692,
+          "review_id": "67c92848-f3fa-4770-962c-40489c1e833c",
+          "chunk_id": "985508fc-7b93-498a-b1b1-7d19c98e1abc"
+        }
+      ],
+      "took_ms": 308
+    },
+    {
+      "id": "p16",
+      "q": "Saturday appointments",
+      "kind": "positive",
+      "expect": [
+        "g05",
+        "g25",
+        "g44",
+        "y14"
+      ],
+      "acceptable": [
+        "g21",
+        "g51"
+      ],
+      "rows": [
+        {
+          "key": "y14",
+          "similarity": 0.7001162031759267,
+          "review_id": "864cb086-49eb-4742-ae91-fd3b07ac5caa",
+          "chunk_id": "64af3d15-6d5a-472d-98c3-00ad6caa09d3"
+        },
+        {
+          "key": "g21",
+          "similarity": 0.7145312748675143,
+          "review_id": "f32820a8-7deb-411f-b539-9ba17cc1f56a",
+          "chunk_id": "21a16452-71a2-43a7-9c4b-7fc4907344fc"
+        },
+        {
+          "key": "g44",
+          "similarity": 0.6445407727626608,
+          "review_id": "546f1158-1b82-4578-9a5f-ea26b53702de",
+          "chunk_id": "515d1714-2900-4e4e-9c3a-6c8ea7cec909"
+        },
+        {
+          "key": "g25",
+          "similarity": 0.6244854848412629,
+          "review_id": "e30a2a79-c045-4f19-8942-7b3a7a38ce95",
+          "chunk_id": "a3991157-4f47-4ea4-9600-d5c7a78260b6"
+        },
+        {
+          "key": "g05",
+          "similarity": 0.6177415466548984,
+          "review_id": "160aedc8-e757-4802-a73c-28f024dabe3b",
+          "chunk_id": "2c6c6a70-c499-43c1-8d71-68508054897d"
+        },
+        {
+          "key": "g07",
+          "similarity": 0.604015266477846,
+          "review_id": "f7f95051-62bf-4b2d-a7eb-8724629dd08c",
+          "chunk_id": "eeb76a05-03e4-4ae0-8a2b-f767a2870847"
+        },
+        {
+          "key": "g15",
+          "similarity": 0.5795900130437188,
+          "review_id": "f5e2a22f-f8ef-41d6-91e7-8aae7fb0b5c6",
+          "chunk_id": "094c9922-4ed8-40af-92ee-6510cbe3385d"
+        },
+        {
+          "key": "y02",
+          "similarity": 0.5776895029872512,
+          "review_id": "7a991c6e-f8be-41c8-bdce-9bf5beac69a1",
+          "chunk_id": "f71eb7a6-c1ae-4c76-b5de-edf04fd0604e"
+        },
+        {
+          "key": "g41",
+          "similarity": 0.5735082165249122,
+          "review_id": "9ae1a4fd-fe52-41f4-9b10-be96f122ac64",
+          "chunk_id": "6b61f80b-0ce3-408d-9d5e-2dc44b9f1aa5"
+        }
+      ],
+      "took_ms": 618
+    },
+    {
+      "id": "p17",
+      "q": "dental emergency after hours",
+      "kind": "positive",
+      "expect": [
+        "g05",
+        "g21",
+        "g51",
+        "y06",
+        "c10",
+        "y14"
+      ],
+      "rows": [
+        {
+          "key": "y14",
+          "similarity": 0.6735382124348376,
+          "review_id": "864cb086-49eb-4742-ae91-fd3b07ac5caa",
+          "chunk_id": "e01fb476-2656-4a71-9452-1c6bcb3adf93"
+        },
+        {
+          "key": "g51",
+          "similarity": 0.6414418402813268,
+          "review_id": "19a11b36-d535-4854-8153-aeb291569328",
+          "chunk_id": "05d9f7b9-3783-464d-8693-1a80900617db"
+        },
+        {
+          "key": "g21",
+          "similarity": 0.5914578932507819,
+          "review_id": "f32820a8-7deb-411f-b539-9ba17cc1f56a",
+          "chunk_id": "21a16452-71a2-43a7-9c4b-7fc4907344fc"
+        },
+        {
+          "key": "g60",
+          "similarity": 0.5765192337409561,
+          "review_id": "b4079489-7856-42d6-88d8-9b26519a1b5e",
+          "chunk_id": "925ee063-d2ee-476c-98b8-3f82c87bd46e"
+        },
+        {
+          "key": "g30",
+          "similarity": 0.5452575921494925,
+          "review_id": "7a26587d-906d-45cb-afc2-69ab99b62e6f",
+          "chunk_id": "59645ec4-2a81-4f7e-828c-bd9cf7b275e8"
+        },
+        {
+          "key": "g32",
+          "similarity": 0.5409555002639469,
+          "review_id": "140ce186-5511-4611-858c-666064363e30",
+          "chunk_id": "c1789c10-a603-4d44-a618-ec38162f8322"
+        },
+        {
+          "key": "g04",
+          "similarity": 0.5315419027474865,
+          "review_id": "67c92848-f3fa-4770-962c-40489c1e833c",
+          "chunk_id": "985508fc-7b93-498a-b1b1-7d19c98e1abc"
+        }
+      ],
+      "took_ms": 411
+    },
+    {
+      "id": "p18",
+      "q": "chipped my tooth over the weekend",
+      "kind": "positive",
+      "tags": [
+        "paraphrase"
+      ],
+      "expect": [
+        "g05",
+        "g51",
+        "y14"
+      ],
+      "acceptable": [
+        "g21",
+        "y06",
+        "c10"
+      ],
+      "rows": [
+        {
+          "key": "g05",
+          "similarity": 0.7635120118622563,
+          "review_id": "160aedc8-e757-4802-a73c-28f024dabe3b",
+          "chunk_id": "2c6c6a70-c499-43c1-8d71-68508054897d"
+        },
+        {
+          "key": "y14",
+          "similarity": 0.6730212496705374,
+          "review_id": "864cb086-49eb-4742-ae91-fd3b07ac5caa",
+          "chunk_id": "e01fb476-2656-4a71-9452-1c6bcb3adf93"
+        }
+      ],
+      "took_ms": 226
+    },
+    {
+      "id": "p19",
+      "q": "do they take my insurance",
+      "kind": "positive",
+      "expect": [
+        "g07",
+        "g19",
+        "g35",
+        "g48",
+        "y11",
+        "g32"
+      ],
+      "acceptable": [
+        "y03",
+        "y14",
+        "g56",
+        "c01"
+      ],
+      "rows": [
+        {
+          "key": "g07",
+          "similarity": 0.623024426361597,
+          "review_id": "f7f95051-62bf-4b2d-a7eb-8724629dd08c",
+          "chunk_id": "c59ff134-7ee1-4602-ad2e-0d25e16fa250"
+        },
+        {
+          "key": "g19",
+          "similarity": 0.6094134295683966,
+          "review_id": "c47623c6-5c5e-4f16-b53d-5de6713cf7c1",
+          "chunk_id": "1ea9a90f-c229-423b-9f7f-788bea1d341a"
+        },
+        {
+          "key": "g32",
+          "similarity": 0.592925426260873,
+          "review_id": "140ce186-5511-4611-858c-666064363e30",
+          "chunk_id": "3ea379c4-71b8-49bc-905b-62614381dd9f"
+        },
+        {
+          "key": "y11",
+          "similarity": 0.5765286886081045,
+          "review_id": "0ac16d2a-4c58-4986-a16a-9507d480b361",
+          "chunk_id": "bc8e7a9b-dd39-437c-9e3b-5a113d799f0a"
+        },
+        {
+          "key": "g48",
+          "similarity": 0.5571594707737076,
+          "review_id": "73ba8bb1-9772-4281-befb-138c665333a2",
+          "chunk_id": "7477653c-54bf-4aee-8c5e-df317ab9afd6"
+        },
+        {
+          "key": "c05",
+          "similarity": 0.5408139216952688,
+          "review_id": "49ded916-ccb8-41cf-b8c6-00b42e7a0d1b",
+          "chunk_id": "ac73ef8c-832f-4e81-b1b3-1cdf1684aad2"
+        }
+      ],
+      "took_ms": 537
+    },
+    {
+      "id": "p20",
+      "q": "payment plans and transparent pricing",
+      "kind": "positive",
+      "expect": [
+        "g04",
+        "g20",
+        "g25",
+        "c09",
+        "g48",
+        "g35",
+        "g32",
+        "c01",
+        "y14"
+      ],
+      "acceptable": [
+        "g19",
+        "g08"
+      ],
+      "rows": [
+        {
+          "key": "g20",
+          "similarity": 0.6911918680307199,
+          "review_id": "7d9af438-2000-4fcd-abf0-c46ffacd81de",
+          "chunk_id": "50a9b821-ff73-41a3-b3c2-054612b4c7d1"
+        },
+        {
+          "key": "c09",
+          "similarity": 0.5311592755091844,
+          "review_id": "846d631b-5a97-49e5-93d6-b721f2911a87",
+          "chunk_id": "409565f2-89ac-416e-85d1-b10ac891b737"
+        }
+      ],
+      "took_ms": 293
+    },
+    {
+      "id": "p21",
+      "q": "no surprise bills",
+      "kind": "positive",
+      "tags": [
+        "paraphrase"
+      ],
+      "expect": [
+        "g48",
+        "g35",
+        "g32",
+        "g20",
+        "y14",
+        "g19"
+      ],
+      "acceptable": [
+        "g04",
+        "g25",
+        "c09",
+        "c01"
+      ],
+      "rows": [
+        {
+          "key": "g48",
+          "similarity": 0.6041710610757498,
+          "review_id": "73ba8bb1-9772-4281-befb-138c665333a2",
+          "chunk_id": "b8a64652-fb2a-43ad-beae-7a9d79124292"
+        }
+      ],
+      "took_ms": 287
+    },
+    {
+      "id": "p22",
+      "q": "friendly and helpful front desk staff",
+      "kind": "positive",
+      "expect": [
+        "g07",
+        "g17",
+        "y11",
+        "c10",
+        "g09",
+        "g56",
+        "g43"
+      ],
+      "acceptable": [
+        "g03",
+        "g04",
+        "y14",
+        "c08",
+        "c02",
+        "y02"
+      ],
+      "rows": [
+        {
+          "key": "g03",
+          "similarity": 0.8399968468774193,
+          "review_id": "863f24ab-d547-4601-8132-ec03dbb0f790",
+          "chunk_id": "7ba79a41-de58-4951-97b2-51257108223d"
+        },
+        {
+          "key": "g19",
+          "similarity": 0.7450123128938758,
+          "review_id": "c47623c6-5c5e-4f16-b53d-5de6713cf7c1",
+          "chunk_id": "e2befe69-7d9e-4a86-991e-34226e9409de"
+        },
+        {
+          "key": "g07",
+          "similarity": 0.7344056165968984,
+          "review_id": "f7f95051-62bf-4b2d-a7eb-8724629dd08c",
+          "chunk_id": "6bb09185-8444-4207-8cb8-37f5c52bdb35"
+        },
+        {
+          "key": "y03",
+          "similarity": 0.7280061840771587,
+          "review_id": "e1b2171f-6244-49a7-9f0a-a4d639d9fa28",
+          "chunk_id": "e44cc822-8d6f-48db-9d7d-7da56786ec77"
+        },
+        {
+          "key": "g61",
+          "similarity": 0.7210879594576657,
+          "review_id": "a5354f4d-078e-4f8d-a733-0f086ad5df47",
+          "chunk_id": "d67db1cd-c51b-4798-a02d-86602ccd663d"
+        },
+        {
+          "key": "c09",
+          "similarity": 0.7135074661945167,
+          "review_id": "846d631b-5a97-49e5-93d6-b721f2911a87",
+          "chunk_id": "05db884c-81b2-421e-8f6f-ac78a5f7962c"
+        },
+        {
+          "key": "g29",
+          "similarity": 0.7111676722976181,
+          "review_id": "c7c3f2f5-8f3b-4013-8235-48e7210e6bfd",
+          "chunk_id": "1329cddd-4028-46db-8a9f-7faf328c8dcd"
+        },
+        {
+          "key": "g15",
+          "similarity": 0.7070213867772798,
+          "review_id": "f5e2a22f-f8ef-41d6-91e7-8aae7fb0b5c6",
+          "chunk_id": "efd0c11e-cdbc-40f6-af75-dbbcc61738b6"
+        },
+        {
+          "key": "g17",
+          "similarity": 0.6919412836450803,
+          "review_id": "2111a404-2efb-4076-b9e6-5a3ecd25bb5b",
+          "chunk_id": "ad3e3423-d25e-44e4-8b75-063b52642a70"
+        },
+        {
+          "key": "c02",
+          "similarity": 0.685739417208462,
+          "review_id": "fac56182-99de-4934-8de2-9fef75e55441",
+          "chunk_id": "4854da3e-4483-4616-8b90-41cfd09fa927"
+        },
+        {
+          "key": "g53",
+          "similarity": 0.685121487967261,
+          "review_id": "014f9b88-abd2-4618-beec-c7b12b817dd3",
+          "chunk_id": "8626b744-02f5-490a-9049-bf4f364b37ea"
+        },
+        {
+          "key": "c08",
+          "similarity": 0.6823447659934275,
+          "review_id": "c628ad68-5c72-4027-8d8f-edf05c93e51b",
+          "chunk_id": "c12b0c36-3be6-40e4-a77a-6eb77884682a"
+        },
+        {
+          "key": "g02",
+          "similarity": 0.680332572599467,
+          "review_id": "a1bf59f7-8184-4364-93bb-1b9d406382a5",
+          "chunk_id": "2f396bd1-3ca2-4173-be05-c95d15564e0b"
+        },
+        {
+          "key": "y12",
+          "similarity": 0.6727979791953288,
+          "review_id": "9ec009d3-e303-4d50-aafb-24c131eb02cb",
+          "chunk_id": "00bfccce-3991-447a-8cb3-13209c6b279c"
+        },
+        {
+          "key": "g44",
+          "similarity": 0.6694961820673018,
+          "review_id": "546f1158-1b82-4578-9a5f-ea26b53702de",
+          "chunk_id": "298032b9-76ed-4110-9c51-0a085aa504a0"
+        },
+        {
+          "key": "y02",
+          "similarity": 0.6662567293872941,
+          "review_id": "7a991c6e-f8be-41c8-bdce-9bf5beac69a1",
+          "chunk_id": "16fffcd6-f4f4-4fd8-b997-cdcbd7765684"
+        },
+        {
+          "key": "g40",
+          "similarity": 0.6615918915131689,
+          "review_id": "5b44b761-799e-43ca-bfaf-fb331b142248",
+          "chunk_id": "178fb6e2-cfdf-4239-a090-060dd84d88ce"
+        }
+      ],
+      "took_ms": 312
+    },
+    {
+      "id": "p23",
+      "q": "teeth whitening",
+      "kind": "positive",
+      "expect": [
+        "g24",
+        "y13"
+      ],
+      "acceptable": [
+        "g08",
+        "g49"
+      ],
+      "rows": [
+        {
+          "key": "y13",
+          "similarity": 0.7876835140553853,
+          "review_id": "6735fbda-fc1e-464c-b017-9a901abbe37c",
+          "chunk_id": "a9677f26-a343-4d02-81a2-f8db5c7b8e89"
+        },
+        {
+          "key": "g24",
+          "similarity": 0.6716785568084939,
+          "review_id": "801d794b-87c2-454b-9946-416ca3cdf42f",
+          "chunk_id": "baca5b03-6b3d-4ed9-9e65-e879192d8fa1"
+        },
+        {
+          "key": "g08",
+          "similarity": 0.5588859241267198,
+          "review_id": "27826e4d-5d09-4d9e-af62-220874d2d449",
+          "chunk_id": "17850b6c-60fe-4080-bf42-bb224bfd3e80"
+        }
+      ],
+      "took_ms": 692
+    },
+    {
+      "id": "p24",
+      "q": "veneers",
+      "kind": "positive",
+      "expect": [
+        "g49"
+      ],
+      "acceptable": [
+        "g24",
+        "y13"
+      ],
+      "rows": [
+        {
+          "key": "g49",
+          "similarity": 0.6331233625713458,
+          "review_id": "98fbd3e3-a7fd-4851-996d-694ee3bee3c6",
+          "chunk_id": "5111db42-5860-425c-b828-87b38a516adc"
+        }
+      ],
+      "took_ms": 240
+    },
+    {
+      "id": "p25",
+      "q": "crown done in one visit",
+      "kind": "positive",
+      "expect": [
+        "g41"
+      ],
+      "acceptable": [
+        "g05",
+        "y06",
+        "y10",
+        "g19",
+        "y14"
+      ],
+      "rows": [
+        {
+          "key": "g41",
+          "similarity": 0.8107492426902878,
+          "review_id": "9ae1a4fd-fe52-41f4-9b10-be96f122ac64",
+          "chunk_id": "0b8deb67-67df-4a7f-a85f-149bc76dfaf3"
+        },
+        {
+          "key": "y14",
+          "similarity": 0.6452419056055528,
+          "review_id": "864cb086-49eb-4742-ae91-fd3b07ac5caa",
+          "chunk_id": "bef6af6f-b85b-4c13-8b91-d83f7d32d93b"
+        },
+        {
+          "key": "y13",
+          "similarity": 0.5498273602646242,
+          "review_id": "6735fbda-fc1e-464c-b017-9a901abbe37c",
+          "chunk_id": "bea5b305-04bf-49d0-8608-d51131ebda30"
+        },
+        {
+          "key": "g19",
+          "similarity": 0.5445670675132077,
+          "review_id": "c47623c6-5c5e-4f16-b53d-5de6713cf7c1",
+          "chunk_id": "1ea9a90f-c229-423b-9f7f-788bea1d341a"
+        }
+      ],
+      "took_ms": 228
+    },
+    {
+      "id": "p26",
+      "q": "root canal",
+      "kind": "positive",
+      "expect": [
+        "g14",
+        "y10"
+      ],
+      "acceptable": [
+        "g41"
+      ],
+      "rows": [
+        {
+          "key": "g14",
+          "similarity": 0.6053159297295175,
+          "review_id": "518b0b6f-3306-4e97-8205-5e2c578d3b22",
+          "chunk_id": "6bd4affb-bdf7-43cf-85da-902e4a4466f0"
+        },
+        {
+          "key": "y10",
+          "similarity": 0.6370570592187454,
+          "review_id": "11eb9dd5-ab72-46ab-aac8-31e5753a9003",
+          "chunk_id": "cf379621-550d-4328-8411-0f4d8d0b9c98"
+        }
+      ],
+      "took_ms": 312
+    },
+    {
+      "id": "p27",
+      "q": "painless fillings",
+      "kind": "positive",
+      "expect": [
+        "g30",
+        "g60",
+        "g27",
+        "c04"
+      ],
+      "acceptable": [
+        "g08",
+        "g29"
+      ],
+      "rows": [
+        {
+          "key": "g60",
+          "similarity": 0.6701254639826246,
+          "review_id": "b4079489-7856-42d6-88d8-9b26519a1b5e",
+          "chunk_id": "83f57373-1a81-4117-89bc-4bfbea3717f4"
+        },
+        {
+          "key": "g27",
+          "similarity": 0.6499419413618102,
+          "review_id": "6e12f9b5-9b02-4bff-b4dd-9e03565bfa93",
+          "chunk_id": "96151fb4-9c10-4adb-b80d-8a651bcef2e9"
+        },
+        {
+          "key": "g12",
+          "similarity": 0.599875316658361,
+          "review_id": "3bd9b5ad-e2d9-459c-840e-771bdaac1d9c",
+          "chunk_id": "deb688b4-7b44-4017-b042-7494dbd04b56"
+        },
+        {
+          "key": "g33",
+          "similarity": 0.5918722967320424,
+          "review_id": "1052dc85-7c9c-4e55-8c17-1627c53984cd",
+          "chunk_id": "681e97b4-b111-46d6-9e90-a5c3e3dc8a14"
+        },
+        {
+          "key": "c04",
+          "similarity": 0.5872617680799761,
+          "review_id": "603a8f98-f6eb-4bbe-a33c-167e49b29638",
+          "chunk_id": "c32a4f5d-b2da-411f-8305-33501e04ced6"
+        },
+        {
+          "key": "g08",
+          "similarity": 0.5643255520034909,
+          "review_id": "27826e4d-5d09-4d9e-af62-220874d2d449",
+          "chunk_id": "17850b6c-60fe-4080-bf42-bb224bfd3e80"
+        }
+      ],
+      "took_ms": 340
+    },
+    {
+      "id": "p28",
+      "q": "night guard for grinding my teeth",
+      "kind": "positive",
+      "expect": [
+        "g38"
+      ],
+      "acceptable": [
+        "y06"
+      ],
+      "rows": [
+        {
+          "key": "g38",
+          "similarity": 0.6941780125385565,
+          "review_id": "945f6983-4a4e-4ae5-9e16-4b919be52735",
+          "chunk_id": "c0d8d6d8-3900-45a8-9ec1-f99e2408b4ab"
+        }
+      ],
+      "took_ms": 289
+    },
+    {
+      "id": "p29",
+      "q": "a bridge after losing teeth",
+      "kind": "positive",
+      "expect": [
+        "g59",
+        "y01"
+      ],
+      "acceptable": [
+        "g01",
+        "g25",
+        "g55"
+      ],
+      "rows": [
+        {
+          "key": "g59",
+          "similarity": 0.7589564837728083,
+          "review_id": "c6566161-a230-4210-8424-ea69c883e31f",
+          "chunk_id": "86709faa-f5b7-4987-89b3-99e76b17df83"
+        },
+        {
+          "key": "y01",
+          "similarity": 0.6303978428477987,
+          "review_id": "0b0e790e-e762-4d9d-9870-916558cbe70c",
+          "chunk_id": "571c4b62-5972-477f-baa3-b4ed6b926dc5"
+        }
+      ],
+      "took_ms": 306
+    },
+    {
+      "id": "p30",
+      "q": "wheelchair accessible office for my elderly mother",
+      "kind": "positive",
+      "expect": [
+        "g56"
+      ],
+      "rows": [
+        {
+          "key": "g56",
+          "similarity": 0.7710716563302317,
+          "review_id": "a0161b26-6327-4fef-aa92-4aa464718476",
+          "chunk_id": "441d2ead-600c-4d39-abe4-869e542ea414"
+        }
+      ],
+      "took_ms": 287
+    },
+    {
+      "id": "p31",
+      "q": "a dentist who doesn't upsell",
+      "kind": "positive",
+      "tags": [
+        "paraphrase"
+      ],
+      "expect": [
+        "g08",
+        "g26",
+        "g42",
+        "g53",
+        "g20"
+      ],
+      "acceptable": [
+        "g61",
+        "g43",
+        "c01"
+      ],
+      "rows": [
+        {
+          "key": "g08",
+          "similarity": 0.6874400139588325,
+          "review_id": "27826e4d-5d09-4d9e-af62-220874d2d449",
+          "chunk_id": "7774c1ec-5e37-4005-9d28-a6507c523d32"
+        },
+        {
+          "key": "y01",
+          "similarity": 0.6575217216602471,
+          "review_id": "0b0e790e-e762-4d9d-9870-916558cbe70c",
+          "chunk_id": "1f2b8ff4-8ab1-4433-9d0f-60caa205b3c7"
+        },
+        {
+          "key": "g42",
+          "similarity": 0.6092987357907638,
+          "review_id": "267abb39-3cf8-4ee8-addc-dc9c03031db3",
+          "chunk_id": "23d01f80-4295-4043-9d76-e4cac993989f"
+        }
+      ],
+      "took_ms": 274
+    },
+    {
+      "id": "p32",
+      "q": "online booking and appointment reminders",
+      "kind": "positive",
+      "expect": [
+        "c02"
+      ],
+      "acceptable": [
+        "g58",
+        "g07"
+      ],
+      "rows": [
+        {
+          "key": "c02",
+          "similarity": 0.7831098019131681,
+          "review_id": "fac56182-99de-4934-8de2-9fef75e55441",
+          "chunk_id": "4854da3e-4483-4616-8b90-41cfd09fa927"
+        }
+      ],
+      "took_ms": 225
+    },
+    {
+      "id": "p33",
+      "q": "first visit as a new patient",
+      "kind": "positive",
+      "expect": [
+        "g61",
+        "g58",
+        "g43",
+        "g10"
+      ],
+      "acceptable": [
+        "y14",
+        "g29",
+        "c08"
+      ],
+      "rows": [
+        {
+          "key": "g61",
+          "similarity": 0.7781000280501605,
+          "review_id": "a5354f4d-078e-4f8d-a733-0f086ad5df47",
+          "chunk_id": "d67db1cd-c51b-4798-a02d-86602ccd663d"
+        },
+        {
+          "key": "c08",
+          "similarity": 0.6767729769268845,
+          "review_id": "c628ad68-5c72-4027-8d8f-edf05c93e51b",
+          "chunk_id": "c12b0c36-3be6-40e4-a77a-6eb77884682a"
+        },
+        {
+          "key": "g10",
+          "similarity": 0.6480442054323261,
+          "review_id": "1c833d91-5b70-425c-a7c1-269c8ad62c50",
+          "chunk_id": "02760542-4a77-4e03-b478-09ea6805e6b6"
+        },
+        {
+          "key": "g58",
+          "similarity": 0.6425539275259621,
+          "review_id": "547dbfae-10b7-4f28-a071-3389404b681f",
+          "chunk_id": "b5904b82-3189-4a1c-9ab3-733fdde98f57"
+        },
+        {
+          "key": "y06",
+          "similarity": 0.6311587193037174,
+          "review_id": "cbbfb421-69a4-41ed-b606-9fa2c678c55f",
+          "chunk_id": "ae843460-2c05-454f-b246-24e26e5b9c85"
+        },
+        {
+          "key": "y14",
+          "similarity": 0.556608564580158,
+          "review_id": "864cb086-49eb-4742-ae91-fd3b07ac5caa",
+          "chunk_id": "92bb16e7-e506-4da1-9a08-bc5259ece4e2"
+        },
+        {
+          "key": "g09",
+          "similarity": 0.5490473610276588,
+          "review_id": "31e3ac88-6677-4969-8600-2a7ca53d5655",
+          "chunk_id": "25a25375-8f1a-4660-82d0-b13461169766"
+        }
+      ],
+      "took_ms": 589
+    },
+    {
+      "id": "p34",
+      "q": "3D scan instead of impressions",
+      "kind": "positive",
+      "expect": [
+        "g04",
+        "g25",
+        "c09"
+      ],
+      "acceptable": [
+        "g41",
+        "g32",
+        "g61"
+      ],
+      "rows": [
+        {
+          "key": "g04",
+          "similarity": 0.6793352877597951,
+          "review_id": "67c92848-f3fa-4770-962c-40489c1e833c",
+          "chunk_id": "2462835a-2298-4c27-9334-1c829576fd18"
+        }
+      ],
+      "took_ms": 281
+    },
+    {
+      "id": "p35",
+      "q": "wisdom teeth removal",
+      "kind": "positive",
+      "expect": [
+        "y08"
+      ],
+      "acceptable": [
+        "g09",
+        "g63"
+      ],
+      "rows": [],
+      "took_ms": 262
+    },
+    {
+      "id": "p36",
+      "q": "¿Aceptan mi seguro dental?",
+      "kind": "positive",
+      "tags": [
+        "cross-language"
+      ],
+      "expect": [
+        "g07",
+        "g19",
+        "g35",
+        "g48",
+        "y11",
+        "g32"
+      ],
+      "acceptable": [
+        "y03",
+        "y14",
+        "g56",
+        "c01"
+      ],
+      "rows": [],
+      "took_ms": 274
+    },
+    {
+      "id": "p37",
+      "q": "Zahnarzt für ängstliche Patienten",
+      "kind": "positive",
+      "tags": [
+        "cross-language"
+      ],
+      "expect": [
+        "g09",
+        "g40",
+        "g43",
+        "c05",
+        "y12"
+      ],
+      "acceptable": [
+        "y08",
+        "g32",
+        "g52"
+      ],
+      "rows": [],
+      "took_ms": 421
+    },
+    {
+      "id": "n01",
+      "q": "orthodontic headgear",
+      "kind": "negative",
+      "expect": [],
+      "rows": [],
+      "took_ms": 275
+    },
+    {
+      "id": "n02",
+      "q": "dental tourism abroad",
+      "kind": "negative",
+      "expect": [],
+      "rows": [],
+      "took_ms": 267
+    },
+    {
+      "id": "n03",
+      "q": "the lobby coffee kiosk swallowed my coins",
+      "kind": "negative",
+      "expect": [],
+      "rows": [],
+      "took_ms": 287
+    },
+    {
+      "id": "n04",
+      "q": "the office dog greets patients",
+      "kind": "negative",
+      "expect": [],
+      "rows": [],
+      "took_ms": 305
+    },
+    {
+      "id": "n05",
+      "q": "laser gum surgery",
+      "kind": "negative",
+      "expect": [],
+      "rows": [],
+      "took_ms": 279
+    },
+    {
+      "id": "n06",
+      "q": "tongue tie release for my newborn",
+      "kind": "negative",
+      "expect": [],
+      "rows": [],
+      "took_ms": 410
+    },
+    {
+      "id": "n07",
+      "q": "oral cancer screening",
+      "kind": "negative",
+      "expect": [],
+      "rows": [],
+      "took_ms": 282
+    },
+    {
+      "id": "n08",
+      "q": "Spanish-speaking staff",
+      "kind": "negative",
+      "expect": [],
+      "rows": [],
+      "took_ms": 250
+    },
+    {
+      "id": "n09",
+      "q": "vending machine in the waiting room",
+      "kind": "negative",
+      "expect": [],
+      "rows": [
+        {
+          "key": "g09",
+          "similarity": 0.5795690022053767,
+          "review_id": "31e3ac88-6677-4969-8600-2a7ca53d5655",
+          "chunk_id": "d701a695-32c7-47e9-a17b-021664127ec4"
+        },
+        {
+          "key": "g41",
+          "similarity": 0.5509415892030911,
+          "review_id": "9ae1a4fd-fe52-41f4-9b10-be96f122ac64",
+          "chunk_id": "dceb02b6-ee8d-486d-819e-4749a5369039"
+        }
+      ],
+      "took_ms": 456
+    },
+    {
+      "id": "n10",
+      "q": "which electric toothbrush do they recommend",
+      "kind": "negative",
+      "expect": [],
+      "rows": [],
+      "took_ms": 252
+    },
+    {
+      "id": "n11",
+      "q": "fluoride-free treatment for my kids",
+      "kind": "negative",
+      "expect": [],
+      "rows": [],
+      "took_ms": 218
+    },
+    {
+      "id": "n12",
+      "q": "jaw surgery for TMJ",
+      "kind": "negative",
+      "expect": [],
+      "rows": [],
+      "took_ms": 292
+    },
+    {
+      "id": "n13",
+      "q": "dental school student clinic discount",
+      "kind": "negative",
+      "expect": [],
+      "rows": [],
+      "took_ms": 244
+    },
+    {
+      "id": "n14",
+      "q": "charging station for electric cars in the lot",
+      "kind": "negative",
+      "expect": [],
+      "rows": [],
+      "took_ms": 281
+    },
+    {
+      "id": "n15",
+      "q": "they lost my dental records when I moved",
+      "kind": "negative",
+      "expect": [],
+      "rows": [],
+      "took_ms": 229
+    },
+    {
+      "id": "n16",
+      "q": "the lobby aquarium",
+      "kind": "negative",
+      "expect": [],
+      "rows": [],
+      "took_ms": 280
+    },
+    {
+      "id": "n17",
+      "q": "mouthwash samples",
+      "kind": "negative",
+      "expect": [],
+      "rows": [],
+      "took_ms": 260
+    },
+    {
+      "id": "f01",
+      "q": "sent me to collections over a disputed crown bill",
+      "kind": "policy-filtered",
+      "expect": [
+        "g13"
+      ],
+      "rows": [],
+      "took_ms": 311
+    },
+    {
+      "id": "f02",
+      "q": "they lost my appointment and I drove home",
+      "kind": "policy-filtered",
+      "expect": [
+        "g18"
+      ],
+      "rows": [],
+      "took_ms": 244
+    },
+    {
+      "id": "f03",
+      "q": "the appointment ran so late my child had a meltdown",
+      "kind": "policy-filtered",
+      "expect": [
+        "g34",
+        "c07"
+      ],
+      "rows": [],
+      "took_ms": 372
+    },
+    {
+      "id": "f04",
+      "q": "the next emergency slot was nine days away",
+      "kind": "policy-filtered",
+      "expect": [
+        "g28"
+      ],
+      "rows": [],
+      "took_ms": 234
+    },
+    {
+      "id": "f05",
+      "q": "quoted one price and billed another",
+      "kind": "policy-filtered",
+      "expect": [
+        "c03",
+        "c06",
+        "y04"
+      ],
+      "rows": [],
+      "took_ms": 335
+    }
+  ],
+  "summary": {
+    "floors": [
+      {
+        "floor": 0.5,
+        "precision": 0.6633663366336634,
+        "recall": 0.4527027027027027,
+        "truePositives": 67,
+        "falsePositives": 34,
+        "misses": 81,
+        "emptyPositives": 5,
+        "answered": 29,
+        "answeredRate": 0.8285714285714286,
+        "topClean": 24,
+        "negativeQueriesHit": 1,
+        "negativeRate": 0.045454545454545456,
+        "negativeRows": 2
+      },
+      {
+        "floor": 0.51,
+        "precision": 0.6633663366336634,
+        "recall": 0.4527027027027027,
+        "truePositives": 67,
+        "falsePositives": 34,
+        "misses": 81,
+        "emptyPositives": 5,
+        "answered": 29,
+        "answeredRate": 0.8285714285714286,
+        "topClean": 24,
+        "negativeQueriesHit": 1,
+        "negativeRate": 0.045454545454545456,
+        "negativeRows": 2
+      },
+      {
+        "floor": 0.52,
+        "precision": 0.6633663366336634,
+        "recall": 0.4527027027027027,
+        "truePositives": 67,
+        "falsePositives": 34,
+        "misses": 81,
+        "emptyPositives": 5,
+        "answered": 29,
+        "answeredRate": 0.8285714285714286,
+        "topClean": 24,
+        "negativeQueriesHit": 1,
+        "negativeRate": 0.045454545454545456,
+        "negativeRows": 2
+      },
+      {
+        "floor": 0.53,
+        "precision": 0.6633663366336634,
+        "recall": 0.4527027027027027,
+        "truePositives": 67,
+        "falsePositives": 34,
+        "misses": 81,
+        "emptyPositives": 5,
+        "answered": 29,
+        "answeredRate": 0.8285714285714286,
+        "topClean": 24,
+        "negativeQueriesHit": 1,
+        "negativeRate": 0.045454545454545456,
+        "negativeRows": 2
+      },
+      {
+        "floor": 0.54,
+        "precision": 0.6666666666666666,
+        "recall": 0.43243243243243246,
+        "truePositives": 64,
+        "falsePositives": 32,
+        "misses": 84,
+        "emptyPositives": 6,
+        "answered": 28,
+        "answeredRate": 0.8,
+        "topClean": 23,
+        "negativeQueriesHit": 1,
+        "negativeRate": 0.045454545454545456,
+        "negativeRows": 2
+      },
+      {
+        "floor": 0.55,
+        "precision": 0.7,
+        "recall": 0.42567567567567566,
+        "truePositives": 63,
+        "falsePositives": 27,
+        "misses": 85,
+        "emptyPositives": 6,
+        "answered": 28,
+        "answeredRate": 0.8,
+        "topClean": 24,
+        "negativeQueriesHit": 1,
+        "negativeRate": 0.045454545454545456,
+        "negativeRows": 2
+      },
+      {
+        "floor": 0.56,
+        "precision": 0.6966292134831461,
+        "recall": 0.4189189189189189,
+        "truePositives": 62,
+        "falsePositives": 27,
+        "misses": 86,
+        "emptyPositives": 6,
+        "answered": 28,
+        "answeredRate": 0.8,
+        "topClean": 24,
+        "negativeQueriesHit": 1,
+        "negativeRate": 0.045454545454545456,
+        "negativeRows": 1
+      },
+      {
+        "floor": 0.57,
+        "precision": 0.6966292134831461,
+        "recall": 0.4189189189189189,
+        "truePositives": 62,
+        "falsePositives": 27,
+        "misses": 86,
+        "emptyPositives": 6,
+        "answered": 28,
+        "answeredRate": 0.8,
+        "topClean": 24,
+        "negativeQueriesHit": 1,
+        "negativeRate": 0.045454545454545456,
+        "negativeRows": 1
+      },
+      {
+        "floor": 0.58,
+        "precision": 0.7261904761904762,
+        "recall": 0.41216216216216217,
+        "truePositives": 61,
+        "falsePositives": 23,
+        "misses": 87,
+        "emptyPositives": 6,
+        "answered": 28,
+        "answeredRate": 0.8,
+        "topClean": 24,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.59,
+        "precision": 0.7228915662650602,
+        "recall": 0.40540540540540543,
+        "truePositives": 60,
+        "falsePositives": 23,
+        "misses": 88,
+        "emptyPositives": 6,
+        "answered": 28,
+        "answeredRate": 0.8,
+        "topClean": 24,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.6,
+        "precision": 0.7307692307692307,
+        "recall": 0.38513513513513514,
+        "truePositives": 57,
+        "falsePositives": 21,
+        "misses": 91,
+        "emptyPositives": 6,
+        "answered": 28,
+        "answeredRate": 0.8,
+        "topClean": 25,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.61,
+        "precision": 0.7323943661971831,
+        "recall": 0.35135135135135137,
+        "truePositives": 52,
+        "falsePositives": 19,
+        "misses": 96,
+        "emptyPositives": 7,
+        "answered": 27,
+        "answeredRate": 0.7714285714285715,
+        "topClean": 24,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.62,
+        "precision": 0.7246376811594203,
+        "recall": 0.33783783783783783,
+        "truePositives": 50,
+        "falsePositives": 19,
+        "misses": 98,
+        "emptyPositives": 7,
+        "answered": 27,
+        "answeredRate": 0.7714285714285715,
+        "topClean": 24,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.63,
+        "precision": 0.7164179104477612,
+        "recall": 0.32432432432432434,
+        "truePositives": 48,
+        "falsePositives": 19,
+        "misses": 100,
+        "emptyPositives": 8,
+        "answered": 26,
+        "answeredRate": 0.7428571428571429,
+        "topClean": 23,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.64,
+        "precision": 0.7096774193548387,
+        "recall": 0.2972972972972973,
+        "truePositives": 44,
+        "falsePositives": 18,
+        "misses": 104,
+        "emptyPositives": 10,
+        "answered": 24,
+        "answeredRate": 0.6857142857142857,
+        "topClean": 21,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.65,
+        "precision": 0.6666666666666666,
+        "recall": 0.24324324324324326,
+        "truePositives": 36,
+        "falsePositives": 18,
+        "misses": 112,
+        "emptyPositives": 11,
+        "answered": 23,
+        "answeredRate": 0.6571428571428571,
+        "topClean": 20,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.66,
+        "precision": 0.6730769230769231,
+        "recall": 0.23648648648648649,
+        "truePositives": 35,
+        "falsePositives": 17,
+        "misses": 113,
+        "emptyPositives": 11,
+        "answered": 23,
+        "answeredRate": 0.6571428571428571,
+        "topClean": 21,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.67,
+        "precision": 0.6888888888888889,
+        "recall": 0.20945945945945946,
+        "truePositives": 31,
+        "falsePositives": 14,
+        "misses": 117,
+        "emptyPositives": 12,
+        "answered": 22,
+        "answeredRate": 0.6285714285714286,
+        "topClean": 21,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.68,
+        "precision": 0.6486486486486487,
+        "recall": 0.16216216216216217,
+        "truePositives": 24,
+        "falsePositives": 13,
+        "misses": 124,
+        "emptyPositives": 16,
+        "answered": 18,
+        "answeredRate": 0.5142857142857142,
+        "topClean": 17,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.69,
+        "precision": 0.7096774193548387,
+        "recall": 0.14864864864864866,
+        "truePositives": 22,
+        "falsePositives": 9,
+        "misses": 126,
+        "emptyPositives": 17,
+        "answered": 17,
+        "answeredRate": 0.4857142857142857,
+        "topClean": 16,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.7,
+        "precision": 0.6956521739130435,
+        "recall": 0.10810810810810811,
+        "truePositives": 16,
+        "falsePositives": 7,
+        "misses": 132,
+        "emptyPositives": 20,
+        "answered": 13,
+        "answeredRate": 0.37142857142857144,
+        "topClean": 12,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.71,
+        "precision": 0.7222222222222222,
+        "recall": 0.08783783783783784,
+        "truePositives": 13,
+        "falsePositives": 5,
+        "misses": 135,
+        "emptyPositives": 22,
+        "answered": 11,
+        "answeredRate": 0.3142857142857143,
+        "topClean": 10,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.72,
+        "precision": 0.8125,
+        "recall": 0.08783783783783784,
+        "truePositives": 13,
+        "falsePositives": 3,
+        "misses": 135,
+        "emptyPositives": 23,
+        "answered": 11,
+        "answeredRate": 0.3142857142857143,
+        "topClean": 10,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.73,
+        "precision": 0.9285714285714286,
+        "recall": 0.08783783783783784,
+        "truePositives": 13,
+        "falsePositives": 1,
+        "misses": 135,
+        "emptyPositives": 24,
+        "answered": 11,
+        "answeredRate": 0.3142857142857143,
+        "topClean": 10,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.74,
+        "precision": 0.9166666666666666,
+        "recall": 0.07432432432432433,
+        "truePositives": 11,
+        "falsePositives": 1,
+        "misses": 137,
+        "emptyPositives": 24,
+        "answered": 10,
+        "answeredRate": 0.2857142857142857,
+        "topClean": 10,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.75,
+        "precision": 1,
+        "recall": 0.06756756756756757,
+        "truePositives": 10,
+        "falsePositives": 0,
+        "misses": 138,
+        "emptyPositives": 24,
+        "answered": 10,
+        "answeredRate": 0.2857142857142857,
+        "topClean": 10,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.76,
+        "precision": 1,
+        "recall": 0.060810810810810814,
+        "truePositives": 9,
+        "falsePositives": 0,
+        "misses": 139,
+        "emptyPositives": 25,
+        "answered": 9,
+        "answeredRate": 0.2571428571428571,
+        "topClean": 9,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.77,
+        "precision": 1,
+        "recall": 0.05405405405405406,
+        "truePositives": 8,
+        "falsePositives": 0,
+        "misses": 140,
+        "emptyPositives": 26,
+        "answered": 8,
+        "answeredRate": 0.22857142857142856,
+        "topClean": 8,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.78,
+        "precision": 1,
+        "recall": 0.04054054054054054,
+        "truePositives": 6,
+        "falsePositives": 0,
+        "misses": 142,
+        "emptyPositives": 28,
+        "answered": 6,
+        "answeredRate": 0.17142857142857143,
+        "topClean": 6,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.79,
+        "precision": 1,
+        "recall": 0.02027027027027027,
+        "truePositives": 3,
+        "falsePositives": 0,
+        "misses": 145,
+        "emptyPositives": 31,
+        "answered": 3,
+        "answeredRate": 0.08571428571428572,
+        "topClean": 3,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      },
+      {
+        "floor": 0.8,
+        "precision": 1,
+        "recall": 0.02027027027027027,
+        "truePositives": 3,
+        "falsePositives": 0,
+        "misses": 145,
+        "emptyPositives": 31,
+        "answered": 3,
+        "answeredRate": 0.08571428571428572,
+        "topClean": 3,
+        "negativeQueriesHit": 0,
+        "negativeRate": 0,
+        "negativeRows": 0
+      }
+    ],
+    "distributions": {
+      "positiveHits": {
+        "n": 67,
+        "p10": 0.5872617680799761,
+        "p50": 0.6623668248682445,
+        "p90": 0.7781000280501605,
+        "min": 0.5311592755091844,
+        "max": 0.829634696992892
+      },
+      "positiveFalse": {
+        "n": 34,
+        "p10": 0.5409555002639469,
+        "p50": 0.6575217216602471,
+        "p90": 0.7135074661945167,
+        "min": 0.5315419027474865,
+        "max": 0.7450123128938758
+      },
+      "negativeTop": {
+        "n": 1,
+        "p10": 0.5795690022053767,
+        "p50": 0.5795690022053767,
+        "p90": 0.5795690022053767,
+        "min": 0.5795690022053767,
+        "max": 0.5795690022053767
+      },
+      "negativeAll": {
+        "n": 2,
+        "p10": 0.5509415892030911,
+        "p50": 0.5509415892030911,
+        "p90": 0.5795690022053767,
+        "min": 0.5509415892030911,
+        "max": 0.5795690022053767
+      }
+    },
+    "recommendation": {
+      "minRecall": 0.9,
+      "maxNegativeRate": 0.05,
+      "recommended": null,
+      "lowestSafe": 0.5,
+      "highestRecall": null,
+      "chosen": 0.5
+    },
+    "counts": {
+      "positives": 35,
+      "negatives": 17,
+      "policyFiltered": 5,
+      "crossLanguage": 2
+    }
+  }
+}

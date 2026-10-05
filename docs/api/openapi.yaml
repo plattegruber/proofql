@@ -522,8 +522,9 @@ paths:
           cosine over the project's excerpt vectors is fused with a full-text
           rank, and candidates below the project's **relevance floor**
           (`similarity_floor`, default 0.66 cosine, tunable per project) are
-          dropped, except that an excerpt matching the query's words (the
-          full-text match) passes at a lower tier, the floor minus 0.13. The
+          dropped, except that an excerpt matching the query's words (at
+          least half of its words, not counting generic ones such as
+          "dental") passes at a lower tier, the floor minus 0.13. The
           endpoint returns `results: []` rather than padding — empty beats
           irrelevant. Full-text-only hits with no vector proximity above that
           word-match tier are dropped too.

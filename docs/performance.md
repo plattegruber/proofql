@@ -614,6 +614,116 @@ diff is exactly p04, p21, p24, p26 answered, nothing else changed, no
 must-be-empty query returned anything. `scripts/demo.sh` passed 8/8 on the
 two-tier api (kiosk query `match: none`).
 
+### Partial word matches (#147)
+
+`websearch_to_tsquery` requires every term, so "dental implants" stayed
+empty: no implant review says "dental". The floor's word-match test is now
+its own expression (`lexicalMatchSql`, `packages/db/src/queries/lexicalMatch.ts`);
+the full-text *ranking* branch is unchanged. Three rules were measured
+offline by re-annotating the scratch run
+([`2026-10-05-chunks.json`](floor-tuning/2026-10-05-chunks.json); its
+saved chunk ids let any rule be applied against the preview database
+without api traffic) with `pnpm db:tune-floor -- --annotate <copy>
+--lexical-rule <rule>`, then replayed at the shipped tiers, high 0.66 /
+low 0.53. "Content words" are the query's English-config lexemes (stop
+words dropped, stemmed like the corpus); every rule also accepts the
+every-term match, so each is a superset of `all`.
+
+| Rule (0.66 / 0.53) | Lexical rows | Answered | Top-3 clean | Must-be-empty with a row | Precision | Recall | Changes among p01, p35, p05, p06, p09, p10, p19 |
+|---|---|---|---|---|---|---|---|
+| `all` (every term; #146) | 21 | 77.1% (27/35) | 25/35 | 0.0% (0/22) | 73.4% | 31.8% | none answered |
+| `any` content word | 318 | 91.4% (32/35) | 16/35 | **50.0% (11/22)** | 44.8% | 61.5% | p01, p05, p09, p10, p19 |
+| `half` (≥ half of content words) | 101 | 82.9% (29/35) | 23/35 | 4.5% (1/22) | 66.3% | 46.6% | p01, p19 |
+| **`half-specific`** (≥ half, ignoring "dental dentist teeth review office") | 97 | **85.7% (30/35)** | **25/35** | **4.5% (1/22)** | 69.8% | **50.0%** | **p01, p10, p19** |
+
+- **Chosen: `half-specific`** (`LEXICAL_RULE` and `GENERIC_QUERY_WORDS` in
+  `@proofql/core`): the most answered queries with the must-be-empty rate
+  under the 5% cap, and top-3 clean unchanged at 25/35. A query made only of
+  generic words gets no partial credit. `any` fails outright: "the office
+  dog greets patients" alone returns ten reviews.
+- **The cost is one must-be-empty query**: n09 "vending machine in the
+  waiting room" now shows g09 at 0.580, which mentions the waiting room
+  (2 of 4 content words). Precision falls 73.4% → 69.8%; pooled recall
+  rises 31.8% → 50.0%. A partial match only at a higher lexical tier
+  (≥ 0.58) would keep 0/22 at 29/35, but that is a third tier for one
+  query; the fixed offset stays.
+- **Statement cost**: the coverage test runs per row of the vector
+  branch, which is only the rows at or above the lexical floor by default.
+  `scripts/bench-search.ts` (5,000-chunk tenant, local Docker Postgres, two
+  interleaved runs each): hybrid median 13.1 / 13.2 ms on `main` → 14.1 /
+  14.1 ms here (+0.9 ms); the playground's `includeBelowFloor` variant,
+  which tests every chunk, 16.1 / 16.3 → 21.7 / 21.2 ms. Vector-only and
+  no-query are unchanged.
+- **Unchanged**: p35 "wisdom teeth removal" (the answer says
+  "extractions", and "teeth" is generic), and the paraphrases p05, p06,
+  p09 share no specific word with their answers.
+
+**Live validation** (preview, 2026-10-05 00:48 UTC, demo project at 0.66,
+`Cache-Control: no-cache`, this branch's api deployed by hand with
+`wrangler deploy --env preview` from `workers/api`, version `ad8ea48a`):
+[`2026-10-05-live-partial-match.json`](floor-tuning/2026-10-05-live-partial-match.json).
+
+| Live, floor 0.66 / 0.53 | Answered | Top-3 clean | Empty positives | Must-be-empty with a row | Precision | Recall |
+|---|---|---|---|---|---|---|
+| Every term (#146) | 77.1% (27/35) | 25/35 | 7 | 0.0% (0/22) | 73.4% | 31.8% |
+| Half the specific words, as collected | 82.9% (29/35) | 24/35 | 5 | 4.5% (1/22) | 66.3% | 45.3% |
+
+- Gained p10 and p19, lost nothing; the leak is n09, as predicted (two
+  rows live, g09 0.580 and g41 0.551 through a sibling chunk).
+- **p01 came back empty in the run, an artefact of the deploy**: it was
+  the first query, sent seconds after `wrangler deploy`, and was served by
+  the previous version (629 ms, the run's slowest). One spot check after
+  the run (`q=dental implants`, `no-cache`) returned the six implant
+  excerpts the replay predicts (0.655 / 0.648 / 0.637 / 0.613 / 0.595 /
+  0.561, top three all labelled answers). With p01 counted, the live
+  result is 30/35 answered and 25/35 top-3 clean, matching the replay.
+  The run was not repeated: the free plan allows two live collections and
+  the second went to the reranker.
+
+### Reranker (#147): measured, off
+
+`RERANK=true` (a worker var, unset everywhere by default) fetches the top
+20 reviews by fused rank with the cosine floor off, scores each one's best
+excerpt with Workers AI `@cf/baai/bge-reranker-base`, and gates on the
+reranker score instead of the floor (`workers/api/src/query/rerank.ts`);
+if the call fails the candidates are held to the two-tier floor. Measured
+with one collection against preview deployed with
+`--var RERANK:true --var RERANK_THRESHOLD:0` (every candidate back with
+its score in `x-rerank-scores`; version `1dbc6787`), swept offline with
+`pnpm db:tune-floor -- --replay … --rerank`:
+[`2026-10-05-live-rerank.json`](floor-tuning/2026-10-05-live-rerank.json).
+
+| Reranker threshold | Answered | Top-3 clean | Must-be-empty with a row | Precision | Recall |
+|---|---|---|---|---|---|
+| 0.05 | 85.7% (30/35) | 11/35 | 31.8% (7/22) | 41.9% | 41.9% |
+| 0.20 | 68.6% (24/35) | 12/35 | 18.2% (4/22) | 51.8% | 29.7% |
+| 0.50 | 51.4% (18/35) | 13/35 | 18.2% (4/22) | 63.8% | 20.3% |
+| **0.85** (lowest with FP ≤ 5%) | **28.6% (10/35)** | 9/35 | 4.5% (1/22) | 71.4% | 10.1% |
+| Two-tier floor, half the specific words (for comparison) | 85.7% (30/35) | 25/35 | 4.5% (1/22) | 69.8% | 50.0% |
+
+- **It does not separate better than cosine here.** n01 "orthodontic
+  headgear" scores 0.92 on an anxiety review; "veneers" tops out at 0.11
+  on the veneer review. The excerpts are short sentence chunks, and the
+  paraphrase misses stay missed: the best labelled answer scores 0.29 for
+  p05, 0.003 for p06, 0.006 for p09, 0.10 for p10, 0.07 for p19, below
+  unrelated rows in the same query.
+- **Latency**: the reranker call adds p50 213 ms, p95 856 ms, max 1,298 ms
+  (n = 59). End to end `took_ms` went from p50 294 / p95 629 ms (the
+  partial-match run, same day) to p50 579 / p95 1,159 ms, which also
+  includes the floorless candidate search.
+- **Cost**: about 474 input tokens per query (20 × (query + excerpt),
+  estimated at 4 characters per token from `x-rerank-chars`), so ~0.13
+  neurons per uncached query at 283 neurons per M tokens (Workers AI
+  pricing page; $0.011 per 1,000 neurons beyond the 10,000 free per day).
+  Cheap: the free allocation covers ~75,000 reranked queries a day. Cost is
+  not the problem.
+- **Recommendation: off, on the free tier and on paid.** It adds 0.2–0.9 s
+  to every uncached query and is worse than the two-tier floor at every
+  threshold that keeps must-be-empty queries empty. It is not worth a paid
+  tier either. The code stays behind the flag (default threshold 0.85) so
+  a better cross-encoder, or reranking whole reviews rather than sentence
+  chunks, can be measured with the same command.
+
 ### Transcripts
 
 Local (`pnpm run setup && pnpm dev`, keys from the seed output):
