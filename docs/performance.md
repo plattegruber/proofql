@@ -558,6 +558,44 @@ Reading it:
   floor relative to the query's own score distribution), measured with the
   same fixtures.
 
+### Two tiers: word matches pass lower (#138 follow-up)
+
+The flat 0.66 blanked "Invisalign", "veneers", and "root canal", short
+queries that *literally* match reviews. The two-tier rule keeps the flat
+floor and adds one predicate: a chunk also passes at a lower tier when the
+hybrid search's full-text branch matched it (`tsv @@
+websearch_to_tsquery('english', q)`). Measured offline on a second scratch
+run that records each returned excerpt's chunk
+([`docs/floor-tuning/2026-10-05-chunks.json`](floor-tuning/2026-10-05-chunks.json),
+same 59 queries, identical flat curve), annotated against the preview
+database (`--annotate`), grid-searched with `--replay … --two-tier` over
+high 0.62–0.70 × low 0.50–0.60:
+
+| | Answerable queries answered | Empty positives | Must-be-empty with a row | Precision | Recall |
+|---|---|---|---|---|---|
+| Flat 0.66 | 65.7% (23/35) | 11 | 0.0% (0/22) | 67.3% | 23.6% |
+| **High 0.66, low 0.53** | **77.1% (27/35)** | **7** | **0.0% (0/22)** | **73.4%** | **31.8%** |
+| High 0.65, any low | 80.0% (28/35) | — | 13.6% (3/22) | — | — |
+
+- **Every one of the 21 lexical candidates was a labelled answer**, and
+  none of the 22 must-be-empty queries produced one. That is why the low
+  tier is free here: it only admits rows the full-text branch vouches for.
+- **The low tier is flat from 0.50 to 0.60** (27/35 at every value with
+  high 0.66): the lexical rows' lowest similarity is 0.539, so the value
+  only matters below it. Shipped as a fixed offset from the project floor
+  (`LEXICAL_FLOOR_OFFSET = 0.13`, 0.53 at the default) rather than a second
+  column, so a project that tunes its floor moves both tiers and owners
+  keep one knob.
+- **Recovered**: p04 "Invisalign", p21 "no surprise bills", p24 "veneers",
+  p26 "root canal". **Still empty**: p01 "dental implants" (websearch
+  ANDs the terms and the implant reviews never say "dental"), p35 "wisdom
+  teeth removal" (the answer says "extractions"), and the paraphrases with
+  no shared words (p05, p06, p09, p10).
+- **Caveat**: the search collapses each review to its best chunk by fused
+  rank, so a scratch run sees one chunk per review; a sibling chunk can
+  admit a review the replay misses. The live validation below, at the
+  shipped setting, is the exact number.
+
 ### Transcripts
 
 Local (`pnpm run setup && pnpm dev`, keys from the seed output):
