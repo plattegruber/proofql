@@ -596,6 +596,24 @@ high 0.62–0.70 × low 0.50–0.60:
   admit a review the replay misses. The live validation below, at the
   shipped setting, is the exact number.
 
+**Live validation** (preview, 2026-10-05 00:30–00:33 UTC, the demo project
+at its real floor 0.66, no scratch floor, `Cache-Control: no-cache`): the
+flat api, then this branch's api deployed by hand
+(`wrangler deploy --env preview` from `workers/api`), same 59 queries.
+Raw: [`2026-10-05-live-flat-0.66.json`](floor-tuning/2026-10-05-live-flat-0.66.json),
+[`2026-10-05-live-two-tier.json`](floor-tuning/2026-10-05-live-two-tier.json).
+
+| Live, floor 0.66 | Answered | Top-3 clean | Empty positives | Must-be-empty with a row | Precision | Recall |
+|---|---|---|---|---|---|---|
+| Flat (before) | 65.7% (23/35) | 21/35 | 11 | 0.0% (0/22) | 67.9% | 24.3% |
+| Two-tier, word match 0.53 (after) | **77.1% (27/35)** | **25/35** | **7** | **0.0% (0/22)** | **73.4%** | **31.8%** |
+
+The live numbers equal the offline grid's (the flat run finds one more
+expected review than the replay, through a sibling chunk); the per-query
+diff is exactly p04, p21, p24, p26 answered, nothing else changed, no
+must-be-empty query returned anything. `scripts/demo.sh` passed 8/8 on the
+two-tier api (kiosk query `match: none`).
+
 ### Transcripts
 
 Local (`pnpm run setup && pnpm dev`, keys from the seed output):
