@@ -99,7 +99,7 @@ curl "https://api.proofql.com/v1/query?key=pq_pk_live_…&q=dental+implants&limi
   -H "Origin: https://www.example.com"
 ```
 
-Every result carries a `score` in `[0, 1]`: the cosine similarity between your query and the returned excerpt, already above the project's relevance floor (default `0.55`). If a page comes back empty but you know there are matching reviews, read [Relevance and the floor](/query#relevance) before lowering anything; the floor and the minimum rating live on the project's **Settings** tab (`/app/projects/<slug>/settings`), and a lower floor trades precision for recall.
+Every result carries a `score` in `[0, 1]`: the cosine similarity between your query and the returned excerpt, already above the project's relevance floor (default `0.66`). If a page comes back empty but you know there are matching reviews, read [Relevance and the floor](/query#relevance) before lowering anything; the floor and the minimum rating live on the project's **Settings** tab (`/app/projects/<slug>/settings`), and a lower floor trades precision for recall.
 
 :::caution[Coming soon]
 Guided onboarding ([#53](https://github.com/plattegruber/proofql/issues/53)) collapses steps 2 to 5 into one screen after sign-up: pick an import, watch the progress bar, copy a snippet pre-filled with your key and, once 20 or more reviews are indexed, a suggested first query (below that the tag has no `data-query` and shows your newest reviews).

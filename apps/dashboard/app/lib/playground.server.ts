@@ -58,6 +58,11 @@ export interface PlaygroundResult {
   startOffset: number;
   similarity: number | null;
   belowFloor: boolean;
+  /**
+   * The full-text branch matched this chunk, so it was held to the lexical
+   * tier of the floor (`lexicalFloorFor`, #138) instead of the floor.
+   */
+  lexical: boolean;
   review: {
     rating: number | null;
     authorName: string | null;
@@ -186,6 +191,7 @@ export function toPlaygroundResult(r: SearchResult): PlaygroundResult {
     startOffset: r.startOffset,
     similarity: r.similarity,
     belowFloor: r.belowFloor,
+    lexical: r.lexical,
     review: {
       rating: r.review.rating,
       authorName: r.review.authorName,

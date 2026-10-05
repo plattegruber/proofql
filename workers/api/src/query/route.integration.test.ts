@@ -51,7 +51,8 @@ const OTHER_ORIGIN = "https://evil.example";
 
 // Short on purpose: the fake embedder's cosine is shared/sqrt(|q|·|review|)
 // over content words, so with a two-word query a review may have at most six
-// content words to clear the 0.55 floor. Each text below is annotated with
+// content words to clear the 0.55 floor (pinned on the fixture project; a
+// full-text match passes at its lexical tier, 0.42). Each text below is annotated with
 // its content-word count.
 const IMPLANT = "My implant feels like my own tooth."; // 5
 const CLEANING = "Painless cleaning, very gentle hygienist."; // 5
@@ -311,10 +312,24 @@ describe("/v1/query", () => {
       expect((await json<QueryResponse>(res)).results).toEqual([]);
     });
 
-    it("drops a keyword-only hit that has no vector proximity above the floor", async () => {
-      // "parking" shares one word with a four-content-word review:
-      // full-text matches, cosine = 0.5 < 0.55.
+    it("lets a keyword match through on the lexical tier of the floor (#138)", async () => {
+      // "parking" shares one word with a four-content-word review: cosine
+      // 0.5, under the 0.55 floor but over its lexical tier (0.42), and the
+      // full-text branch matches it — so it is answered.
       const res = await post(app, f.secret, { q: "parking" });
+      const body = await json<QueryResponse>(res);
+      expect(body.match).toBe("query");
+      expect(body.results.map((r) => r.review.id)).toEqual([f.reviews.parking]);
+      expect(body.results[0]?.score).toBeCloseTo(0.5, 2);
+    });
+
+    it("drops a keyword-only hit that has no vector proximity above the lexical tier", async () => {
+      // websearch OR: the full-text branch matches the parking review on
+      // "parking", but the query's cosine to it is 1/sqrt(4·4) = 0.25,
+      // under the lexical tier (0.42): a word in common is not enough.
+      const res = await post(app, f.secret, {
+        q: "parking or mortgage refinancing rates",
+      });
       expect((await json<QueryResponse>(res)).results).toEqual([]);
     });
 

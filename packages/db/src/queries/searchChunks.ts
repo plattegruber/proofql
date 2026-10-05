@@ -51,10 +51,17 @@
  *
  * - **Vector branch.** `1 - (embedding <=> $query::halfvec(1024))` is
  *   cosine similarity. Only chunks with a non-null embedding take part.
- *   Candidates below `policy.similarityFloor` are dropped *before* fusion,
- *   so a chunk that matches the keywords but is not semantically close
- *   never comes back ("empty beats irrelevant"; scope.md §3: full-text-only
- *   hits with no vector proximity above the floor are dropped).
+ * - **The floor has two tiers** (#138). A chunk survives when its
+ *   similarity clears `policy.similarityFloor`, or when it clears the
+ *   lower *lexical floor* (`lexicalFloorFor(similarityFloor)` from
+ *   `@proofql/core`, the floor minus 0.13) **and** the text branch matched
+ *   it. Everything else is dropped before the collapse, so a chunk that
+ *   is not semantically close never comes back however well its words
+ *   match ("empty beats irrelevant"; scope.md §3), and a short keyword
+ *   query that literally matches a review is not blanked by a floor tuned
+ *   for paraphrases. The vector branch keeps chunks down to the lexical
+ *   floor (only when there is query text; otherwise the tier is inert and
+ *   the branch stops at the floor), and the fused step applies the rule.
  * - **Text branch.** `ts_rank_cd(tsv, websearch_to_tsquery('english', $q))`
  *   over the same policy-filtered set, ranked over every chunk that matches
  *   the query (`tsv @@ q`). Skipped when no `queryText` is given.
@@ -88,11 +95,13 @@
  * The dashboard's query playground (#40) needs to show *why* a query came
  * back thin: which candidates the floor dropped. With
  * `includeBelowFloor: true` the vector branch keeps every embedded
- * candidate and each result carries `belowFloor` (`similarity <
- * policy.similarityFloor`). The above-floor rows are **exactly** the default
- * result — same rows, same order, same `score` — because below-floor rows
- * sort after every above-floor row in the vector ranking (so above-floor
- * vector ranks are unchanged), the text branch never looked at the floor,
+ * candidate and each result carries `belowFloor` (the two-tier rule above
+ * says drop) and `lexical` (the text branch matched it). The above-floor
+ * rows are **exactly** the default result — same rows, same order, same
+ * `score` — because every surviving chunk clears the lexical floor, the
+ * rows the default statement leaves out of the vector branch sort after
+ * all of them (so their vector ranks are unchanged), the text branch never
+ * looked at the floor,
  * and the per-review collapse runs separately inside each group. The
  * below-floor group is the next `limit` reviews by fused rank that have
  * no above-floor chunk, in rank order after the above-floor group. The
@@ -106,6 +115,7 @@
  * review's `full` chunk as the excerpt and `similarity`/`score` null.
  */
 
+import { lexicalFloorFor } from "@proofql/core";
 import { type SQL, sql } from "drizzle-orm";
 
 import type { Db } from "../client.js";
@@ -123,8 +133,9 @@ export interface SearchPolicy {
   /** Reviews rated below this never return; `projects.min_rating`. */
   minRating: number;
   /**
-   * Cosine-similarity floor on the vector branch; `projects.similarity_floor`.
-   * Ignored in no-query mode.
+   * Cosine-similarity floor; `projects.similarity_floor`. A chunk the text
+   * branch matched passes at the lower `lexicalFloorFor(similarityFloor)`
+   * (module doc). Ignored in no-query mode.
    */
   similarityFloor: number;
 }
@@ -193,6 +204,11 @@ export interface SearchResult {
    * have dropped. Always false for the rows the default search returns.
    */
   belowFloor: boolean;
+  /**
+   * The full-text branch matched this chunk, so it was held to the lexical
+   * floor rather than the floor. False in no-query mode and without text.
+   */
+  lexical: boolean;
   review: SearchResultReview;
 }
 
@@ -205,6 +221,7 @@ type Row = {
   similarity: number | null;
   rrf: number | null;
   below_floor: boolean;
+  lexical: boolean;
   rating: number | null;
   author_name: string | null;
   author_avatar_url: string | null;
@@ -369,6 +386,10 @@ function hybridStatement(
 ): SQL {
   // pgvector's text format, bound as a parameter and cast — never spliced.
   const vector = `[${queryEmbedding.join(",")}]`;
+  const floor = params.policy.similarityFloor;
+  // The lexical tier only exists with query text; without it the vector
+  // branch stops at the floor as before.
+  const lexicalFloor = queryText ? lexicalFloorFor(floor) : floor;
 
   const textBranch = queryText
     ? sql`
@@ -412,14 +433,17 @@ function hybridStatement(
         params.includeBelowFloor
           ? // Debug: keep everything; `below_floor` partitions the output.
             sql``
-          : sql`WHERE similarity >= ${params.policy.similarityFloor}`
+          : sql`WHERE similarity >= ${lexicalFloor}`
       }
     ),
     kw AS (${textBranch}),
     fused AS (
       SELECT v.id, v.review_id, v.text, v.start_offset, v.occurred_at, v.breadth,
              v.similarity,
-             (v.similarity < ${params.policy.similarityFloor}) AS below_floor,
+             (kw.id IS NOT NULL) AS lexical,
+             NOT (v.similarity >= ${floor}
+                  OR (kw.id IS NOT NULL AND v.similarity >= ${lexicalFloor}))
+               AS below_floor,
              (COALESCE(1.0 / (${RRF_K} + v.rank), 0)
               + COALESCE(1.0 / (${RRF_K} + kw.rank), 0))::float8 AS rrf
       FROM vec v
@@ -437,6 +461,7 @@ const bestColumns = sql`b.id AS chunk_id,
            b.similarity,
            b.rrf,
            b.below_floor,
+           b.lexical,
            ${reviewColumns}`;
 
 /** Default: collapse, then the top `limit` by fused rank. */
@@ -445,6 +470,7 @@ function defaultTail(params: SearchChunksParams): SQL {
     best AS (
       SELECT DISTINCT ON (review_id) *
       FROM fused
+      WHERE NOT below_floor
       ORDER BY review_id, rrf DESC, similarity DESC, breadth, id
     )
     SELECT ${bestColumns}
@@ -510,6 +536,7 @@ function recencyStatement(params: SearchChunksParams): SQL {
            NULL::float8 AS similarity,
            NULL::float8 AS rrf,
            false AS below_floor,
+           false AS lexical,
            ${reviewColumns}
     FROM reviews r
     JOIN LATERAL (
@@ -538,6 +565,7 @@ function toResult(row: Row, activeLists: number): SearchResult {
     similarity: row.similarity,
     score: row.rrf === null ? null : normalizeRrf(row.rrf, activeLists),
     belowFloor: row.below_floor,
+    lexical: row.lexical,
     review: {
       rating: row.rating,
       authorName: row.author_name,

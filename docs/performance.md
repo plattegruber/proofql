@@ -500,7 +500,119 @@ Reading it:
   off-domain topic; the floor itself (`similarity_floor`, per project) is
   worth re-tuning on real embeddings with the relevance fixtures before
   launch — that is a separate issue, not a §4 recommendation about the
-  query path.
+  query path. Done in #138: see "The floor on real embeddings" below; the
+  default is now 0.66 and the script's "none" query is back to the kiosk.
+
+### The floor on real embeddings (#138, 2026-10-05)
+
+`pnpm db:tune-floor` ran the 59 labelled fixtures
+(`packages/db/src/seed/fixtures/relevance.ts`: 35 answerable, 17 in-domain
+with no answer, 5 whose only answers are policy-hidden, 2 cross-language
+probes reported separately) against the preview api with the demo
+project's floor lowered to 0.30 for the run and restored after. Raw scores:
+[`docs/floor-tuning/2026-10-05.json`](floor-tuning/2026-10-05.json);
+`pnpm db:tune-floor -- --replay docs/floor-tuning/2026-10-05.json`
+reprints the full 0.50–0.80 table.
+
+| Floor | Precision (pooled) | Recall (pooled) | Answerable queries answered | Must-be-empty queries with a row |
+|---|---|---|---|---|
+| 0.50 | 23.5% | 80.4% | 100.0% | 95.5% (21/22) |
+| 0.55 | 29.7% | 66.2% | 97.1% | 63.6% (14/22) |
+| 0.60 | 48.7% | 50.0% | 91.4% | 45.5% (10/22) |
+| 0.63 | 57.8% | 39.9% | 77.1% | 22.7% (5/22) |
+| 0.65 | 60.6% | 27.0% | 68.6% | 13.6% (3/22) |
+| **0.66** | **67.3%** | **23.6%** | **65.7%** | **0.0% (0/22)** |
+| 0.70 | 69.6% | 10.8% | 37.1% | 0.0% |
+| 0.75 | 100.0% | 6.8% | 28.6% | 0.0% |
+
+| Cosine | n | p10 | p50 | p90 | max |
+|---|---|---|---|---|---|
+| Expected reviews, answerable queries | 120 | 0.527 | 0.624 | 0.734 | 0.830 |
+| Unrelated reviews, answerable queries | 505 | 0.465 | 0.546 | 0.618 | 0.745 |
+| Best row per must-be-empty query | 22 | 0.503 | 0.589 | 0.651 | 0.654 |
+
+Reading it:
+
+- **The targets conflict.** Negatives' false-positive rate ≤ 5% first holds
+  at 0.66; pooled recall ≥ 90% holds nowhere in range (80% at 0.50). The
+  default is the lowest floor under the false-positive cap, 0.66, because
+  "empty beats irrelevant" is the product's first quality property
+  (scope.md §1). Pooled recall overstates the cost — a snippet shows ~3
+  quotes, not every matching review — so the per-page number is the one to
+  read: two thirds of answerable pages still get a genuine answer.
+- **Short queries pay.** 11 of 35 answerable queries are empty at 0.66,
+  mostly one- or two-word topics ("dental implants" best 0.655,
+  "Invisalign" 0.649, "veneers" 0.633, "root canal" 0.637). bge-m3 scores
+  a bare keyword lower against a sentence than a phrase. Pages should
+  query with a phrase, and `fallback=recent` exists for the rest.
+- **The worst in-domain negatives sit at 0.64–0.65**: "charging station
+  for electric cars in the lot" (0.654), "they lost my appointment and I
+  drove home" (0.652, policy-filtered: only a 2-star answers it), "the
+  appointment ran so late my child had a meltdown" (0.651), "the next
+  emergency slot was nine days away" (0.641). A floor of 0.63 would show a
+  five-star review under each of those headings.
+- **One global cosine floor is near its limit here.** Positive and
+  negative score bands overlap by ~0.1. If the empty rate on real traffic
+  (`query.completed`, docs/observability.md) is too high at 0.66, the next
+  lever is not a lower floor but a better separator (a reranker, or a
+  floor relative to the query's own score distribution), measured with the
+  same fixtures.
+
+### Two tiers: word matches pass lower (#138 follow-up)
+
+The flat 0.66 blanked "Invisalign", "veneers", and "root canal", short
+queries that *literally* match reviews. The two-tier rule keeps the flat
+floor and adds one predicate: a chunk also passes at a lower tier when the
+hybrid search's full-text branch matched it (`tsv @@
+websearch_to_tsquery('english', q)`). Measured offline on a second scratch
+run that records each returned excerpt's chunk
+([`docs/floor-tuning/2026-10-05-chunks.json`](floor-tuning/2026-10-05-chunks.json),
+same 59 queries, identical flat curve), annotated against the preview
+database (`--annotate`), grid-searched with `--replay … --two-tier` over
+high 0.62–0.70 × low 0.50–0.60:
+
+| | Answerable queries answered | Empty positives | Must-be-empty with a row | Precision | Recall |
+|---|---|---|---|---|---|
+| Flat 0.66 | 65.7% (23/35) | 11 | 0.0% (0/22) | 67.3% | 23.6% |
+| **High 0.66, low 0.53** | **77.1% (27/35)** | **7** | **0.0% (0/22)** | **73.4%** | **31.8%** |
+| High 0.65, any low | 80.0% (28/35) | — | 13.6% (3/22) | — | — |
+
+- **Every one of the 21 lexical candidates was a labelled answer**, and
+  none of the 22 must-be-empty queries produced one. That is why the low
+  tier is free here: it only admits rows the full-text branch vouches for.
+- **The low tier is flat from 0.50 to 0.60** (27/35 at every value with
+  high 0.66): the lexical rows' lowest similarity is 0.539, so the value
+  only matters below it. Shipped as a fixed offset from the project floor
+  (`LEXICAL_FLOOR_OFFSET = 0.13`, 0.53 at the default) rather than a second
+  column, so a project that tunes its floor moves both tiers and owners
+  keep one knob.
+- **Recovered**: p04 "Invisalign", p21 "no surprise bills", p24 "veneers",
+  p26 "root canal". **Still empty**: p01 "dental implants" (websearch
+  ANDs the terms and the implant reviews never say "dental"), p35 "wisdom
+  teeth removal" (the answer says "extractions"), and the paraphrases with
+  no shared words (p05, p06, p09, p10).
+- **Caveat**: the search collapses each review to its best chunk by fused
+  rank, so a scratch run sees one chunk per review; a sibling chunk can
+  admit a review the replay misses. The live validation below, at the
+  shipped setting, is the exact number.
+
+**Live validation** (preview, 2026-10-05 00:30–00:33 UTC, the demo project
+at its real floor 0.66, no scratch floor, `Cache-Control: no-cache`): the
+flat api, then this branch's api deployed by hand
+(`wrangler deploy --env preview` from `workers/api`), same 59 queries.
+Raw: [`2026-10-05-live-flat-0.66.json`](floor-tuning/2026-10-05-live-flat-0.66.json),
+[`2026-10-05-live-two-tier.json`](floor-tuning/2026-10-05-live-two-tier.json).
+
+| Live, floor 0.66 | Answered | Top-3 clean | Empty positives | Must-be-empty with a row | Precision | Recall |
+|---|---|---|---|---|---|---|
+| Flat (before) | 65.7% (23/35) | 21/35 | 11 | 0.0% (0/22) | 67.9% | 24.3% |
+| Two-tier, word match 0.53 (after) | **77.1% (27/35)** | **25/35** | **7** | **0.0% (0/22)** | **73.4%** | **31.8%** |
+
+The live numbers equal the offline grid's (the flat run finds one more
+expected review than the replay, through a sibling chunk); the per-query
+diff is exactly p04, p21, p24, p26 answered, nothing else changed, no
+must-be-empty query returned anything. `scripts/demo.sh` passed 8/8 on the
+two-tier api (kiosk query `match: none`).
 
 ### Transcripts
 

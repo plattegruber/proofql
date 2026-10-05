@@ -8,7 +8,11 @@
  */
 
 import { fakeEmbed } from "@proofql/ai";
-import { chunkReview } from "@proofql/core";
+import {
+  chunkReview,
+  DEFAULT_SIMILARITY_FLOOR,
+  lexicalFloorFor,
+} from "@proofql/core";
 import { eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
@@ -232,6 +236,127 @@ describe("relevance: paraphrase match and the similarity floor", () => {
         }),
       ),
     ).toEqual([]);
+  });
+});
+
+describe("relevance: the two-tier floor (#138)", () => {
+  const t = setupTestDb();
+
+  // Exact cosines, independent of the text: the query is the first basis
+  // vector and a chunk "at" s is s·e0 + sqrt(1 - s²)·e1 (both unit). The
+  // text then decides only whether the full-text branch matches.
+  const QUERY = (() => {
+    const v = new Array<number>(1024).fill(0);
+    v[0] = 1;
+    return v;
+  })();
+  function at(similarity: number): number[] {
+    const v = new Array<number>(1024).fill(0);
+    v[0] = similarity;
+    v[1] = Math.sqrt(1 - similarity * similarity);
+    return v;
+  }
+  async function withSimilarity(
+    projectId: string,
+    text: string,
+    similarity: number,
+  ): Promise<Review> {
+    const r = await review(t.db, { projectId, text });
+    await chunk(t.db, {
+      reviewId: r.id,
+      kind: "full",
+      text,
+      startOffset: 0,
+      embedding: at(similarity),
+    });
+    return r;
+  }
+  const policy: SearchPolicy = {
+    minRating: 4,
+    similarityFloor: DEFAULT_SIMILARITY_FLOOR,
+  };
+  const lexicalFloor = lexicalFloorFor(DEFAULT_SIMILARITY_FLOOR); // 0.53
+  function twoTierQuery(projectId: string, text: string) {
+    return query(projectId, text, { queryEmbedding: QUERY, policy });
+  }
+
+  it("lets a keyword query through on the lexical tier, and only a lexical one", async () => {
+    const p = await project(t.db);
+    // Between the tiers: the veneer review matches "veneers" by its words.
+    const veneers = await withSimilarity(
+      p.id,
+      "Veneers on my front teeth look natural.",
+      0.6,
+    );
+    // Equally close, no shared words: held to the full floor, dropped.
+    await withSimilarity(p.id, "Whitening left no sensitivity at all.", 0.6);
+    // Lexical but under the lexical tier: a shared word is not enough.
+    await withSimilarity(p.id, "The veneers consult was booked online.", 0.5);
+    // Over the floor without a lexical match: the ordinary tier.
+    const close = await withSimilarity(
+      p.id,
+      "Porcelain shells made my smile even.",
+      0.7,
+    );
+
+    const results = await searchChunks(t.db, twoTierQuery(p.id, "veneers"));
+    expect(new Set(results.map((r) => r.reviewId))).toEqual(
+      new Set([veneers.id, close.id]),
+    );
+    const byId = new Map(results.map((r) => [r.reviewId, r]));
+    expect(byId.get(veneers.id)?.lexical).toBe(true);
+    expect(byId.get(veneers.id)?.similarity).toBeCloseTo(0.6, 2);
+    expect(byId.get(close.id)?.lexical).toBe(false);
+    expect(results.every((r) => r.belowFloor === false)).toBe(true);
+    expect(byId.get(veneers.id)?.similarity).toBeGreaterThanOrEqual(
+      lexicalFloor,
+    );
+  });
+
+  it("keeps a non-lexical in-domain negative empty between the tiers", async () => {
+    const p = await project(t.db);
+    // The shape of the bge-m3 failure #137 found: same domain, nothing in
+    // common lexically, similarities right under the floor.
+    await withSimilarity(
+      p.id,
+      "Knocked out half a front tooth playing ball.",
+      0.65,
+    );
+    await withSimilarity(p.id, "Free parking right by the entrance.", 0.62);
+
+    const q = twoTierQuery(p.id, "orthodontic headgear");
+    expect(await searchChunks(t.db, q)).toEqual([]);
+
+    // The playground's view: both are below the floor, neither lexical.
+    const debug = await searchChunks(t.db, { ...q, includeBelowFloor: true });
+    expect(debug).toHaveLength(2);
+    expect(debug.every((r) => r.belowFloor && !r.lexical)).toBe(true);
+  });
+
+  it("debug: a low-tier pass is above the floor, and the page equals the default", async () => {
+    const p = await project(t.db);
+    await withSimilarity(p.id, "Veneers on my front teeth look natural.", 0.6);
+    await withSimilarity(p.id, "Whitening left no sensitivity at all.", 0.6);
+
+    const q = twoTierQuery(p.id, "veneers");
+    const plain = await searchChunks(t.db, q);
+    const debug = await searchChunks(t.db, { ...q, includeBelowFloor: true });
+    const above = debug.filter((r) => !r.belowFloor);
+    expect(above).toEqual(plain);
+    expect(above.map((r) => r.lexical)).toEqual([true]);
+    expect(debug.filter((r) => r.belowFloor).map((r) => r.lexical)).toEqual([
+      false,
+    ]);
+  });
+
+  it("has no lexical tier without query text", async () => {
+    const p = await project(t.db);
+    await withSimilarity(p.id, "Veneers on my front teeth look natural.", 0.6);
+    const results = await searchChunks(t.db, {
+      ...twoTierQuery(p.id, "veneers"),
+      queryText: undefined,
+    });
+    expect(results).toEqual([]);
   });
 });
 

@@ -3,10 +3,9 @@
 // alongside the project's name and slug, and a Danger section that deletes
 // the project. Saving the policy bumps the project's cache generation so
 // the playground (and every snippet) sees the change on its next query.
-import { bumpProjectGeneration } from "@proofql/core";
+import { bumpProjectGeneration, LEXICAL_FLOOR_OFFSET } from "@proofql/core";
 import { data, Form, redirect, useFetcher } from "react-router";
 import { z } from "zod";
-
 import { Field, SelectField } from "~/components/form/field";
 import { InlineConfirm } from "~/components/form/inline-confirm";
 import { SubmitButton } from "~/components/form/submit-button";
@@ -20,6 +19,7 @@ import { type FieldErrors, parseFormData } from "~/lib/forms.server";
 import {
   MIN_RATING_OPTIONS,
   projectSettingsSchema,
+  SIMILARITY_FLOOR_DEFAULT,
   SIMILARITY_FLOOR_MAX,
   SIMILARITY_FLOOR_MIN,
   SIMILARITY_FLOOR_STEP,
@@ -193,8 +193,13 @@ export default function ProjectSettings({
                 <>
                   Lower it and more reviews qualify for a query, including
                   loosely related ones; raise it and only close matches appear,
-                  so some pages show nothing. The default of 0.55 suits most
-                  sites;{" "}
+                  so some pages show nothing. The default of{" "}
+                  {SIMILARITY_FLOOR_DEFAULT.toFixed(2)}, measured on real
+                  queries, keeps unrelated quotes off a page. A review that
+                  contains the query's words passes{" "}
+                  {LEXICAL_FLOOR_OFFSET.toFixed(2)} lower, so short keyword
+                  queries still find literal matches. Lower it in small steps if
+                  pages you know have matching reviews show nothing;{" "}
                   <a href={RELEVANCE_DOCS_URL} className="text-link">
                     how relevance is scored
                   </a>

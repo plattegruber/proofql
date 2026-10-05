@@ -69,7 +69,7 @@ open "http://localhost:8800/demo/?key=pq_pk_live_…&api=http://localhost:8797"
 
 `http://localhost:8800` is in the seed's allowed origins (seed v4). `pnpm seed` mints new keys every run; update the URL, not the page.
 
-The local seed embeds with a bag-of-words fake (`fakeEmbed` in `@proofql/ai`), so a query only clears the 0.55 relevance floor when it shares a good share of a review's words. The three queries above are phrased to do that against one seeded review each while still reading as something a dentist's page would ask; against real `bge-m3` embeddings any natural phrasing (`dental implants`, `kids`, `parking`) works and returns more. The reviews-mode section has no query and always renders the newest three.
+The local seed embeds with a bag-of-words fake (`fakeEmbed` in `@proofql/ai`), so a query only clears the default relevance floor (0.66) when it shares a good share of a review's words. The three queries above are phrased to do that against one seeded review each while still reading as something a dentist's page would ask; against real `bge-m3` embeddings any natural phrasing (`dental implants`, `kids`, `parking`) works and returns more. The reviews-mode section has no query and always renders the newest three.
 
 ### Hosted
 

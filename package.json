@@ -15,6 +15,7 @@
     "db:migrate": "pnpm --filter @proofql/db db:migrate",
     "db:set-plan": "pnpm --filter @proofql/db db:set-plan",
     "db:reindex": "pnpm --filter @proofql/db db:reindex",
+    "db:tune-floor": "pnpm --filter @proofql/db db:tune-floor",
     "seed": "pnpm --filter @proofql/db seed",
     "demo": "bash scripts/demo.sh",
     "lint": "turbo run lint && pnpm openapi:lint && pnpm lint:sh",

@@ -92,7 +92,7 @@ What the dataset contains:
   project** (`cedar-ridge-dental`, fixed id `DEMO_PROJECT_ID`,
   `allowed_origins` = the local dashboard (8799), the local cdn worker's
   demo page (8800), and `localhost:3000`; default
-  policy: `min_rating 4`, `similarity_floor 0.55`).
+  policy: `min_rating 4`, `similarity_floor` = `DEFAULT_SIMILARITY_FLOOR`, 0.66).
 - **4 API keys**: a secret + publishable pair for `live` and one for
   `test`. Plaintexts are printed at the end of the run and nowhere else;
   every run mints new ones.
@@ -138,7 +138,7 @@ Rules and properties:
 - **Guarded.** Refuses a `DATABASE_URL` whose host is not loopback unless
   `--force` is passed (`src/seed/guard.ts`).
 - **`SEED_VERSION`** (`src/seed/constants.ts`, currently 5) is written
-  into the account name — `"ProofQL Demo (seed v5)"` — so any local
+  into the account name — `"ProofQL Demo (seed v6)"` — so any local
   database shows which fixture set it holds. Bump it with **any** change to
   what the seed produces and call the bump out in the PR: integration
   tests and the playground import `DEMO_REVIEW_FIXTURES` from

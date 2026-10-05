@@ -21,6 +21,7 @@ function result(
     excerpt: "Parking behind the building was easy.",
     startOffset: 0,
     belowFloor: false,
+    lexical: false,
     review: {
       rating: 5,
       authorName: "Marisa Delgado",
@@ -94,6 +95,34 @@ function renderPlayground(data: PlaygroundData, search: string) {
 describe("playground route", () => {
   afterEach(cleanup);
 
+  it("marks a candidate let in by the word-match tier, and one below it", async () => {
+    const search = "q=veneers&limit=3";
+    const { container } = renderPlayground(
+      fixture(search, [
+        result({
+          similarity: 0.5,
+          lexical: true,
+          excerpt: "Veneers look natural.",
+        }),
+        result({
+          similarity: 0.4,
+          lexical: true,
+          belowFloor: true,
+          reviewId: "22222222-2222-4222-8222-222222222222",
+        }),
+      ]),
+      search,
+    );
+    expect(await screen.findByText("word match (0.42)")).toBeTruthy();
+    expect(screen.getByText("below word match (0.42)")).toBeTruthy();
+    const cards = container.querySelectorAll("article");
+    expect(cards[0]?.hasAttribute("data-below-floor")).toBe(false);
+    expect(cards[0]?.querySelector("[data-lexical-tick]")).toBeTruthy();
+    expect(screen.getByText("word match").nextElementSibling?.textContent).toBe(
+      "0.42",
+    );
+  });
+
   it("draws the floor line between above- and below-floor cards and flags the dropped ones", async () => {
     const search = "q=parking&limit=3";
     const { container } = renderPlayground(
@@ -129,6 +158,8 @@ describe("playground route", () => {
     // The floor line sits after the second card and before the third.
     const line = container.querySelector("[data-floor-line]");
     expect(line?.textContent).toContain("relevance floor · 0.55");
+    // Both tiers (#138): 0.55 - 0.13.
+    expect(line?.textContent).toContain("word match · 0.42");
     expect(line?.textContent).toContain("2 above · 1 below");
     const order = [...container.querySelectorAll("article, [data-floor-line]")];
     expect(order.indexOf(line as Element)).toBe(2);

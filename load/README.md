@@ -49,7 +49,7 @@ also prints how many Postgres sessions the scenario opened.
 
 Queries are the seeded topic sentences (`TOPICS` in the seed, copied into
 `.keys.json`), so a request is a `window` chunk's exact text under the fake
-embedder and returns `limit` rows above the default 0.55 floor; a "unique"
+embedder and returns `limit` rows above any floor; a "unique"
 query appends a nonce so the normalized cache key is new.
 
 ### Thresholds

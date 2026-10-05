@@ -56,7 +56,7 @@ export const LOAD_ACCOUNT_CLERK_ORG_ID = "org_load_proofql";
  * The topic sentences every review is built from. `load/k6/query.js` keeps
  * an identical copy: a query that is one of these lines is a `window`
  * chunk's exact text (cosine 1.0 under the fake embedder), so it clears the
- * default 0.55 floor and returns `limit` rows.
+ * default floor (any floor) and returns `limit` rows.
  */
 export const TOPICS = [
   "The implant procedure was painless and quick",

@@ -13,7 +13,7 @@
 #   PQ_PUBLISHABLE_KEY  pq_pk_… for the same project required (queries, like the snippet)
 #   ORIGIN              an origin in the project's allowed_origins   default http://localhost:3000
 #   WAIT_SECONDS        how long to wait for the pipeline to index  default 90
-#   SIMILARITY_FLOOR    the project's relevance floor, for the score assertion   default 0.55
+#   SIMILARITY_FLOOR    the project's relevance floor, for the score assertion   default 0.66
 #
 # Needs curl and python3 (JSON, timing, UTF-16 offsets). bash 3.2 compatible.
 # Secrets are never printed: nothing is traced, and every failure dump is
@@ -40,7 +40,7 @@ set +x
 API_URL="${API_URL:-http://localhost:8797}"
 ORIGIN="${ORIGIN:-http://localhost:3000}"
 WAIT_SECONDS="${WAIT_SECONDS:-90}"
-SIMILARITY_FLOOR="${SIMILARITY_FLOOR:-0.55}"
+SIMILARITY_FLOOR="${SIMILARITY_FLOOR:-0.66}"
 API_URL="${API_URL%/}"
 export SIMILARITY_FLOOR
 
@@ -200,15 +200,15 @@ trap cleanup EXIT
 # Six topics with no shared vocabulary (so the bag-of-words local embedder and
 # bge-m3 agree on who matches what), none of which the seeded Cedar Ridge
 # corpus talks about. Review 6 (2 stars) and review 5 (3 stars) sit below the
-# default policy (min_rating 4) and must never be returned. Review 6's topic
-# is deliberately far from dentistry: with bge-m3, anything that merely
-# *sounds* like a clinic complaint ("the lobby coffee kiosk ate my coins")
-# scores 0.55–0.60 against unrelated dental reviews, right at the default
-# floor, so the "none" assertion needs a topic the corpus cannot echo.
+# default policy (min_rating 4) and must never be returned. Review 6 is an
+# in-domain complaint the corpus has no answer for: with bge-m3 the kiosk
+# query scores ~0.57 against the nearest unrelated dental review, which the
+# old 0.55 default let through (#137) and the measured 0.66 default drops
+# (#138, docs/floor-tuning/), so "none" holds for a clinic-sounding topic.
 EPOCH="$(date +%s)"
 PREFIX="demo-$EPOCH"
 Q_MATCH="evening appointments so I never miss work"      # → review 1
-Q_NONE="guest wifi password router kept dropping"      # → only review 6's topic
+Q_NONE="the lobby coffee kiosk swallowed my coins"     # → only review 6's topic
 
 printf '[demo] %s · origin %s · reviews %s-1…6\n' "$API_URL" "$ORIGIN" "$PREFIX"
 
@@ -233,7 +233,7 @@ reviews = [
     (4, "The playroom kept my toddler busy; the hygienist even let her hold the mirror.", "Demo Patient Three"),
     (5, "Noise-cancelling headphones and a weighted blanket made the drill a non-event.", "Demo Patient Four"),
     (3, "Decent cleaning, but the reminders arrived after the appointment had already passed.", "Demo Patient Five"),
-    (2, "The guest wifi password on the wall was wrong and the router kept dropping my laptop.", "Demo Patient Six"),
+    (2, "The lobby coffee kiosk swallowed my coins and nobody at the front could open it.", "Demo Patient Six"),
 ]
 body = []
 for n, (rating, text, author) in enumerate(reviews, start=1):

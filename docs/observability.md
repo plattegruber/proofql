@@ -213,7 +213,7 @@ fields, and the call sites log ids only.
 
 ## Tuning the similarity floor
 
-The floor (`projects.similarity_floor`, default `0.55` cosine) is the
+The floor (`projects.similarity_floor`, default `0.66` cosine) is the
 product's most important quality knob: candidates below it are dropped and
 the snippet renders nothing rather than nonsense (scope.md §1 "Empty beats
 irrelevant"). `query.completed` logs the floor that was applied and what
@@ -224,9 +224,9 @@ query.completed`, `project_id = …`, `has_q = true`, `cached != HIT` — hits
 repeat the miss's result and would double-count):
 
 1. **Empty rate**: the share of lines with `returned = 0`. A high empty
-   rate with a floor of 0.55 on a project whose queries *should* match
+   rate with the default floor on a project whose queries *should* match
    (page topics the business has reviews about) means the floor is too
-   high for that corpus or that language; try 0.50 and watch the rate.
+   high for that corpus or that language; lower it 0.02 at a time and watch the rate.
    Multilingual corpora (bge-m3 across languages) typically sit lower than
    monolingual English.
 2. **Saturation**: the share of lines with `returned = limit`. Near 100%
@@ -245,7 +245,10 @@ repeat the miss's result and would double-count):
 
 When a floor change is made for a project, record the before/after empty
 rate in the issue that made it; defaults change in `docs/scope.md` only
-with that evidence attached.
+with that evidence attached. The default itself is re-measured with
+`pnpm db:tune-floor` (labelled fixtures, real embeddings; method in the
+docs site's [query#tuning-the-floor](../docs/site/src/content/docs/query.md)),
+and every run is kept in `docs/floor-tuning/`.
 
 ## Where the logs go
 

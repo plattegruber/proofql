@@ -3,7 +3,7 @@
 // changed, the origins list, and the cascade on delete. The Settings
 // action's cache bump is covered end to end in
 // app.projects.$slug.settings.integration.test.ts.
-import { PLAN_PROJECT_LIMITS } from "@proofql/core";
+import { DEFAULT_SIMILARITY_FLOOR, PLAN_PROJECT_LIMITS } from "@proofql/core";
 import {
   account,
   apiKey,
@@ -37,7 +37,7 @@ describe("createProject", () => {
       accountId: a.id,
       slug: "website",
       minRating: 4,
-      similarityFloor: 0.55,
+      similarityFloor: DEFAULT_SIMILARITY_FLOOR,
       allowedOrigins: [],
       showBadge: false,
       reviewCount: 0,

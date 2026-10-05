@@ -521,10 +521,12 @@ paths:
           query is embedded at the edge (same model as the reviews), exact
           cosine over the project's excerpt vectors is fused with a full-text
           rank, and candidates below the project's **relevance floor**
-          (`similarity_floor`, default 0.55 cosine, tunable per project) are
-          dropped. The endpoint returns `results: []` rather than padding —
-          empty beats irrelevant. Full-text-only hits with no vector
-          proximity above the floor are dropped too.
+          (`similarity_floor`, default 0.66 cosine, tunable per project) are
+          dropped, except that an excerpt matching the query's words (the
+          full-text match) passes at a lower tier, the floor minus 0.13. The
+          endpoint returns `results: []` rather than padding — empty beats
+          irrelevant. Full-text-only hits with no vector proximity above that
+          word-match tier are dropped too.
         - **Policy** is applied in the same SQL as the ranking: hidden
           reviews, reviews rated below the project's `min_rating` (default 4),
           and unrated reviews classified `negative` never appear. A request's
@@ -1893,7 +1895,9 @@ components:
           description: |
             Cosine similarity between the query and this excerpt, in
             `[0, 1]`, already at or above the project's relevance floor
-            (default 0.55), and comparable across queries. Not the fused rank
+            (default 0.66) — or, for an excerpt that matches the query's
+            words, at or above the word-match tier (the floor minus 0.13) —
+            and comparable across queries. Not the fused rank
             the results are ordered by, so it may be non-monotone down the
             list. `null` when the request had no `q` and on fallback rows.
         matched:
