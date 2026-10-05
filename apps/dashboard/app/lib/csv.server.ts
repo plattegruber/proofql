@@ -58,10 +58,11 @@ import {
   validateRows,
 } from "@proofql/core";
 import { type Db, schema, upsertReviews } from "@proofql/db";
-import { and, eq, gte, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { formatBytes } from "./import-labels";
+import { indexingTally } from "./indexing.server";
 
 export { formatBytes };
 
@@ -758,6 +759,8 @@ export interface RunProgress {
   /** Reviews this run wrote that the pipeline has indexed / not yet. */
   indexed: number;
   indexing: number;
+  /** Some of them have waited past INDEXING_DEFERRED_AFTER_MS: indexing is delayed (#162). */
+  deferred: boolean;
 }
 
 /**
@@ -775,19 +778,10 @@ export async function getRunProgress(
     eq(schema.reviews.environment, run.environment),
     gte(schema.reviews.updatedAt, run.startedAt),
   );
-  const [indexedRow] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(schema.reviews)
-    .where(and(scope, isNotNull(schema.reviews.indexedAt)));
-  const [indexingRow] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(schema.reviews)
-    .where(and(scope, isNull(schema.reviews.indexedAt)));
   return {
     run,
     processed: processedRows(run),
-    indexed: indexedRow?.n ?? 0,
-    indexing: indexingRow?.n ?? 0,
+    ...(await indexingTally(db, scope)),
   };
 }
 

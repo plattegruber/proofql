@@ -5,16 +5,17 @@
 // Google's API approval), or push through the API with a ready-to-run curl
 // carrying the live secret key from step 1. "Check for reviews" polls the
 // project's count until something arrives, then moves on to the indexing
-// step.
+// step. It polls on the shared schedule (app/lib/indexing.ts: every 2 s)
+// for one minute per click, so a forgotten tab costs nothing (#162).
 import { Code2, MapPin, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useFetcher, useNavigate } from "react-router";
-
 import {
   PLACES_CARD_BODY,
   PLACES_CARD_TITLE,
   PlacesFinder,
 } from "~/components/import/places-finder";
+import { useBackoffPolling } from "~/components/import-progress";
 import { OnboardingSteps } from "~/components/onboarding/steps";
 import { PageHeader } from "~/components/shell/page-header";
 import { Badge } from "~/components/ui/badge";
@@ -22,8 +23,8 @@ import { Button, buttonVariants } from "~/components/ui/button";
 import { CopyButton } from "~/components/ui/copy-button";
 import { withRequestDb } from "~/lib/db.server";
 import { importPath } from "~/lib/import-paths";
+import { scheduleUntil } from "~/lib/indexing";
 import {
-  INDEXING_POLL_MS,
   type IndexingCounts,
   ingestCurl,
   ONBOARDING_FLAG,
@@ -49,6 +50,7 @@ const GOOGLE_CONNECTOR_ISSUE_URL =
 
 /** How long "Check for reviews" keeps polling before it gives up quietly. */
 export const CHECK_TIMEOUT_MS = 60_000;
+const CHECK_SCHEDULE = scheduleUntil(CHECK_TIMEOUT_MS);
 
 export async function loader(args: Route.LoaderArgs) {
   const { account, project, env, log, session, elapsed } =
@@ -269,22 +271,18 @@ function ApiPath({
 }) {
   const fetcher = useFetcher<IndexingCounts>();
   const navigate = useNavigate();
-  const [checkingSince, setCheckingSince] = useState<number | null>(null);
+  const [asked, setAsked] = useState(false);
   const count = fetcher.data?.reviews ?? initialCount;
   const found = count > 0 && fetcher.data !== undefined;
 
-  // Poll every two seconds once asked, until reviews arrive or a minute passes.
-  useEffect(() => {
-    if (checkingSince === null || found) return;
-    const id = setInterval(() => {
-      if (Date.now() - checkingSince > CHECK_TIMEOUT_MS) {
-        setCheckingSince(null);
-        return;
-      }
+  // Poll once asked, until reviews arrive or a minute passes.
+  const polling = useBackoffPolling(
+    asked && !found,
+    () => {
       if (fetcher.state === "idle") fetcher.load(statusHref);
-    }, INDEXING_POLL_MS);
-    return () => clearInterval(id);
-  }, [checkingSince, found, fetcher, statusHref]);
+    },
+    CHECK_SCHEDULE,
+  );
 
   // Something arrived: on to indexing.
   useEffect(() => {
@@ -293,9 +291,8 @@ function ApiPath({
     return () => clearTimeout(id);
   }, [found, navigate, indexingHref]);
 
-  const checking = checkingSince !== null && !found;
-  const timedOut =
-    checkingSince === null && fetcher.data !== undefined && !found;
+  const checking = asked && !found && !polling.stopped;
+  const timedOut = polling.stopped && fetcher.data !== undefined && !found;
 
   return (
     <div className="flex flex-col gap-3">
@@ -320,8 +317,12 @@ function ApiPath({
           size="sm"
           disabled={checking}
           onClick={() => {
-            setCheckingSince(Date.now());
-            fetcher.load(statusHref);
+            if (asked) {
+              polling.checkAgain();
+            } else {
+              setAsked(true);
+              fetcher.load(statusHref);
+            }
           }}
         >
           {checking ? "Checking…" : "Check for reviews"}

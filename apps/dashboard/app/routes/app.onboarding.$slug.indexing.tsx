@@ -1,9 +1,13 @@
 // Onboarding step 3 (#53): indexing. After an import (`?run=<ingestRunId>`)
 // this is the import's own `ImportProgress`; after the API path it is one
 // meter over the project's live reviews — "Indexing 212 of 340 reviews".
-// Either way the page revalidates every two seconds and moves itself on to
+// Either way the page revalidates (2 s, backing off to 30 s and stopping
+// after thirty minutes with "Check again", #162) and moves itself on to
 // the snippet once every review is indexed. A minute with no reviews at all
-// offers the way back.
+// offers the way back. When indexing is deferred (a Places import whose
+// send was refused lands with `?indexing=deferred`; otherwise reviews
+// unindexed for over two minutes) the page says it is delayed and that the
+// user can leave, instead of "usually seconds".
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 
@@ -12,6 +16,7 @@ import {
   type ImportProgressData,
   importSettled,
   Meter,
+  PollingStopped,
   useImportPolling,
 } from "~/components/import-progress";
 import { OnboardingSteps } from "~/components/onboarding/steps";
@@ -23,7 +28,11 @@ import { findProjectRun, getRunProgress, isStarted } from "~/lib/csv.server";
 import { withRequestDb } from "~/lib/db.server";
 import { importRunPath } from "~/lib/import-paths";
 import {
-  INDEXING_POLL_MS,
+  INDEXING_DEFERRED,
+  INDEXING_PARAM,
+  indexingHint,
+} from "~/lib/indexing";
+import {
   type IndexingCounts,
   indexingSettled,
   NO_REVIEWS_HINT_AFTER_MS,
@@ -44,7 +53,9 @@ export const ADVANCE_AFTER_MS = 1_200;
 export async function loader(args: Route.LoaderArgs) {
   const { account, project, log, elapsed } =
     await requireOnboardingProject(args);
-  const runId = new URL(args.request.url).searchParams.get("run");
+  const search = new URL(args.request.url).searchParams;
+  const runId = search.get("run");
+  const deferredByRequest = search.get(INDEXING_PARAM) === INDEXING_DEFERRED;
 
   const { counts, progress } = await withRequestDb(args.context, async (db) => {
     const counts = await projectIndexing(db, project.id);
@@ -63,6 +74,7 @@ export async function loader(args: Route.LoaderArgs) {
       processed: p.processed,
       indexed: p.indexed,
       indexing: p.indexing,
+      deferred: p.indexing > 0 && (p.deferred || deferredByRequest),
       error: run.error,
     };
     return { counts, progress };
@@ -96,7 +108,7 @@ export default function OnboardingIndexing({
   const { counts, progress, settled, snippetHref, reviewsHref, runHref } =
     loaderData;
   const navigate = useNavigate();
-  useImportPolling(!settled, INDEXING_POLL_MS);
+  const polling = useImportPolling(!settled);
   const quiet = useQuietFor(counts.reviews === 0, NO_REVIEWS_HINT_AFTER_MS);
 
   // Settled: show the finished state for a beat, then on to the snippet.
@@ -107,6 +119,7 @@ export default function OnboardingIndexing({
   }, [settled, navigate, snippetHref]);
 
   const failed = progress?.status === "failed";
+  const delayed = !settled && (progress?.deferred ?? counts.deferred);
 
   return (
     <>
@@ -116,7 +129,9 @@ export default function OnboardingIndexing({
         description={
           settled
             ? "Every review is searchable. On to your snippet."
-            : "Each review is split into excerpts and embedded so your pages can ask for the ones that fit. Usually seconds."
+            : delayed
+              ? "Your reviews are saved. Each one is split into excerpts and embedded so your pages can ask for the ones that fit."
+              : "Each review is split into excerpts and embedded so your pages can ask for the ones that fit. Usually seconds."
         }
       />
       <OnboardingSteps current="indexing" className="mb-8" />
@@ -127,6 +142,8 @@ export default function OnboardingIndexing({
         ) : (
           <IndexingMeter counts={counts} />
         )}
+
+        <PollingStopped polling={polling} />
 
         {failed && runHref && (
           <FormNotice>
@@ -172,6 +189,18 @@ export default function OnboardingIndexing({
           </section>
         )}
 
+        {delayed && !failed && (
+          <Link
+            to={snippetHref}
+            className={cn(
+              buttonVariants({ variant: "secondary", size: "md" }),
+              "self-start text-ink-900! no-underline! hover:text-ink-900!",
+            )}
+          >
+            Go on to the snippet
+          </Link>
+        )}
+
         {settled && (
           <Link
             to={snippetHref}
@@ -210,7 +239,13 @@ export function IndexingMeter({ counts }: { counts: IndexingCounts }) {
             counts.reviews === 0 ? "neutral" : done ? "positive" : "caution"
           }
         >
-          {counts.reviews === 0 ? "Waiting" : done ? "Indexed" : "Indexing"}
+          {counts.reviews === 0
+            ? "Waiting"
+            : done
+              ? "Indexed"
+              : counts.deferred
+                ? "Delayed"
+                : "Indexing"}
         </Badge>
       </div>
       <Meter
@@ -218,11 +253,7 @@ export function IndexingMeter({ counts }: { counts: IndexingCounts }) {
         label="Reviews indexed"
         value={counts.indexed}
         total={counts.reviews}
-        hint={
-          counts.indexing > 0
-            ? `${counts.indexing.toLocaleString("en-US")} waiting on the pipeline — searchable within seconds.`
-            : undefined
-        }
+        hint={indexingHint(counts.indexing, counts.deferred)}
       />
     </section>
   );

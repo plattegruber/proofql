@@ -3,7 +3,9 @@
 // query comes from the project's full chunks; the completion flag is set
 // once; the cookie session round-trips and expires the plaintexts.
 import { API_KEY_PATTERN, hashApiKey } from "@proofql/core";
+import { schema } from "@proofql/db";
 import { account, chunk, project, review, setupTestDb } from "@proofql/db/test";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { MIN_REVIEWS_FOR_SUGGESTION } from "./onboarding";
@@ -182,6 +184,38 @@ describe("projectIndexing", () => {
       reviews: 3,
       indexed: 2,
       indexing: 1,
+      deferred: false,
+    });
+  });
+
+  it("reports deferred once a live review has waited more than two minutes (#162)", async () => {
+    const p = await project(t.db);
+    const [fresh] = await Promise.all([
+      review(t.db, { projectId: p.id, externalId: "fresh" }),
+      review(t.db, {
+        projectId: p.id,
+        externalId: "done",
+        indexedAt: new Date(),
+      }),
+    ]);
+    expect((await projectIndexing(t.db, p.id)).deferred).toBe(false);
+
+    // An indexed review, however old, is not waiting on anything.
+    await t.db
+      .update(schema.reviews)
+      .set({ updatedAt: new Date(Date.now() - 10 * 60_000) })
+      .where(eq(schema.reviews.externalId, "done"));
+    expect((await projectIndexing(t.db, p.id)).deferred).toBe(false);
+
+    await t.db
+      .update(schema.reviews)
+      .set({ updatedAt: new Date(Date.now() - 3 * 60_000) })
+      .where(eq(schema.reviews.id, fresh.id));
+    expect(await projectIndexing(t.db, p.id)).toEqual({
+      reviews: 2,
+      indexed: 1,
+      indexing: 1,
+      deferred: true,
     });
   });
 });

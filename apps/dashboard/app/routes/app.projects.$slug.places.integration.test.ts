@@ -18,6 +18,8 @@ import {
   HARBOR_LIGHT_ID,
 } from "../../test/fake-places";
 import { failingQueue, fakeQueue } from "../../test/fake-r2";
+import { loader as onboardingIndexingLoader } from "./app.onboarding.$slug.indexing";
+import { loader as runLoader } from "./app.projects.$slug.import.$runId";
 import { action, type PlacesActionData } from "./app.projects.$slug.places";
 
 const t = setupTestDb();
@@ -80,6 +82,24 @@ function testEnv(overrides: Partial<Env> = {}) {
     ...overrides,
   } as Env;
   return { env, queue };
+}
+
+/** Call a page loader at `path` in the auth stub, as the redirect would land. */
+async function load<T>(
+  loader: (args: never) => Promise<T>,
+  path: string,
+  params: Record<string, string>,
+  env: Env,
+): Promise<T> {
+  const ctx = {
+    waitUntil: () => {},
+    passThroughOnException: () => {},
+  } as unknown as ExecutionContext;
+  return loader({
+    request: new Request(`http://localhost:8799${path}`),
+    params,
+    context: createLoadContext({ env, ctx }),
+  } as never);
 }
 
 async function post(form: Record<string, string>, env: Env) {
@@ -197,12 +217,15 @@ describe("places action", () => {
     expect(result.status).toBe(302);
     const location = result.headers.get("Location") ?? "";
     expect(location).toMatch(
-      new RegExp(`^/app/projects/${slug}/import/[0-9a-f-]{36}$`),
+      new RegExp(
+        `^/app/projects/${slug}/import/[0-9a-f-]{36}\\?indexing=deferred$`,
+      ),
     );
     expect(queue.attempts).toBe(1);
+    const runId = new URL(location, "http://x").pathname.split("/").at(-1);
 
     const run = await t.db.query.ingestRuns.findFirst({
-      where: eq(schema.ingestRuns.id, location.split("/").at(-1) as string),
+      where: eq(schema.ingestRuns.id, runId as string),
     });
     expect(run).toMatchObject({ status: "succeeded", created: 1 });
     const harbor = (
@@ -212,6 +235,89 @@ describe("places action", () => {
     ).filter((r) => r.externalId.startsWith(`places/${HARBOR_LIGHT_ID}/`));
     expect(harbor).toHaveLength(1);
     expect(harbor[0]?.indexedAt).toBeNull();
+  });
+
+  it("the run page says indexing is delayed: at once after a refused send, otherwise once a review has waited two minutes (#162)", async () => {
+    // Earlier tests imported these places; start with nothing to update.
+    await t.db
+      .delete(schema.reviews)
+      .where(eq(schema.reviews.projectId, projectId));
+    const { env } = testEnv({
+      INGEST_QUEUE: { sendBatch: failingQueue().sendBatch } as unknown as Queue,
+    });
+    const result = (await post(
+      { intent: "import", place_id: CEDAR_RIDGE_ID, environment: "test" },
+      env,
+    )) as Response;
+    const location = result.headers.get("Location") ?? "";
+    const runId = new URL(location, "http://x").pathname.split("/").at(-1);
+    const params = { slug, runId: runId as string };
+
+    // Straight from the redirect: deferred, though nothing is two minutes old.
+    const landed = await load(runLoader, location, params, env);
+    expect(landed.progress).toMatchObject({
+      status: "succeeded",
+      indexing: 5,
+      deferred: true,
+    });
+
+    // The same page without the flag, seconds later: still "seconds".
+    const plain = `/app/projects/${slug}/import/${runId}`;
+    expect((await load(runLoader, plain, params, env)).progress).toMatchObject({
+      indexing: 5,
+      deferred: false,
+    });
+
+    // Two minutes on, the waiting reviews alone say it.
+    const run = await t.db.query.ingestRuns.findFirst({
+      where: eq(schema.ingestRuns.id, runId as string),
+    });
+    const startedAt = new Date(Date.now() - 10 * 60_000);
+    await t.db
+      .update(schema.ingestRuns)
+      .set({ startedAt })
+      .where(eq(schema.ingestRuns.id, runId as string));
+    await t.db
+      .update(schema.reviews)
+      .set({ updatedAt: new Date(Date.now() - 3 * 60_000) })
+      .where(eq(schema.reviews.environment, "test"));
+    expect(run).toBeDefined();
+    expect((await load(runLoader, plain, params, env)).progress).toMatchObject({
+      indexing: 5,
+      deferred: true,
+    });
+
+    // Indexed: nothing waits, so nothing is delayed whatever the URL says.
+    await t.db
+      .update(schema.reviews)
+      .set({ indexedAt: new Date() })
+      .where(eq(schema.reviews.environment, "test"));
+    expect(
+      (await load(runLoader, location, params, env)).progress,
+    ).toMatchObject({ indexing: 0, deferred: false });
+  });
+
+  it("onboarding: a refused send lands on step 3 with indexing=deferred, and the step reads it from the run (#162)", async () => {
+    // Earlier tests imported these places; start with nothing to update.
+    await t.db
+      .delete(schema.reviews)
+      .where(eq(schema.reviews.projectId, projectId));
+    const { env } = testEnv({
+      INGEST_QUEUE: { sendBatch: failingQueue().sendBatch } as unknown as Queue,
+    });
+    const result = (await post(
+      { intent: "import", place_id: HARBOR_LIGHT_ID, onboarding: "1" },
+      env,
+    )) as Response;
+    const location = result.headers.get("Location") ?? "";
+    expect(location).toMatch(
+      new RegExp(
+        `^/app/onboarding/${slug}/indexing\\?run=[0-9a-f-]{36}&indexing=deferred$`,
+      ),
+    );
+    const step = await load(onboardingIndexingLoader, location, { slug }, env);
+    expect(step.progress).toMatchObject({ deferred: true });
+    expect(step.settled).toBe(false);
   });
 
   it("import: a place with nothing to import, and a bad id, answer in the voice", async () => {

@@ -6,7 +6,9 @@
 //   intent=import  place_id=<id>         → imports the place's reviews and
 //                  environment=live|test   redirects to the progress view:
 //                  onboarding=1            step 3 with ?run=, or the Import
-//                                          tab's run page
+//                                          tab's run page; plus
+//                                          ?indexing=deferred when the
+//                                          index send was refused (#162)
 //
 // Errors come back as { error } in the voice, never Google's raw text.
 import {
@@ -21,6 +23,7 @@ import { findProjectBySlug } from "~/lib/accounts";
 import { getCloudflare } from "~/lib/context";
 import { withRequestDb } from "~/lib/db.server";
 import { importRunPath } from "~/lib/import-paths";
+import { INDEXING_DEFERRED, INDEXING_PARAM } from "~/lib/indexing";
 import { ONBOARDING_FLAG, onboardingPath } from "~/lib/onboarding";
 import { placesSearchQuerySchema } from "~/lib/places";
 import {
@@ -115,10 +118,20 @@ export async function action(args: Route.ActionArgs) {
         { projectId: project.id, environment, placeId },
       ),
     );
+    // A refused send (#162) is said at once rather than after two minutes.
+    const deferred: Record<string, string> = result.indexingDeferred
+      ? { [INDEXING_PARAM]: INDEXING_DEFERRED }
+      : {};
+    const runPath = importRunPath(project.slug, result.run.id);
     return redirect(
       onboarding
-        ? onboardingPath("indexing", project.slug, { run: result.run.id })
-        : importRunPath(project.slug, result.run.id),
+        ? onboardingPath("indexing", project.slug, {
+            run: result.run.id,
+            ...deferred,
+          })
+        : result.indexingDeferred
+          ? `${runPath}?${new URLSearchParams(deferred)}`
+          : runPath,
     );
   } catch (error) {
     if (error instanceof PlacesImportError) {

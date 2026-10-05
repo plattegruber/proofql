@@ -2,11 +2,22 @@
 // reviews indexed by the pipeline — over the run's counts. No spinner, by
 // the design system; the numbers moving are the motion. Exported on its own
 // because the guided onboarding (#53) shows the same thing after its first
-// import; `useImportPolling` is the matching 2-second revalidation loop.
-import { useEffect } from "react";
+// import; `useImportPolling` is the matching revalidation loop. It backs
+// off (2 s, then 10 s after a minute, 30 s after five) and stops after
+// thirty minutes with a "Check again" button (#162; app/lib/indexing.ts),
+// so a tab left open on a delayed import does not spend the free plan's
+// Hyperdrive queries all day.
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRevalidator } from "react-router";
 
 import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
+import {
+  indexingHint,
+  POLL_SCHEDULE,
+  type PollStep,
+  pollDelayMs,
+} from "~/lib/indexing";
 import { cn } from "~/lib/utils";
 
 export type ImportStatus = "running" | "succeeded" | "failed";
@@ -24,6 +35,8 @@ export interface ImportProgressData {
   /** Reviews from this run the pipeline has indexed / still has to. */
   indexed: number;
   indexing: number;
+  /** Indexing is waiting on the sweep (the Queues daily limit, #162). */
+  deferred: boolean;
   error: string | null;
 }
 
@@ -32,15 +45,95 @@ export function importSettled(p: ImportProgressData): boolean {
   return p.status !== "running" && p.indexing === 0;
 }
 
-export function useImportPolling(active: boolean, intervalMs = 2_000): void {
-  const revalidator = useRevalidator();
+export interface Polling {
+  /** The schedule ran out while still active: offer "Check again". */
+  stopped: boolean;
+  /** Poll now and start the schedule over. */
+  checkAgain: () => void;
+}
+
+/**
+ * Call `poll` on `schedule` (`pollDelayMs`) while `active`; the clock
+ * starts when `active` turns true. Past the schedule it stops and reports
+ * `stopped` until `checkAgain` restarts it.
+ */
+export function useBackoffPolling(
+  active: boolean,
+  poll: () => void,
+  schedule: readonly PollStep[] = POLL_SCHEDULE,
+): Polling {
+  const pollRef = useRef(poll);
+  pollRef.current = poll;
+  const [round, setRound] = useState(0);
+  const [stopped, setStopped] = useState(false);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `round` restarts the schedule.
   useEffect(() => {
+    setStopped(false);
     if (!active) return;
-    const id = setInterval(() => {
+    const startedAt = Date.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const next = () => {
+      const delay = pollDelayMs(Date.now() - startedAt, schedule);
+      if (delay === null) {
+        setStopped(true);
+        return;
+      }
+      timer = setTimeout(() => {
+        pollRef.current();
+        next();
+      }, delay);
+    };
+    next();
+    return () => clearTimeout(timer);
+  }, [active, round, schedule]);
+
+  const checkAgain = useCallback(() => {
+    pollRef.current();
+    setRound((r) => r + 1);
+  }, []);
+  return { stopped: active && stopped, checkAgain };
+}
+
+/** Revalidate the route's loader on the backoff schedule while `active`. */
+export function useImportPolling(
+  active: boolean,
+  schedule: readonly PollStep[] = POLL_SCHEDULE,
+): Polling {
+  const revalidator = useRevalidator();
+  return useBackoffPolling(
+    active,
+    () => {
       if (revalidator.state === "idle") void revalidator.revalidate();
-    }, intervalMs);
-    return () => clearInterval(id);
-  }, [active, intervalMs, revalidator]);
+    },
+    schedule,
+  );
+}
+
+/** Shown once polling has stopped: the counts on screen may be stale. */
+export function PollingStopped({
+  polling,
+  className,
+}: {
+  polling: Polling;
+  className?: string;
+}) {
+  if (!polling.stopped) return null;
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-center justify-between gap-3 border border-hairline bg-surface-card p-5",
+        className,
+      )}
+    >
+      <p className="m-0 text-small text-gray-600">
+        This page stopped checking for updates. Indexing carries on without it.
+      </p>
+      <Button variant="secondary" size="sm" onClick={polling.checkAgain}>
+        Check again
+      </Button>
+    </div>
+  );
 }
 
 const STATUS_LABEL: Record<ImportStatus, string> = {
@@ -68,7 +161,9 @@ export function ImportProgress({
         : "positive";
   const label =
     p.status === "succeeded" && !indexingDone
-      ? "Indexing"
+      ? p.deferred
+        ? "Delayed"
+        : "Indexing"
       : STATUS_LABEL[p.status];
 
   return (
@@ -93,11 +188,7 @@ export function ImportProgress({
         label="Reviews indexed"
         value={p.indexed}
         total={Math.max(toIndex, written)}
-        hint={
-          p.indexing > 0
-            ? `${p.indexing.toLocaleString("en-US")} waiting on the pipeline — searchable within seconds.`
-            : undefined
-        }
+        hint={indexingHint(p.indexing, p.deferred)}
       />
 
       <dl className="mt-5 grid grid-cols-2 gap-3 border-t border-hairline pt-4 sm:grid-cols-4">

@@ -3,15 +3,26 @@
 // with a Places key (#47); "Connect Google" is disabled with the
 // waiting-on-Google line; the API card carries the curl with the real
 // secret key and polls the status resource when asked.
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { createRoutesStub, useLoaderData } from "react-router";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import OnboardingReviews from "./app.onboarding.$slug.reviews";
 
 type LoaderData = {
   project: { name: string; slug: string };
-  counts: { reviews: number; indexed: number; indexing: number };
+  counts: {
+    reviews: number;
+    indexed: number;
+    indexing: number;
+    deferred: boolean;
+  };
   hasSecret: boolean;
   curl: string;
   importHref: string;
@@ -23,7 +34,7 @@ type LoaderData = {
 
 const base: LoaderData = {
   project: { name: "Cedar Ridge Dental", slug: "cedar" },
-  counts: { reviews: 0, indexed: 0, indexing: 0 },
+  counts: { reviews: 0, indexed: 0, indexing: 0, deferred: false },
   hasSecret: true,
   curl: "curl -s -X POST 'http://localhost:8797/v1/reviews' \\\n  -H 'Authorization: Bearer pq_sk_live_SECRET123' …",
   importHref: "/app/projects/cedar/import?onboarding=1",
@@ -35,7 +46,8 @@ const base: LoaderData = {
 
 function renderStep(
   data: LoaderData,
-  status = { reviews: 3, indexed: 0, indexing: 3 },
+  status = { reviews: 3, indexed: 0, indexing: 3, deferred: false },
+  onStatus: () => void = () => {},
 ) {
   const Stub = createRoutesStub([
     {
@@ -50,7 +62,13 @@ function renderStep(
         />
       ),
     },
-    { path: "/app/onboarding/:slug/status", loader: () => status },
+    {
+      path: "/app/onboarding/:slug/status",
+      loader: () => {
+        onStatus();
+        return status;
+      },
+    },
     {
       path: "/app/onboarding/:slug/indexing",
       Component: () => <h1>Indexing</h1>,
@@ -155,7 +173,7 @@ describe("onboarding step 2", () => {
     renderStep({
       ...base,
       hasSecret: false,
-      counts: { reviews: 12, indexed: 12, indexing: 0 },
+      counts: { reviews: 12, indexed: 12, indexing: 0, deferred: false },
     });
     expect(
       (
@@ -168,5 +186,42 @@ describe("onboarding step 2", () => {
         .getAttribute("href"),
     ).toBe("/app/onboarding/cedar/indexing");
     expect(screen.getByText("12")).toBeTruthy();
+  });
+
+  it("Check for reviews polls every 2 s for one minute per click, then stops (#162)", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      let loads = 0;
+      renderStep(
+        base,
+        { reviews: 0, indexed: 0, indexing: 0, deferred: false },
+        () => {
+          loads += 1;
+        },
+      );
+      const elapse = async (ms: number) => {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(ms);
+        });
+        return loads;
+      };
+      await elapse(0);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Check for reviews" }),
+      );
+      expect(await elapse(0)).toBe(1);
+      expect(await elapse(60_000)).toBe(31); // the click, then 30 more every 2 s
+      expect(await elapse(30 * 60_000)).toBe(31); // stopped
+      expect(
+        screen.getByText("Nothing yet. Run the command, then check again."),
+      ).toBeTruthy();
+      fireEvent.click(
+        screen.getByRole("button", { name: "Check for reviews" }),
+      );
+      expect(await elapse(0)).toBe(32);
+      expect(await elapse(2_000)).toBe(33);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
