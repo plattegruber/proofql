@@ -102,6 +102,23 @@ export const projects = pgTable(
     showBadge: boolean("show_badge").notNull().default(true),
     /** Denormalized count of live reviews, for limits and the dashboard. */
     reviewCount: integer("review_count").notNull().default(0),
+    /**
+     * Stemmed lexemes too common in this project's live reviews to count
+     * as evidence in the floor's partial word match (#149): those in more
+     * than a quarter of the indexed reviews, once there are at least 30,
+     * at most 30 of them, sorted. Derived, never edited: written only by
+     * `refreshGenericTerms` (`queries/genericTerms.ts`), which the pipeline
+     * calls after indexing. Empty until then; the search adds core's
+     * `UNIVERSAL_GENERIC_WORDS` either way.
+     */
+    genericTerms: text("generic_terms")
+      .array()
+      .notNull()
+      .default([] as string[]),
+    /** When `generic_terms` was last computed; null until the first refresh. */
+    genericTermsRefreshedAt: timestamp("generic_terms_refreshed_at", {
+      withTimezone: true,
+    }),
     ...timestamps,
   },
   (table) => [
