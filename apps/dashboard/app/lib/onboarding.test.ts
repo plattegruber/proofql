@@ -113,11 +113,11 @@ describe("onboardingSnippet", () => {
       onboardingSnippet({
         query: "implant parking",
         key: "pq_pk_live_abc",
-        snippetSrc: "https://cdn.proofql.com/v1.js",
+        snippetSrc: "https://cdn.proofql.dev/v1.js",
       }),
     ).toBe(
       '<div data-proofql data-query="implant parking" data-limit="3"></div>\n' +
-        '<script async src="https://cdn.proofql.com/v1.js" data-key="pq_pk_live_abc"></script>',
+        '<script async src="https://cdn.proofql.dev/v1.js" data-key="pq_pk_live_abc"></script>',
     );
   });
 
@@ -136,11 +136,11 @@ describe("onboardingSnippet", () => {
       onboardingSnippet({
         query: null,
         key: "k",
-        snippetSrc: "https://cdn.proofql.com/v1.js",
-        apiUrl: "https://api.proofql.com",
+        snippetSrc: "https://cdn.proofql.dev/v1.js",
+        apiUrl: "https://api.proofql.dev",
       }),
     ).toBe(
-      '<div data-proofql data-limit="3"></div>\n<script async src="https://cdn.proofql.com/v1.js" data-key="k"></script>',
+      '<div data-proofql data-limit="3"></div>\n<script async src="https://cdn.proofql.dev/v1.js" data-key="k"></script>',
     );
   });
 });
@@ -156,11 +156,11 @@ describe("demoUrl", () => {
     ).toBe(
       "http://localhost:8800/demo/?key=pq_pk_live_x&api=http%3A%2F%2Flocalhost%3A8797",
     );
-    expect(demoUrl("https://cdn.proofql.com/v1.js", "pq_pk_live_x")).toBe(
-      "https://cdn.proofql.com/demo/?key=pq_pk_live_x",
+    expect(demoUrl("https://cdn.proofql.dev/v1.js", "pq_pk_live_x")).toBe(
+      "https://cdn.proofql.dev/demo/?key=pq_pk_live_x",
     );
-    expect(demoUrl("https://cdn.proofql.com/v1.js", null)).toBe(
-      "https://cdn.proofql.com/demo/",
+    expect(demoUrl("https://cdn.proofql.dev/v1.js", null)).toBe(
+      "https://cdn.proofql.dev/demo/",
     );
   });
 });

@@ -10,7 +10,7 @@ Every non-2xx response from the API is one envelope:
   "error": {
     "code": "validation_failed",
     "message": "filters.since: Invalid date",
-    "doc_url": "https://docs.proofql.com/errors#validation_failed",
+    "doc_url": "https://docs.proofql.dev/errors#validation_failed",
     "request_id": "1b7c3d9e-2f4a-4b6c-8d0e-1f2a3b4c5d6e",
     "details": [{ "path": "filters.since", "message": "Invalid date" }]
   }

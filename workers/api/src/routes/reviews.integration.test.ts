@@ -332,7 +332,7 @@ describe("POST /v1/reviews", () => {
     expect(tooMany.json).toMatchObject({
       error: {
         code: "validation_failed",
-        doc_url: "https://docs.proofql.com/errors#validation_failed",
+        doc_url: "https://docs.proofql.dev/errors#validation_failed",
         details: [{ path: "", message: expect.stringMatching(/100/) }],
       },
     });
@@ -627,7 +627,7 @@ describe("POST /v1/reviews", () => {
     expect(json).toMatchObject({
       error: {
         code: "review_limit_reached",
-        doc_url: "https://docs.proofql.com/errors#review_limit_reached",
+        doc_url: "https://docs.proofql.dev/errors#review_limit_reached",
         message: expect.stringMatching(/5000/),
       },
     });

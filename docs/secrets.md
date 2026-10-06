@@ -81,7 +81,7 @@ lists the ones still set to the `TBD-provision-in-m0` placeholder.
 | Queue `INGEST_QUEUE` + consumer | now | `proofql-ingest-preview`, DLQ `proofql-ingest-dlq-preview` | `proofql-ingest-prod`, DLQ `proofql-ingest-dlq-prod` | `wrangler queues create` (step 4); names are already in the configs, nothing to paste | api (producer), pipeline (consumer) |
 | Hyperdrive `HYPERDRIVE` | now | id of `proofql-hyperdrive-preview` → Neon `preview` branch | id of `proofql-hyperdrive-prod` → Neon `prod` branch | `wrangler hyperdrive create --connection-string=<pooled Neon string>` (step 7) → paste id | api, pipeline, dashboard |
 | Workers AI `AI` | now | binding only | binding only | nothing: account-level, no id, no key | api, pipeline |
-| `API_URL` (var) | now | `https://proofql-api-preview.<subdomain>.workers.dev` | `https://proofql-api-prod.<subdomain>.workers.dev` (custom domain later, scope §7.6) | paste into `apps/dashboard/wrangler.jsonc` (step 9) | dashboard |
+| `API_URL` (var) | now | `https://proofql-api-preview.<subdomain>.workers.dev` | `https://api.proofql.dev` (custom domain, scope §7.6) | paste into `apps/dashboard/wrangler.jsonc` (step 9) | dashboard |
 | `ENVIRONMENT` (var) | now | `"preview"` | `"prod"` | committed | all |
 
 The Neon connection string embedded in a Hyperdrive config is **held by
@@ -134,7 +134,7 @@ secret to paste into `.dev.vars`.
 | `STRIPE_WEBHOOK_SECRET` | M3 | **yes** | same worker as above | `.dev.vars` (from `stripe listen`) | `wrangler secret put STRIPE_WEBHOOK_SECRET --env preview\|prod` | One per webhook endpoint; roll in the Stripe dashboard. |
 | `STRIPE_PUBLISHABLE_KEY` | M3 | no (publishable) | dashboard | `.dev.vars` | `vars` in `apps/dashboard/wrangler.jsonc` | Changes with the Stripe account/mode. |
 | `SIGNUP_OPEN` | **now** (#51; public signup switch, `apps/dashboard/app/lib/signup-gate.ts`, [`docs/launch.md`](launch.md) "Go") | no | dashboard | `vars` in `wrangler.jsonc` (`"true"`); `SIGNUP_OPEN=false` in `.dev.vars` to see the waitlist page | **preview:** `vars` (`"true"`). **prod:** deliberately *not* a var — `echo true \| wrangler secret put SIGNUP_OPEN --env prod` from `apps/dashboard` is the launch switch, `false` closes again; absent ⇒ closed | A var needs a PR and a deploy to change; the secret slot flips per request with no deploy, which is what a launch switch needs. Not sensitive; it lives in the secret store only for that property. |
-| `SUPPORT_EMAIL` | **now** (#51; the footer's support address, `supportEmailFrom` in `@proofql/core`; the docs site reads the same name at build time via `deploy.yml`) | no | dashboard, docs build | `vars` in `wrangler.jsonc` | `vars` in all three blocks of `apps/dashboard/wrangler.jsonc`; repository variable `SUPPORT_EMAIL` for the docs build (`gh variable set SUPPORT_EMAIL`) | Empty ⇒ `DEFAULT_SUPPORT_EMAIL` (`support@proofql.com`). Change it in [`docs/launch.md`](launch.md) "Support" when the mailbox is something else. |
+| `SUPPORT_EMAIL` | **now** (#51; the footer's support address, `supportEmailFrom` in `@proofql/core`; the docs site reads the same name at build time via `deploy.yml`) | no | dashboard, docs build | `vars` in `wrangler.jsonc` | `vars` in all three blocks of `apps/dashboard/wrangler.jsonc`; repository variable `SUPPORT_EMAIL` for the docs build (`gh variable set SUPPORT_EMAIL`) | Empty ⇒ `DEFAULT_SUPPORT_EMAIL` (`support@proofql.dev`). Change it in [`docs/launch.md`](launch.md) "Support" when the mailbox is something else. |
 
 Not in the table on purpose:
 

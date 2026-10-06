@@ -93,8 +93,7 @@ describe("buildAuthorizeUrl", () => {
     const url = new URL(
       buildAuthorizeUrl(resolveGoogleEndpoints(), {
         clientId: "cid",
-        redirectUri:
-          "https://dash.proofql.com/app/integrations/google/callback",
+        redirectUri: "https://app.proofql.dev/app/integrations/google/callback",
         state: "st",
         codeChallenge: "ch",
       }),
@@ -104,7 +103,7 @@ describe("buildAuthorizeUrl", () => {
     );
     expect(Object.fromEntries(url.searchParams)).toEqual({
       client_id: "cid",
-      redirect_uri: "https://dash.proofql.com/app/integrations/google/callback",
+      redirect_uri: "https://app.proofql.dev/app/integrations/google/callback",
       response_type: "code",
       scope: "https://www.googleapis.com/auth/business.manage",
       access_type: "offline",

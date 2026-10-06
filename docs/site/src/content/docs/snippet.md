@@ -3,11 +3,11 @@ title: Snippet
 description: One script tag and one div render relevant reviews on any site. Attributes, keys and origins, styling variables, your own markup, single-page apps, and what happens when something fails.
 ---
 
-The snippet is a pure client of [`GET /v1/query`](/api/operations/queryreviewsget): vanilla JavaScript, no dependencies, one minified file under 5 KB gzipped, served from `https://cdn.proofql.com/v1.js`. To see it on a page before touching your own, open the [hosted demo](https://cdn.proofql.com/demo/): a small-business site with four sections asking four different questions of the same reviews, using the default stylesheet throughout.
+The snippet is a pure client of [`GET /v1/query`](/api/operations/queryreviewsget): vanilla JavaScript, no dependencies, one minified file under 5 KB gzipped, served from `https://cdn.proofql.dev/v1.js`. To see it on a page before touching your own, open the [hosted demo](https://cdn.proofql.dev/demo/): a small-business site with four sections asking four different questions of the same reviews, using the default stylesheet throughout.
 
 ```html
 <div data-proofql data-query="dental implants" data-limit="3"></div>
-<script async src="https://cdn.proofql.com/v1.js" data-key="pq_pk_live_…"></script>
+<script async src="https://cdn.proofql.dev/v1.js" data-key="pq_pk_live_…"></script>
 ```
 
 The script reads its configuration from its own tag, finds every `[data-proofql]` element, asks the API, and renders what comes back. Whatever the element already contains (a fallback, a placeholder) is replaced only when there is something to show.
@@ -17,7 +17,7 @@ The script reads its configuration from its own tag, finds every `[data-proofql]
 | attribute  | required | default                   | meaning |
 |------------|----------|---------------------------|---------|
 | `data-key` | yes      | —                         | A **publishable** key (`pq_pk_live_…` or `pq_pk_test_…`). Never a secret key: it ships in page source. |
-| `data-api` | no       | `https://api.proofql.com` | API origin. For local development against the repo: `http://localhost:8797`. |
+| `data-api` | no       | `https://api.proofql.dev` | API origin. For local development against the repo: `http://localhost:8797`. |
 
 ## Keys and allowed origins
 
@@ -61,7 +61,7 @@ Nothing else is sent. The API rejects unknown parameters, and the snippet adds n
     </footer>
   </li>
 </ul>
-<a class="pq-badge" href="https://proofql.com/?ref=badge" rel="noopener" target="_blank">Reviews by ProofQL</a>
+<a class="pq-badge" href="https://proofql.dev/?ref=badge" rel="noopener" target="_blank">Reviews by ProofQL</a>
 ```
 
 - Everything from the API is inserted as text, never parsed as HTML.
@@ -123,7 +123,7 @@ For full control, point `data-template` at a `<template>`. Its content is cloned
     <blockquote data-pq="excerpt"></blockquote>
     <figcaption>
       <b data-pq="author"></b> on
-      <a data-pq="url" href="https://proofql.com/" target="_blank"><span data-pq="source">source</span></a>,
+      <a data-pq="url" href="https://proofql.dev/" target="_blank"><span data-pq="source">source</span></a>,
       <time data-pq="date"></time>
     </figcaption>
   </figure>
@@ -167,4 +167,4 @@ This is deliberate. An empty block is better than an irrelevant review ([Relevan
 
 ## The hosted file
 
-`https://cdn.proofql.com/v1.js` is the stable alias the script tag uses; a new release rolls to it within five minutes. Beside it, `/v1.<hash>.js` is the same build content-addressed and cached for a year: pin it where you also control the page that would need updating, and quote it in a bug report. `GET https://cdn.proofql.com/version.json` says which build is live (`{ version, hash, builtAt }`). Both files carry `Access-Control-Allow-Origin: *`, so fetch-based loaders and devtools work, and no request to the cdn ever sets a cookie.
+`https://cdn.proofql.dev/v1.js` is the stable alias the script tag uses; a new release rolls to it within five minutes. Beside it, `/v1.<hash>.js` is the same build content-addressed and cached for a year: pin it where you also control the page that would need updating, and quote it in a bug report. `GET https://cdn.proofql.dev/version.json` says which build is live (`{ version, hash, builtAt }`). Both files carry `Access-Control-Allow-Origin: *`, so fetch-based loaders and devtools work, and no request to the cdn ever sets a cookie.

@@ -97,7 +97,7 @@ describe("query cache on a custom domain: the Cache API, not KV", () => {
     const env = testEnv({ kv });
     const edge = fakeEdgeCache();
     const a = app({ edgeCache: edge });
-    const host = "https://api.proofql.com";
+    const host = "https://api.proofql.dev";
 
     const miss = await query(a, env, f.secret, "implant tooth", host);
     expect(miss.status).toBe(200);

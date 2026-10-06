@@ -35,7 +35,7 @@ describe("POST /v1/reviews body limit", () => {
     expect(await res.json()).toMatchObject({
       error: {
         code: "payload_too_large",
-        doc_url: "https://docs.proofql.com/errors#payload_too_large",
+        doc_url: "https://docs.proofql.dev/errors#payload_too_large",
       },
     });
   });

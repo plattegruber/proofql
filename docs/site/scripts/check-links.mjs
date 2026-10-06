@@ -10,7 +10,7 @@
  *      with that id (same-page `#…` links included);
  *   3. any value of the spec's `ErrorCode` enum (docs/api/openapi.yaml) with
  *      no `id="<code>"` on the errors page — the api worker emits
- *      `doc_url: https://docs.proofql.com/errors#<code>` for every error,
+ *      `doc_url: https://docs.proofql.dev/errors#<code>` for every error,
  *      so each anchor is a public contract (workers/api/src/errors.ts);
  *   4. `/query#relevance`, the URL the dashboard's settings tab links to
  *      (`RELEVANCE_DOCS_URL` in apps/dashboard).

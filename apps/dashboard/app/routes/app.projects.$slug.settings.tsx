@@ -28,7 +28,7 @@ import { deleteProject, updateProjectSettings } from "~/lib/projects.server";
 import type { Route } from "./+types/app.projects.$slug.settings";
 
 /** The docs page's relevance section (#43); the anchor is part of its contract. */
-const RELEVANCE_DOCS_URL = "https://docs.proofql.com/query#relevance";
+const RELEVANCE_DOCS_URL = "https://docs.proofql.dev/query#relevance";
 
 export async function loader(args: Route.LoaderArgs) {
   const { account } = await requireAccount(args);

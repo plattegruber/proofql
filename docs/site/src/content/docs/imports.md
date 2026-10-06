@@ -44,7 +44,7 @@ Unknown fields are a `422 validation_failed` naming the field, never ignored.
 From your server, with the project's **secret** key, one review or an array of 1 to 100 per request, at most 1 MiB:
 
 ```sh
-curl https://api.proofql.com/v1/reviews \
+curl https://api.proofql.dev/v1/reviews \
   -H "Authorization: Bearer pq_sk_live_…" \
   -H "Content-Type: application/json" \
   -d @reviews.json

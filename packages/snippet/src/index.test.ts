@@ -100,7 +100,7 @@ describe("v1.js", () => {
     await settle();
     expect(fetchStub.calls).toHaveLength(1);
     expect(fetchStub.calls[0]).toContain(
-      "https://api.proofql.com/v1/query?key=pq_pk_test_abc&limit=3",
+      "https://api.proofql.dev/v1/query?key=pq_pk_test_abc&limit=3",
     );
     expect(el.querySelector(".pq-list")).not.toBeNull();
   });

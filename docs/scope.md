@@ -77,10 +77,10 @@ Marginal cost of a free tenant at 500 reviews: ~1,000 halfvec vectors ≈ 2 MB s
 
 ## 3. API contract (v0)
 
-The OpenAPI spec at [docs/api/openapi.yaml](api/openapi.yaml) is the source of truth; this section is the narrative. Base URL `https://api.proofql.com`. JSON everywhere, `snake_case` fields, versioned by path prefix. Every response carries an `x-request-id` header. Standard error envelope on every non-2xx response:
+The OpenAPI spec at [docs/api/openapi.yaml](api/openapi.yaml) is the source of truth; this section is the narrative. Base URL `https://api.proofql.dev`. JSON everywhere, `snake_case` fields, versioned by path prefix. Every response carries an `x-request-id` header. Standard error envelope on every non-2xx response:
 
 ```json
-{ "error": { "code": "validation_failed", "message": "…", "doc_url": "https://docs.proofql.com/errors#validation_failed",
+{ "error": { "code": "validation_failed", "message": "…", "doc_url": "https://docs.proofql.dev/errors#validation_failed",
              "request_id": "…", "details": [{ "path": "0.rating", "message": "…" }] } }
 ```
 
@@ -152,7 +152,7 @@ Also: `GET /v1/reviews` (cursor-paginated, `limit` 1–100, filters `source`, `m
 
 ```html
 <div data-proofql data-query="dental implants" data-limit="3"></div>
-<script async src="https://cdn.proofql.com/v1.js" data-key="pq_pk_live_…"></script>
+<script async src="https://cdn.proofql.dev/v1.js" data-key="pq_pk_live_…"></script>
 ```
 
 A pure client of `GET /v1/query`. Under 5 KB, no dependencies, renders nothing on empty results or error, ships with a default stylesheet that is easy to override and a `data-template` escape hatch. `data-highlight="true"` renders the whole review with the API's `highlight` span in `<mark class="pq-mark">` (DOM-built, never `innerHTML`). Free-tier projects render a small "Reviews by ProofQL" badge; the API tells the snippet whether to show it. The snippet is the demo and the first thing a developer sees; it must look good out of the box.
@@ -216,7 +216,7 @@ These need a human with the real accounts. They gate production, not development
 3. **Cloudflare account and Neon project** for staging and production, and wrangler secrets. One Neon account serves both ProofQL and Well-Regarded as separate projects.
 4. **Clerk application** and keys.
 5. **Google Places API key** for the five-review onboarding bootstrap (ordinary Cloud Console key, no approval).
-6. **Domain:** `proofql.com` (or whatever is owned) with `api.` and `cdn.` subdomains.
+6. **Domain:** `proofql.dev` (owned; zone on the Cloudflare account) with `api.`, `cdn.`, `app.` and `docs.` subdomains.
 7. **Stripe account** (M3).
 
 ## 8. Open questions

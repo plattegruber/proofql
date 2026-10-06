@@ -24,7 +24,7 @@ describe("isWorkersDevHost", () => {
   });
 
   it("treats custom domains and localhost as Cache-API capable", () => {
-    expect(isWorkersDevHost("api.proofql.com")).toBe(false);
+    expect(isWorkersDevHost("api.proofql.dev")).toBe(false);
     expect(isWorkersDevHost("workers.dev.example.com")).toBe(false);
     expect(isWorkersDevHost("localhost")).toBe(false);
   });
@@ -34,11 +34,11 @@ describe("edgeCacheUrl", () => {
   it("keys under the reserved path on the request's own origin", () => {
     expect(
       edgeCacheUrl(
-        "https://api.proofql.com/v1/query?q=x",
+        "https://api.proofql.dev/v1/query?q=x",
         "q",
         "q:p:live:3:ab",
       ),
-    ).toBe(`https://api.proofql.com${EDGE_CACHE_PATH}q/q%3Ap%3Alive%3A3%3Aab`);
+    ).toBe(`https://api.proofql.dev${EDGE_CACHE_PATH}q/q%3Ap%3Alive%3A3%3Aab`);
   });
 });
 

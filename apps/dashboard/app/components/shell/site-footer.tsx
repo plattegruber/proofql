@@ -7,7 +7,7 @@ import { PRIVACY_URL, TERMS_URL } from "@proofql/core";
 
 import { cn } from "~/lib/utils";
 
-export const DOCS_URL = "https://docs.proofql.com";
+export const DOCS_URL = "https://docs.proofql.dev";
 
 export interface SiteFooterProps extends React.ComponentProps<"footer"> {
   supportEmail: string;

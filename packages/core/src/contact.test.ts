@@ -20,7 +20,7 @@ describe("contact", () => {
   });
 
   it("points the legal pages at the docs site", () => {
-    expect(PRIVACY_URL).toBe("https://docs.proofql.com/privacy");
-    expect(TERMS_URL).toBe("https://docs.proofql.com/terms");
+    expect(PRIVACY_URL).toBe("https://docs.proofql.dev/privacy");
+    expect(TERMS_URL).toBe("https://docs.proofql.dev/terms");
   });
 });

@@ -90,7 +90,7 @@ export function clerkFrontendApi(
   return `https://${host.toLowerCase()}`;
 }
 
-/** `https://cdn.proofql.com/v1.js` → `https://cdn.proofql.com`; null if not a URL. */
+/** `https://cdn.proofql.dev/v1.js` → `https://cdn.proofql.dev`; null if not a URL. */
 export function originOf(url: string | undefined): string | null {
   if (!url) return null;
   try {

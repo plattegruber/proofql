@@ -3,11 +3,11 @@
  * (the API origin, for local development and self-hosted previews).
  *
  * ```html
- * <script async src="https://cdn.proofql.com/v1.js" data-key="pq_pk_live_…"></script>
+ * <script async src="https://cdn.proofql.dev/v1.js" data-key="pq_pk_live_…"></script>
  * ```
  */
 
-export const DEFAULT_API = "https://api.proofql.com";
+export const DEFAULT_API = "https://api.proofql.dev";
 
 export interface SnippetConfig {
   key: string;

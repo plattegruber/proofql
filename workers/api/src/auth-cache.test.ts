@@ -103,11 +103,11 @@ describe("Cache API tier", () => {
     const clock = Date.parse("2026-10-04T12:00:00Z");
     const edge = fakeEdgeCache({ now: () => clock });
     const first = harness(edge, () => clock);
-    await first.call("api.proofql.com", "/put");
+    await first.call("api.proofql.dev", "/put");
     // `waitUntil` has no execution context under app.request: detached.
     await new Promise((r) => setTimeout(r, 0));
-    const url = edgeCacheUrl("https://api.proofql.com/", "auth", HASH);
-    expect(url).toBe(`https://api.proofql.com/__proofql_cache/auth/${HASH}`);
+    const url = edgeCacheUrl("https://api.proofql.dev/", "auth", HASH);
+    expect(url).toBe(`https://api.proofql.dev/__proofql_cache/auth/${HASH}`);
     expect(edge.store.has(url)).toBe(true);
     expect(edge.store.get(url)?.headers).toContainEqual([
       "cache-control",
@@ -115,7 +115,7 @@ describe("Cache API tier", () => {
     ]);
 
     const second = harness(edge, () => clock);
-    expect(await second.call("api.proofql.com", "/get")).toMatchObject({
+    expect(await second.call("api.proofql.dev", "/get")).toMatchObject({
       generation: 2,
       auth: { projectId: auth.projectId },
     });
@@ -141,22 +141,22 @@ describe("Cache API tier", () => {
       },
     };
     const { call } = harness(broken, Date.now);
-    expect(await call("api.proofql.com", "/put")).toBe("ok");
-    expect(await call("api.proofql.com", "/get")).not.toBeNull(); // isolate tier
+    expect(await call("api.proofql.dev", "/put")).toBe("ok");
+    expect(await call("api.proofql.dev", "/get")).not.toBeNull(); // isolate tier
     const other = harness(broken, Date.now);
-    expect(await other.call("api.proofql.com", "/get")).toBeNull();
+    expect(await other.call("api.proofql.dev", "/get")).toBeNull();
   });
 
   it("ignores an entry that does not parse", async () => {
     const edge = fakeEdgeCache();
     await edge.put(
-      edgeCacheUrl("https://api.proofql.com/", "auth", HASH),
+      edgeCacheUrl("https://api.proofql.dev/", "auth", HASH),
       new Response(JSON.stringify({ v: 1, auth: { ...auth, plan: "x" } }), {
         headers: { "cache-control": "max-age=60" },
       }),
     );
     const { call } = harness(edge, Date.now);
-    expect(await call("api.proofql.com", "/get")).toBeNull();
+    expect(await call("api.proofql.dev", "/get")).toBeNull();
   });
 });
 

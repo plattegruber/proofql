@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "cdn.proofql.com: serves the built snippet (/v1.js, /v1.<hash>.js) and the hosted demo site (/demo/).",
+  "description": "cdn.proofql.dev: serves the built snippet (/v1.js, /v1.<hash>.js) and the hosted demo site (/demo/).",
   "scripts": {
     "build": "node scripts/build.mjs",
     "dev": "node scripts/build.mjs && wrangler dev",

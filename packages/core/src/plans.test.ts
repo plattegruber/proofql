@@ -55,7 +55,7 @@ describe("PLANS", () => {
   });
 
   it("the pricing placeholder is an absolute https URL", () => {
-    expect(PRICING_URL).toMatch(/^https:\/\/proofql\.com\//);
+    expect(PRICING_URL).toMatch(/^https:\/\/proofql\.dev\//);
   });
 });
 

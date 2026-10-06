@@ -39,7 +39,7 @@ info:
     Every non-2xx response is one envelope:
 
     ```json
-    { "error": { "code": "validation_failed", "message": "…", "doc_url": "https://docs.proofql.com/errors#validation_failed",
+    { "error": { "code": "validation_failed", "message": "…", "doc_url": "https://docs.proofql.dev/errors#validation_failed",
                  "request_id": "…", "details": [{ "path": "0.rating", "message": "…" }] } }
     ```
 
@@ -88,20 +88,20 @@ info:
     snippet's form — `GET /v1/query?key=pq_pk_…&q=…` with no custom headers —
     is a CORS *simple request*, so browsers send it without any preflight.
   # Contact, terms and licence point at the docs site (docs/launch.md
-  # "Legal"); the address is DEFAULT_SUPPORT_EMAIL in @proofql/core until the
-  # mailbox exists. Google's OAuth verification and Clerk's production
+  # "Legal"); the address is DEFAULT_SUPPORT_EMAIL in @proofql/core
+  # (Email Routing on proofql.dev, docs/launch.md "Support"). Google's OAuth verification and Clerk's production
   # instance need the same two URLs.
   contact:
     name: ProofQL support
-    url: https://docs.proofql.com
-    email: support@proofql.com
-  termsOfService: https://docs.proofql.com/terms
+    url: https://docs.proofql.dev
+    email: support@proofql.dev
+  termsOfService: https://docs.proofql.dev/terms
   license:
     name: Proprietary
-    url: https://docs.proofql.com/terms
+    url: https://docs.proofql.dev/terms
 
 servers:
-  - url: https://api.proofql.com
+  - url: https://api.proofql.dev
     description: Production.
   - url: http://localhost:8797
     description: Local `wrangler dev` (see infra/environments.md).
@@ -1111,7 +1111,7 @@ components:
                 error:
                   code: unauthorized
                   message: "Missing Authorization header. Send `Authorization: Bearer <api key>`."
-                  doc_url: https://docs.proofql.com/errors#unauthorized
+                  doc_url: https://docs.proofql.dev/errors#unauthorized
                   request_id: 1b7c3d9e-2f4a-4b6c-8d0e-1f2a3b4c5d6e
 
     Forbidden:
@@ -1196,7 +1196,7 @@ components:
             error:
               code: unsupported_media_type
               message: "Request bodies must be JSON: send `Content-Type: application/json`."
-              doc_url: https://docs.proofql.com/errors#unsupported_media_type
+              doc_url: https://docs.proofql.dev/errors#unsupported_media_type
               request_id: 1b7c3d9e-2f4a-4b6c-8d0e-1f2a3b4c5d6e
 
     ValidationFailed:
@@ -1222,7 +1222,7 @@ components:
                 error:
                   code: validation_failed
                   message: "Invalid request: limt is not a recognized field."
-                  doc_url: https://docs.proofql.com/errors#validation_failed
+                  doc_url: https://docs.proofql.dev/errors#validation_failed
                   request_id: 1b7c3d9e-2f4a-4b6c-8d0e-1f2a3b4c5d6e
                   details:
                     - path: limt
@@ -1408,7 +1408,7 @@ components:
             doc_url:
               type: string
               format: uri
-              description: "`https://docs.proofql.com/errors#<code>`."
+              description: "`https://docs.proofql.dev/errors#<code>`."
             request_id:
               type: string
               description: Same value as the `x-request-id` header.

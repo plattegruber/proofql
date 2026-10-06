@@ -304,8 +304,9 @@ Resources"):
 | Workers Observability | Edit | the `observability` block in every config |
 
 Plus **User → User Details: Read** and **Memberships: Read** (wrangler
-calls `/user` and `/memberships` to resolve the account). No Zone
-permissions until a custom domain exists (scope §7.6). Leave "Client IP
+calls `/user` and `/memberships` to resolve the account). For the prod
+custom domains add **Zone → Workers Routes: Edit** and **Zone → DNS: Edit**,
+restricted to the `proofql.dev` zone ("Custom domains" below). Leave "Client IP
 Address Filtering" empty (GitHub runners rotate IPs); set TTL to no expiry
 and rely on rotation (docs/secrets.md).
 
@@ -359,8 +360,8 @@ transaction pooling can confuse some DDL.
 
 Now fill the dashboard's `API_URL` in `apps/dashboard/wrangler.jsonc`:
 `env.preview.vars.API_URL` = `https://proofql-api-preview.<subdomain>.workers.dev`,
-`env.prod.vars.API_URL` = `https://proofql-api-prod.<subdomain>.workers.dev`
-(swap for `https://api.proofql.com` when the domain lands).
+`env.prod.vars.API_URL` = `https://api.proofql.dev` (the custom domain,
+already set; "Custom domains" below).
 
 **Verify**
 
@@ -477,7 +478,13 @@ gh workflow run deploy.yml -R plattegruber/proofql -f environment=prod
 
 Approve `migrate-prod` under **Actions → the run → Review deployments**,
 watch it, then approve `deploy-prod`. Smoke-check
-`https://proofql-api-prod.$WORKERS_SUBDOMAIN.workers.dev/health`.
+`https://api.proofql.dev/health` (the workflow checks all four custom
+domains and the pipeline's workers.dev `/health`).
+
+`proofql-dashboard-prod` already exists before this deploy, empty: running
+`wrangler secret put CLERK_SECRET_KEY --env prod` against a worker that has
+never been deployed creates a placeholder script to hold the secret. That is
+expected; the first prod deploy uploads over it and keeps the secret.
 
 ## 14. Google Places API key (dashboard and pipeline, #47, #116)
 
@@ -584,10 +591,10 @@ nothing. Development and tests run against the fake Google server
 
    ```
    https://proofql-dashboard-preview.<subdomain>.workers.dev/app/integrations/google/callback
-   https://proofql-dashboard-prod.<subdomain>.workers.dev/app/integrations/google/callback
+   https://app.proofql.dev/app/integrations/google/callback
    ```
 
-   (add the custom domain's URI when it exists; the path never changes —
+   (prod is the custom domain; the path never changes —
    the project is carried in the signed `state`, so one URI covers every
    project). Local dev uses the fake and needs no entry here.
 3. Copy the client id and secret:
@@ -632,40 +639,51 @@ keep their rows; polling simply stops because connect cannot create new
 credentials and the poller skips an unconfigured environment only when the
 secrets are absent — to pause polling too, remove `GOOGLE_CLIENT_SECRET`).
 
-## Custom domains (later, outside this checklist)
+## Custom domains (proofql.dev, #167)
 
-Scope §7.6: `api.proofql.com`, `cdn.proofql.com`, `app.proofql.com` and
-`docs.proofql.com` replace the workers.dev URLs once the domain is owned and
-its zone is on this Cloudflare account. The launch checklist
-([`docs/launch.md`](../docs/launch.md) "Domains") carries the full sequence
-with verify steps, including the apex redirect, the Clerk DNS records, and
-the WAF rules from [`docs/security.md` §7](../docs/security.md#7-owner-side-settings-cloudflare-dashboard)
-that only exist once the zone does. In short:
+Scope §7.6. The zone is `proofql.dev` (active on this account, nameservers
+`aarav.ns.cloudflare.com` / `laylah.ns.cloudflare.com`). Each prod worker
+carries a **Workers Custom Domain** in its `env.prod` block, so
+`wrangler deploy --env prod` creates the proxied DNS record and the
+certificate itself; there is no DNS or certificate step for these four:
 
-1. Add **Zone → Workers Routes: Edit** and **Zone → DNS: Edit** for that zone
-   to the `proofql-github-actions` token (step 8).
-2. `workers/cdn/wrangler.jsonc`: in `env.prod`, replace the `TODO(cdn.proofql.com)`
-   comment with
-   `"routes": [{ "pattern": "cdn.proofql.com", "custom_domain": true }]`.
-   `wrangler deploy --env prod` creates the DNS record and certificate. The
-   snippet tag in the docs (`<script src="https://cdn.proofql.com/v1.js">`)
-   and the demo link in the README then resolve; nothing in the worker
-   changes. Give preview its own hostname (`cdn-preview.proofql.com`) the
-   same way if a stable preview URL is wanted.
-3. The api gets its route the same way (`TODO(api.proofql.com)` in
-   `workers/api/wrangler.jsonc`), and `API_URL` in the dashboard config
-   (step 9) and the smoke check in `deploy.yml` move to the new hostnames.
-   The dashboard gets `app.proofql.com` (`TODO(app.proofql.com)` in
-   `apps/dashboard/wrangler.jsonc`); the Clerk production instance's paths
-   and webhook endpoint move with it (docs/launch.md "Clerk production
-   instance").
-4. `docs/site/wrangler.jsonc`: in `env.prod`, replace the
-   `TODO(docs.proofql.com)` comment with
-   `"routes": [{ "pattern": "docs.proofql.com", "custom_domain": true }]`
-   (#43). The api already emits `doc_url: https://docs.proofql.com/errors#<code>`
-   in every error envelope (`ERROR_DOCS_BASE_URL`, `workers/api/src/errors.ts`)
-   and the dashboard links `https://docs.proofql.com/query#relevance`, so until
-   this step those links 404; nothing else depends on it.
+| Host | Worker | Config |
+| --- | --- | --- |
+| `api.proofql.dev` | `proofql-api-prod` | `workers/api/wrangler.jsonc` |
+| `cdn.proofql.dev` | `proofql-cdn-prod` | `workers/cdn/wrangler.jsonc` |
+| `app.proofql.dev` | `proofql-dashboard-prod` | `apps/dashboard/wrangler.jsonc` |
+| `docs.proofql.dev` | `proofql-docs-prod` | `docs/site/wrangler.jsonc` |
+
+```jsonc
+"routes": [{ "pattern": "api.proofql.dev", "custom_domain": true }]
+```
+
+The pipeline has no route (it only answers `/health` on workers.dev).
+Each of the four also sets `"workers_dev": false` in `env.prod` (wrangler
+disables workers.dev once a route exists anyway; saying so avoids the
+warning): in prod, `proofql-{api,cdn,dashboard,docs}-prod.<subdomain>.workers.dev`
+stop answering at the first deploy with the routes, so nothing bypasses the
+zone's WAF and the api always gets the Cache API. Only the pipeline keeps
+its workers.dev URL. Preview stays on `*.workers.dev`; give it
+`*-preview.proofql.dev` hosts the same way only if a stable preview URL is
+wanted.
+
+What points at the hosts: the dashboard's prod `API_URL`
+(`https://api.proofql.dev`) and `SNIPPET_SRC` (`https://cdn.proofql.dev/v1.js`),
+the snippet's default api (`DEFAULT_API`, `packages/snippet/src/config.ts`),
+every api error's `doc_url` (`https://docs.proofql.dev/errors#<code>`,
+`ERROR_DOCS_BASE_URL` in `workers/api/src/errors.ts`), the docs site's
+`site`, and `deploy.yml`'s "Smoke check custom domains" step.
+
+Before the first prod deploy:
+
+1. Add **Zone → Workers Routes: Edit** and **Zone → DNS: Edit** for
+   `proofql.dev` to the `proofql-github-actions` token (step 8). Without them
+   the deploy fails with `Authentication error [code: 10000]`.
+2. The apex, `www`, the Clerk DNS records, Email Routing for
+   `support@proofql.dev` and the WAF rules from
+   [`docs/security.md` §7](../docs/security.md#7-owner-side-settings-cloudflare-dashboard)
+   are dashboard steps: [`docs/launch.md`](../docs/launch.md) §2, §6 and §11.
 
 ## Demo project on preview (after step 11, for #35)
 
@@ -673,7 +691,7 @@ The hosted demo (`/demo/` on the cdn worker) reads its publishable key from
 its URL and never ships one in the tree. Seed the preview database once —
 `DATABASE_URL="<preview DIRECT string>" pnpm seed` prints the keys — add the
 cdn worker's origin (`https://proofql-cdn-preview.<subdomain>.workers.dev`,
-later `https://cdn.proofql.com`) to the demo project's `allowed_origins`
+later `https://cdn.proofql.dev`) to the demo project's `allowed_origins`
 (dashboard → project settings, or SQL), and put the resulting link in the
 README's "Demo" section:
 
@@ -683,7 +701,7 @@ https://proofql-cdn-preview.<subdomain>.workers.dev/demo/?key=pq_pk_live_…&api
 
 A publishable key is public by design (it ships in page source and is
 scoped by origin), so the link can be committed. `&api=` is dropped once the
-api lives at `https://api.proofql.com`, the snippet's default.
+api lives at `https://api.proofql.dev`, the snippet's default.
 
 Keep the seed's live secret key somewhere private as well: it is what
 `pnpm demo` (step 11's end-to-end check, `scripts/demo.sh`) ingests and

@@ -14,7 +14,7 @@ const GOOGLE_FONTS =
   "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Space+Grotesk:wght@400;500;600;700&display=swap";
 
 export default defineConfig({
-  site: "https://docs.proofql.com",
+  site: "https://docs.proofql.dev",
   // `/errors#validation_failed` is what every error envelope's `doc_url`
   // says, so pages are files (errors.html) with no trailing slash and no
   // redirect in front of the anchor.

@@ -80,7 +80,7 @@ describe("overview loader", () => {
       projects: PLANS.free.projects,
       reviewsPerProject: PLANS.free.reviewsPerProject,
       queriesPerMonth: PLANS.free.queriesPerMonth,
-      pricingUrl: "https://proofql.com/pricing",
+      pricingUrl: "https://proofql.dev/pricing",
     });
     expect(data.projects).toEqual([
       expect.objectContaining({

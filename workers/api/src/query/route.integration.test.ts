@@ -901,7 +901,7 @@ describe("/v1/query", () => {
       const body = await json<ErrorEnvelope>(res);
       expect(body.error).toMatchObject({
         code: "validation_failed",
-        doc_url: "https://docs.proofql.com/errors#validation_failed",
+        doc_url: "https://docs.proofql.dev/errors#validation_failed",
         details: [{ path: "limt", message: expect.any(String) }],
       });
       expect(body.error.request_id).toBe(res.headers.get("X-Request-Id"));
