@@ -78,6 +78,7 @@ export default defineConfig({
           items: [
             { label: "Privacy policy", slug: "privacy" },
             { label: "Terms of service", slug: "terms" },
+            { label: "Subprocessors", slug: "subprocessors" },
           ],
         },
       ],
