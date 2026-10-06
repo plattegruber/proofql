@@ -53,7 +53,7 @@ Our guiding principle is to collect only what we need.
 
 ### Reviews a customer imports (processed on the customer's behalf)
 
-A customer can bring reviews in four ways: the push API, a CSV/JSON export it uploads, the Google Places API bootstrap (up to five public reviews of its business), and, once approved by Google, its connected Google Business Profile. For each review we store what the customer or source provides: the review text, star rating, author display name, author avatar URL, the source (for example `google`), the review date, a link to the original, its language, and any labels the customer adds. From that we derive verbatim excerpts, numeric embeddings and a sentiment label (see [How we use AI](#how-we-use-ai)). Uploaded export files are stored so an import can be processed and are never served back.
+A customer can bring reviews in four ways: the push API, a CSV/JSON export it uploads, the Google Places API bootstrap (up to five public reviews of its business), and, once approved by Google, its connected Google Business Profile. For each review we store what the customer or source provides: the review text, star rating, author display name, author avatar URL, the source (for example `google`), the review date, a link to the original, its language, and any labels the customer adds. From that we derive verbatim excerpts, numeric embeddings and a sentiment label (see [How we use AI](#how-we-use-ai)). Uploaded export files are stored so an import can be processed and are never served back; they are deleted 7 days after upload (see [Retention and deletion](#retention-and-deletion)).
 
 ### Visitors to a customer's website
 
@@ -103,10 +103,11 @@ We keep information only as long as we need it for the purposes above, or as req
 
 - **Hidden reviews** are excluded from search results immediately (cached results are refreshed within about a minute) and kept until the customer unhides or deletes them.
 - **Deleted reviews** are removed from the database, together with their excerpts and embeddings, at once, and drop out of cached results within about a minute.
-- **Deleting a project** deletes its reviews, excerpts, embeddings, API keys, Google connection, import records and usage rows at once. [PLACEHOLDER: uploaded export files in storage are not yet deleted with the project; decide a lifecycle (e.g. delete after the import completes, or after N days) and state it here.]
+- **Uploaded export files** (and the import's column mapping and per-row error report stored beside them) are deleted automatically 7 days after they were uploaded, so the error report stays downloadable for a week.
+- **Deleting a project** deletes its reviews, excerpts, embeddings, API keys, Google connection, import records and usage rows at once, and its uploaded export files within minutes.
 - **Google Places bootstrap reviews** are refreshed every 25 days (inside Google's 30-day limit) and replaced on the first sync of a connected Business Profile, as described above.
 - **Google tokens** are deleted on disconnect, and when Google reports the connection revoked or expired.
-- **Deleting a workspace** marks the account deleted at once; its remaining data is purged within [PLACEHOLDER: N days]. [PLACEHOLDER: an automated purge is not yet built; confirm the period once it is.]
+- **Deleting a workspace** marks the account deleted at once; 30 days later a daily job permanently deletes the account and all of its projects, reviews, excerpts, embeddings, API keys (including revoked ones), connections, import records, usage rows and remaining uploaded files.
 - **Backups.** Our database provider keeps a point-in-time restore history of [PLACEHOLDER: N days — the Neon history-retention window configured for production], after which deleted data is gone from backups too.
 - **Logs.** Application logs are kept by Cloudflare Workers Logs for 3 days on the Workers Free plan and 7 days on Workers Paid ([Cloudflare documentation](https://developers.cloudflare.com/workers/observability/logs/workers-logs/), checked October 2026). [PLACEHOLDER: confirm the plan in use at launch.]
 - **Waitlist** addresses are kept until signup opens and we have told you, or until you ask us to delete them. [PLACEHOLDER: confirm.]

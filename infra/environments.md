@@ -72,7 +72,7 @@ identical across workers and environments.
 | `CACHE`        | KV namespace      | yes      | yes      | yes       | Miniflare simulator (id ignored)                   | `proofql-cache-<env>`                            |
 | `INGEST_QUEUE` | Queue producer    | yes      | yes      | yes       | `proofql-ingest` (Miniflare)                       | `proofql-ingest-<env>`                           |
 | (consumer)     | Queue consumer    | —        | yes      | —         | `proofql-ingest`, DLQ `proofql-ingest-dlq`         | `proofql-ingest-<env>`, DLQ `proofql-ingest-dlq-<env>` |
-| `UPLOADS`      | R2 bucket         | —        | —        | yes       | `proofql-uploads` (Miniflare)                      | `proofql-uploads-<env>` (by name; no id to paste) |
+| `UPLOADS`      | R2 bucket         | —        | yes (#169) | yes     | `proofql-uploads` (Miniflare, one store per worker) | `proofql-uploads-<env>` (by name; no id to paste); the same bucket on both workers — the pipeline only deletes a purged workspace's prefixes. 7-day lifecycle rule on `uploads/` (provisioning.md §4) |
 | `AI`           | Workers AI        | yes      | yes      | —         | **not bound** — no simulator; code must treat `env.AI` as optional and use the deterministic fake provider | account-level, no id |
 | `RL_SECRET`    | Rate limit        | yes      | —        | —         | Miniflare simulator, 300 req / 60 s per key        | namespace `1001`, 300 req / 60 s per key (free plan, secret keys) |
 | `RL_PUBLISHABLE` | Rate limit      | yes      | —        | —         | Miniflare simulator, 120 req / 60 s per key        | namespace `1002`, 120 req / 60 s per key (free plan, publishable keys) |
@@ -142,10 +142,15 @@ producing `review.index` messages for what it imports; the dashboard
 produces a `connection.sync` message when a location mapping is saved
 (#45), which the pipeline consumes to poll that one connection at once. The poller
 does nothing until its three Google credentials are set, so a deploy
-without them is safe. The
+without them is safe. A daily cron (`30 3 * * *`) refreshes Places
+bootstraps (#116), and another (`15 4 * * *`, #169) hard-deletes workspaces
+soft-deleted more than 30 days ago — 50 per tick, FK cascades take every
+tenant row — and removes their projects' `uploads/<id>/` prefixes through
+the pipeline's `UPLOADS` binding. The
 dashboard reads/writes Postgres for projects, keys, and policy, purges the
-cache on policy change, stores uploaded review exports in R2 (`UPLOADS`, #38)
-and enqueues the reviews it imports from them (INGEST_QUEUE, the same message
+cache on policy change, stores uploaded review exports in R2 (`UPLOADS`, #38;
+expired by the bucket's 7-day lifecycle rule, and deleted at once with their
+project, #169) and enqueues the reviews it imports from them (INGEST_QUEUE, the same message
 the api sends); it never embeds.
 
 Workers AI is also why there is no local `AI` binding: the binding always

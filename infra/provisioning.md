@@ -160,12 +160,30 @@ $W r2 bucket create proofql-uploads-prod
 Objects live under `uploads/<projectId>/<ingestRunId>.<csv|json>` with the
 import's mapping and error report beside them; nothing is public. (R2 needs
 to be enabled once on the account: Dashboard → R2 → "Purchase R2" — the
-free tier covers this.)
+free tier covers this.) The same buckets are bound to the pipeline worker,
+whose daily account purge deletes a purged workspace's prefixes (#169).
+
+**Lifecycle rule (#169).** Every upload object expires 7 days after it was
+written (`UPLOAD_RETENTION_DAYS` in `@proofql/core`; the dashboard tells
+users the error report is available for 7 days, and the privacy policy
+promises it). The rule is bucket configuration, not part of any deploy, so
+a recreated bucket needs it again:
+
+```sh
+$W r2 bucket lifecycle add proofql-uploads-preview expire-uploads uploads/ --expire-days 7 --force
+$W r2 bucket lifecycle add proofql-uploads-prod    expire-uploads uploads/ --expire-days 7 --force
+```
+
+(Added to both buckets on 2026-10-05.) Changing the period means changing
+`UPLOAD_RETENTION_DAYS`, the rule on both buckets, and the privacy policy
+together.
 
 **Verify**
 
 ```sh
 $W r2 bucket list
+$W r2 bucket lifecycle list proofql-uploads-preview   # expire-uploads, prefix uploads/, Expire objects after 7 days
+$W r2 bucket lifecycle list proofql-uploads-prod
 ```
 
 **Rollback:** `$W r2 bucket delete <name>` (must be empty).
@@ -543,6 +561,7 @@ in the Cloud console.
 
 - [ ] `node scripts/check-provisioning.mjs` prints `All bindings provisioned.`
 - [ ] `$W r2 bucket list` shows `proofql-uploads-preview` and `proofql-uploads-prod`
+- [ ] `$W r2 bucket lifecycle list <bucket>` shows `expire-uploads` (prefix `uploads/`, 7 days) on both
 - [ ] `gh secret list` shows the three repository secrets; `--env production` shows the fourth
 - [ ] `/health` on preview api and pipeline returns `{"ok":true}` from the workers.dev URLs
 - [ ] `DEPLOY_ENABLED=true` and one green manual run of `deploy.yml` for preview
