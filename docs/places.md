@@ -72,8 +72,9 @@ Google's Places policies cap how long Places *content* may be stored at 30
 days ([Terms and attribution](#terms-and-attribution)); the owner's reading
 (2026-10-03) is that this is a **cache limit, so the rows are refetched,
 never deleted**. The pipeline does the refetching
-(`workers/pipeline/src/places-refresh.ts`, cron `30 3 * * *` — daily,
-03:30 UTC, when nobody is onboarding):
+(`workers/pipeline/src/places-refresh.ts`, on the pipeline cron's
+03:30 UTC tick — daily, when nobody is onboarding; a skipped tick is caught up
+the next day, since candidates are age-based):
 
 ```
 every (project, environment, place) whose latest `places` run
@@ -126,7 +127,7 @@ purpose and writes the fresh copy back, so a dashboard re-import the same
 day costs nothing extra.
 
 Locally: `wrangler dev --test-scheduled` in `workers/pipeline`, then
-`curl "http://localhost:8798/__scheduled?cron=30+3+*+*+*"` against the fake
+`curl "http://localhost:8798/cdn-cgi/local/scheduled?time=<epoch ms of a 03:30 UTC>"` against the fake
 Places API ([Local development](#local-development)); events in
 [`observability.md`](observability.md#pipeline).
 

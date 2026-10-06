@@ -388,7 +388,7 @@ a documented ops command run by you against the prod branch
 |---|---|---|
 | **Upgrade an account to paid** | `pnpm db:set-plan -- --account <org_…> --plan paid` | §7; `packages/db/README.md` "Migration workflow". |
 | **Re-index a project's reviews after a chunker change** | `pnpm db:reindex -- --project <slug\|uuid> --dry-run`, then without `--dry-run`; `--all --environment live` for every project | #127 added `sentence` chunks (migration 0008); reviews indexed before it keep `full` + `window` chunks only, so their highlights stay window-wide until re-indexed. The script marks reviews (`indexed_at = NULL`, `index_attempts = 0`) and the pipeline's five-minute sweep re-enqueues them 500 per tick, so a 5,000-review project takes about 50 minutes and one Workers AI embedding batch per review; search keeps serving the old chunks until each review is replaced. Watch `review.indexed` lines with `sentences > 0` (`wrangler tail proofql-pipeline-prod --search review.indexed`). Details: `packages/db/README.md` "Re-indexing". |
-| **Purge deleted workspaces by hand** | `pnpm db:purge-accounts -- --dry-run`, then without `--dry-run` (`--limit <n>`, default 50) | #169. The pipeline's daily cron (`15 4 * * *`) already hard-deletes accounts soft-deleted (Clerk `organization.deleted`) more than 30 days ago, 50 per tick, logging `account.purged` (`wrangler tail proofql-pipeline-prod --search account.purge`). Use the script to see what is due or to catch up after an outage. It touches the database only; the purged projects' R2 uploads are removed by the cron, or by the bucket's 7-day lifecycle rule (`infra/provisioning.md` §4). A purged workspace is gone: the next sign-in with that Clerk organization creates a new, empty account. |
+| **Purge deleted workspaces by hand** | `pnpm db:purge-accounts -- --dry-run`, then without `--dry-run` (`--limit <n>`, default 50) | #169. The pipeline's 04:15 UTC cron tick already hard-deletes accounts soft-deleted (Clerk `organization.deleted`) more than 30 days ago, 50 per tick, logging `account.purged` (`wrangler tail proofql-pipeline-prod --search account.purge`). Use the script to see what is due or to catch up after an outage. It touches the database only; the purged projects' R2 uploads are removed by the cron, or by the bucket's 7-day lifecycle rule (`infra/provisioning.md` §4). A purged workspace is gone: the next sign-in with that Clerk organization creates a new, empty account. |
 | **Check a tenant's search cost** | `pnpm --filter @proofql/db exec tsx scripts/bench-search.ts --project <slug\|uuid>` against a branch of prod | `docs/performance.md` §2: ~2.5–3 ms per 1,000 chunks; `search_ms` p50 above ~50 ms for one `project_id` is the trigger for a per-tenant partial HNSW index. |
 
 ## 16. Running on the free plan
@@ -416,6 +416,16 @@ Cached queries cost no database queries and, on a custom domain, no KV
 writes. Once the first prod deploy routes `api.proofql.dev` (§2), the result and auth caches
 move to the Workers Cache API by themselves
 ([`infra/environments.md`](../infra/environments.md) "Cache API").
+
+**Cron triggers.** The Free plan allows **5 cron triggers per account**
+(Paid: 250), counted across every environment on it. The pipeline declares
+one per environment (`*/5 * * * *`, #174) and picks the jobs due on each
+tick itself (`workers/pipeline/src/schedule.ts`): the sweep every tick, the
+Google poll at 00/06/12/18:00, the Places refresh at 03:30 and the account
+purge at 04:15 UTC. A skipped tick skips that run; each job is idempotent
+and age-based, so it catches up at its next due time (six hours for
+Google, a day for the other two). Do not add crons to `wrangler.jsonc`;
+add a row to `DUE_JOBS` instead.
 
 ### What degrades first
 
