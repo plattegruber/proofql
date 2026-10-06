@@ -43,7 +43,7 @@
   "devDependencies": {
     "@proofql/ai": "workspace:*",
     "@proofql/tsconfig": "workspace:*",
-    "@types/node": "^26.6.3",
+    "@types/node": "^26.6.4",
     "drizzle-kit": "^0.31.11",
     "tsx": "^4.23.15",
     "typescript": "^5.9.2",
