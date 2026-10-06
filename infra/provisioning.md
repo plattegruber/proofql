@@ -203,7 +203,7 @@ clicks in the console:
 
 ```sh
 neonctl auth                                                 # browser login
-neonctl projects create --name proofql --region-id aws-us-east-1 --pg-version 16
+neonctl projects create --name proofql --region-id aws-us-east-2 --pg-version 16
 ```
 
 Note the project id it prints (`neonctl projects list`). Pick the region
