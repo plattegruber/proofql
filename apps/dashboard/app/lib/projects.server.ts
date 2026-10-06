@@ -9,7 +9,13 @@
  * user-facing conflicts (slug taken, plan limit) — the actions turn those
  * into 422 field errors per docs/frontend-conventions.md.
  */
-import { planFor } from "@proofql/core";
+import {
+  deletePrefix,
+  type Logger,
+  type PrefixBucket,
+  planFor,
+  projectUploadsPrefix,
+} from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
 import { and, count, eq } from "drizzle-orm";
 
@@ -213,4 +219,37 @@ export async function deleteProject(
     )
     .returning();
   return row;
+}
+
+/**
+ * Delete a deleted project's upload files (#169): everything under
+ * `uploads/<projectId>/` in the `UPLOADS` bucket — the files as uploaded,
+ * their mappings and error reports. The delete action hands this to
+ * `ctx.waitUntil` so the redirect does not wait on R2. Never rejects: a
+ * failure is logged (`uploads.delete_failed`) and the bucket's 7-day
+ * lifecycle rule removes the objects anyway. Resolves to the number of
+ * objects deleted, or null on failure.
+ */
+export async function deleteProjectUploads(
+  bucket: PrefixBucket,
+  projectId: string,
+  log: Logger,
+): Promise<number | null> {
+  try {
+    const count = await deletePrefix(bucket, projectUploadsPrefix(projectId));
+    log.log("uploads.deleted", {
+      project_id: projectId,
+      count,
+      site: "dashboard.project_delete",
+    });
+    return count;
+  } catch (error) {
+    log.log("uploads.delete_failed", {
+      level: "warn",
+      project_id: projectId,
+      site: "dashboard.project_delete",
+      error,
+    });
+    return null;
+  }
 }

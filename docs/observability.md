@@ -179,6 +179,14 @@ Places bootstrap refresh (#116, [`places-refresh.ts`](../workers/pipeline/src/pl
 | `places.refresh.rate_limited` | warn | `deferred` | Google answered 429; the tick stopped and `deferred` places wait for tomorrow. A steady rate is the signal that the free Place Details quota is spent (docs/places.md "Quota math"). |
 | `places.refresh.completed` | info | `candidates`, `refreshed`, `failed`, `deferred`, `rate_limited`, `received`, `created`, `updated`, `skipped`, `rejected`, `deleted`, `enqueued`, `indexing_deferred`, `requests`, `took_ms` | Every tick that ran. `requests` is the Place Details calls sent to Google; it should equal `refreshed + failed`. |
 
+Account purge (#169, [`account-purge.ts`](../workers/pipeline/src/account-purge.ts) → `purgeDeletedAccounts` in [`packages/db/src/tenancy/purge.ts`](../packages/db/src/tenancy/purge.ts)). Daily at 04:15 UTC; every line carries `trigger: "cron"`. The same function runs from `pnpm db:purge-accounts` (docs/launch.md §15), which prints instead of logging.
+
+| Event | Level | Fields | When |
+|---|---|---|---|
+| `account.purged` | info | `account_id`, `deleted_at`, `projects`, `reviews` (sum of the projects' `review_count`), `upload_objects` (R2 objects removed; `null` without an `UPLOADS` binding) | One account soft-deleted more than 30 days ago was hard-deleted; FK cascades removed its projects and every tenant row. |
+| `account.purge.completed` | info | `dry_run`, `cutoff`, `accounts`, `projects`, `reviews`, `upload_objects`, `remaining` | Every tick, including empty ones. `remaining: true` means more than 50 accounts were due and the rest wait for tomorrow; several days of it in a row means the purge is falling behind. |
+| `uploads.delete_failed` | warn | `account_id`, `project_id`, `site: pipeline.account_purge`, `error` | A purged project's R2 prefix could not be deleted. The database purge is not undone; the bucket's 7-day lifecycle rule removes the objects anyway. |
+
 ### dashboard
 
 | Event | Level | Fields beyond the request bindings | When |
@@ -191,6 +199,8 @@ Places bootstrap refresh (#116, [`places-refresh.ts`](../workers/pipeline/src/pl
 | `import.paused` | info | `ingest_run_id`, `processed`, `total_rows`, `indexing_deferred` | The run yielded at its time budget; the progress page offers "Resume". A run that logs this and never a later `import.started` was abandoned by the user. |
 | `import.finished` | info | `ingest_run_id`, `created`, `updated`, `skipped`, `failed`, `indexing_deferred`, `duration_ms` | `ingest_runs.status = succeeded`. `indexing_deferred` counts index messages this call could not send (#159); the sweep indexes those reviews. |
 | `import.failed` | warn / error | `ingest_run_id`, `error_message` (warn: a readable cause written to `ingest_runs.error`) or `error` (error: the background task threw) | The run was marked `failed`, or the `waitUntil` task died before it could. The second form is the one to alert on. |
+| `uploads.deleted` | info | `project_id`, `count`, `site: dashboard.project_delete` | A deleted project's `uploads/<projectId>/` prefix was removed from R2 (#169), in `waitUntil` after the delete redirect ([`projects.server.ts`](../apps/dashboard/app/lib/projects.server.ts)). Follows `project.deleted`. |
+| `uploads.delete_failed` | warn | `project_id`, `site: dashboard.project_delete`, `error` | That prefix delete failed. Nothing to do by hand: the bucket's 7-day lifecycle rule removes the objects. |
 | `places.searched` | info | `project_id`, `q_length`, `results`, `cached` | A "Find your business on Google" search answered ([`app.projects.$slug.places.ts`](../apps/dashboard/app/routes/app.projects.$slug.places.ts), #47). `cached: false` is a billable Places call ([`docs/places.md`](places.md#cost-and-quota)); the query text is never logged. |
 | `places.imported` | info | `ingest_run_id`, `project_id`, `environment`, `place_id`, `received`, `created`, `updated`, `skipped`, `failed`, `enqueued`, `indexing_deferred`, `cached` | A place's reviews were written and the `places` run row closed `succeeded` ([`places.server.ts`](../apps/dashboard/app/lib/places.server.ts)). `skipped` counts rating-only reviews; `failed` counts reviews refused by the plan cap; `indexing_deferred: true` means the index messages could not be sent (#159) and the sweep indexes the reviews. |
 | `places.failed` | warn / error | warn: `project_id`, `op` (`search` \| `import`), `place_id`, `status`, `code`, `error_message` — Google refused (403: the key; 429: quota; 404: the place) and the card said so; error: `ingest_run_id`, `place_id`, `error` — the write after the run row was opened threw and the run is `failed` | The warn form is expected in small numbers; the error form is the one to alert on. |

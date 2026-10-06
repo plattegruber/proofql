@@ -177,7 +177,7 @@ marked `[PLACEHOLDER]`; `docs/api/openapi.yaml` `info.contact`,
 `info.termsOfService` and `info.license.url` point at them; the dashboard and
 docs footers link them.
 
-1. [ ] Send counsel the two pages plus the facts they need: the legal entity, address and jurisdiction; the processors table (Cloudflare, Neon, Clerk, Google); log retention (decide a number — Workers Logs keep 7 days on Free, 30 on Paid, which bounds what you can promise); the deletion grace period after a workspace is deleted; the liability cap. Effort: an hour to brief, counsel's time to draft.
+1. [ ] Send counsel the two pages plus the facts they need: the legal entity, address and jurisdiction; the processors table (Cloudflare, Neon, Clerk, Google); log retention (decide a number — Workers Logs keep 3 days on Free, 7 on Paid, which bounds what you can promise); the deletion grace period after a workspace is deleted; the liability cap. Effort: an hour to brief, counsel's time to draft.
 2. [ ] Replace the text, delete every `[PLACEHOLDER]`, remove the `<LegalNotice />` line from both pages, set the "Last updated" date. One PR, `Part of #51`. Verify: `grep -rn "PLACEHOLDER\|LegalNotice" docs/site/src/content/docs/privacy.mdx docs/site/src/content/docs/terms.mdx` prints nothing; `pnpm --filter @proofql/docs check` passes; the pages render without the caution box on `https://docs.proofql.dev/privacy` and `/terms` after the deploy.
 3. [ ] Paste both URLs into Clerk (§6.6) and the Google consent screen (§4.2).
 
@@ -220,7 +220,7 @@ Stripe account and lands after launch. Until then:
 with `head_sampling_rate: 1`, so Workers Logs captures every request's
 structured lines ([`docs/observability.md`](observability.md)).
 
-- [ ] **Workers Logs is on per worker.** Verify after the first prod deploy: Dashboard → Workers & Pages → `proofql-api-prod` → **Logs** shows lines; repeat for `proofql-pipeline-prod`, `proofql-dashboard-prod`, `proofql-cdn-prod`, `proofql-docs-prod`. Retention is 7 days on Workers Free, 30 on Paid (which is also what §5 can promise).
+- [ ] **Workers Logs is on per worker.** Verify after the first prod deploy: Dashboard → Workers & Pages → `proofql-api-prod` → **Logs** shows lines; repeat for `proofql-pipeline-prod`, `proofql-dashboard-prod`, `proofql-cdn-prod`, `proofql-docs-prod`. Retention is 3 days on Workers Free, 7 on Paid ([Cloudflare docs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/), checked 2026-10-05; also what §5 can promise). On the free plan an incident older than 3 days has no logs left to read, so `quota.exhausted` and 5xx alerting cannot rely on going back through Workers Logs: they need the external monitor below (step 2 of "Alert on 5xx").
 - **`wrangler tail` recipes** (from the repo root; `--format pretty` for eyes, `--format json` for `jq`):
 
   ```sh
@@ -388,6 +388,7 @@ a documented ops command run by you against the prod branch
 |---|---|---|
 | **Upgrade an account to paid** | `pnpm db:set-plan -- --account <org_…> --plan paid` | §7; `packages/db/README.md` "Migration workflow". |
 | **Re-index a project's reviews after a chunker change** | `pnpm db:reindex -- --project <slug\|uuid> --dry-run`, then without `--dry-run`; `--all --environment live` for every project | #127 added `sentence` chunks (migration 0008); reviews indexed before it keep `full` + `window` chunks only, so their highlights stay window-wide until re-indexed. The script marks reviews (`indexed_at = NULL`, `index_attempts = 0`) and the pipeline's five-minute sweep re-enqueues them 500 per tick, so a 5,000-review project takes about 50 minutes and one Workers AI embedding batch per review; search keeps serving the old chunks until each review is replaced. Watch `review.indexed` lines with `sentences > 0` (`wrangler tail proofql-pipeline-prod --search review.indexed`). Details: `packages/db/README.md` "Re-indexing". |
+| **Purge deleted workspaces by hand** | `pnpm db:purge-accounts -- --dry-run`, then without `--dry-run` (`--limit <n>`, default 50) | #169. The pipeline's daily cron (`15 4 * * *`) already hard-deletes accounts soft-deleted (Clerk `organization.deleted`) more than 30 days ago, 50 per tick, logging `account.purged` (`wrangler tail proofql-pipeline-prod --search account.purge`). Use the script to see what is due or to catch up after an outage. It touches the database only; the purged projects' R2 uploads are removed by the cron, or by the bucket's 7-day lifecycle rule (`infra/provisioning.md` §4). A purged workspace is gone: the next sign-in with that Clerk organization creates a new, empty account. |
 | **Check a tenant's search cost** | `pnpm --filter @proofql/db exec tsx scripts/bench-search.ts --project <slug\|uuid>` against a branch of prod | `docs/performance.md` §2: ~2.5–3 ms per 1,000 chunks; `search_ms` p50 above ~50 ms for one `project_id` is the trigger for a per-tenant partial HNSW index. |
 
 ## 16. Running on the free plan

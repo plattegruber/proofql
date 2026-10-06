@@ -24,7 +24,11 @@ import {
   SIMILARITY_FLOOR_MIN,
   SIMILARITY_FLOOR_STEP,
 } from "~/lib/projects";
-import { deleteProject, updateProjectSettings } from "~/lib/projects.server";
+import {
+  deleteProject,
+  deleteProjectUploads,
+  updateProjectSettings,
+} from "~/lib/projects.server";
 import type { Route } from "./+types/app.projects.$slug.settings";
 
 /** The docs page's relevance section (#43); the anchor is part of its contract. */
@@ -55,7 +59,7 @@ export type SettingsActionData = { fieldErrors: FieldErrors };
 
 export async function action(args: Route.ActionArgs) {
   const { account } = await requireAccount(args);
-  const { env, log } = getCloudflare(args.context);
+  const { env, ctx, log } = getCloudflare(args.context);
   const form = await args.request.formData();
   const intent = form.get("intent");
 
@@ -92,6 +96,8 @@ export async function action(args: Route.ActionArgs) {
       account_id: account.id,
       review_count: project.reviewCount,
     });
+    // Its upload files go now, not in 7 days (#169); past the response.
+    ctx.waitUntil(deleteProjectUploads(env.UPLOADS, project.id, log));
     return redirect("/app", {
       headers: await setFlash(env, {
         tone: "neutral",

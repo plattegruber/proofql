@@ -57,7 +57,7 @@
     // `places.refresh.skipped` and does nothing.
   },
 
-  // Three crons, routed on `controller.cron` in src/handlers.ts:
+  // Four crons, routed on `controller.cron` in src/handlers.ts:
   // - `*/5 * * * *`  re-enqueue sweep (#72, src/sweep.ts): reviews stuck with
   //   indexed_at IS NULL for 5+ minutes go back on the queue (500/tick, five
   //   attempts per review).
@@ -71,8 +71,12 @@
   //   25+ days old, for projects without an active Google connection
   //   (200/tick, oldest first). Does nothing until GOOGLE_PLACES_API_KEY is
   //   set. Locally: GET /__scheduled?cron=30+3+*+*+* (docs/places.md).
+  // - `15 4 * * *`   account purge (#169, src/account-purge.ts): workspaces
+  //   soft-deleted 30+ days ago are hard-deleted (FK cascades) and their
+  //   projects' `uploads/<id>/` R2 prefixes removed, 50 accounts per tick.
+  //   Locally: GET /__scheduled?cron=15+4+*+*+*.
   "triggers": {
-    "crons": ["*/5 * * * *", "0 */6 * * *", "30 3 * * *"]
+    "crons": ["*/5 * * * *", "0 */6 * * *", "30 3 * * *", "15 4 * * *"]
   },
 
   "queues": {
@@ -118,6 +122,12 @@
     }
   ],
 
+  // The dashboard's uploads bucket (#169), bound only so the account purge
+  // can delete a purged workspace's `uploads/<projectId>/` prefixes. Same
+  // bucket names as apps/dashboard/wrangler.jsonc; locally Miniflare
+  // simulates it per worker, so the local purge sees an empty bucket.
+  "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "proofql-uploads" }],
+
   // Workers AI (`AI`: bge-m3 embeddings, distilbert sentiment) is absent from
   // the local block for the reason given in workers/api/wrangler.jsonc; code
   // falls back to the deterministic fake provider locally.
@@ -133,7 +143,7 @@
         "GOOGLE_CLIENT_ID": "TBD-provision-in-m3"
       },
       "triggers": {
-        "crons": ["*/5 * * * *", "0 */6 * * *", "30 3 * * *"]
+        "crons": ["*/5 * * * *", "0 */6 * * *", "30 3 * * *", "15 4 * * *"]
       },
       "queues": {
         "producers": [
@@ -164,6 +174,9 @@
         // <TBD>: id of Hyperdrive config `proofql-hyperdrive-preview`.
         { "binding": "HYPERDRIVE", "id": "ec18323ec9474ad9a0c404aa1911bfd7" }
       ],
+      "r2_buckets": [
+        { "binding": "UPLOADS", "bucket_name": "proofql-uploads-preview" }
+      ],
       "ai": { "binding": "AI" }
     },
     "prod": {
@@ -176,7 +189,7 @@
         "GOOGLE_CLIENT_ID": "TBD-provision-in-m3"
       },
       "triggers": {
-        "crons": ["*/5 * * * *", "0 */6 * * *", "30 3 * * *"]
+        "crons": ["*/5 * * * *", "0 */6 * * *", "30 3 * * *", "15 4 * * *"]
       },
       "queues": {
         "producers": [
@@ -206,6 +219,9 @@
       "hyperdrive": [
         // <TBD>: id of Hyperdrive config `proofql-hyperdrive-prod`.
         { "binding": "HYPERDRIVE", "id": "796092f0ab1444bb8df0a60fdf8b7824" }
+      ],
+      "r2_buckets": [
+        { "binding": "UPLOADS", "bucket_name": "proofql-uploads-prod" }
       ],
       "ai": { "binding": "AI" }
     }

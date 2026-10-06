@@ -3,7 +3,13 @@
 // alone does not bump; validation failures return 422 field errors and
 // touch neither. Runs in the local auth stub (the demo account is created
 // in this file's database), with HYPERDRIVE pointed at the harness db.
-import { generationKey, MemoryKv } from "@proofql/core";
+import {
+  createLogger,
+  generationKey,
+  MemoryBucket,
+  MemoryKv,
+  recordingSink,
+} from "@proofql/core";
 import { DEMO_ACCOUNT_CLERK_ORG_ID } from "@proofql/db/seed";
 import { account, project, setupTestDb } from "@proofql/db/test";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -19,7 +25,7 @@ beforeAll(async () => {
   demo = await account(t.db, { clerkOrgId: DEMO_ACCOUNT_CLERK_ORG_ID });
 });
 
-function testEnv(kv: MemoryKv): Env {
+function testEnv(kv: MemoryKv, uploads = new MemoryBucket()): Env {
   const url = new URL(process.env.DATABASE_URL ?? "");
   url.pathname = `/${t.databaseName}`;
   return {
@@ -30,6 +36,7 @@ function testEnv(kv: MemoryKv): Env {
     CLERK_WEBHOOK_SIGNING_SECRET: "",
     SESSION_SECRET: "",
     CACHE: kv as unknown as KVNamespace,
+    UPLOADS: uploads as unknown as R2Bucket,
     HYPERDRIVE: { connectionString: url.toString() } as Hyperdrive,
   } as Env;
 }
@@ -38,6 +45,10 @@ async function submit(
   slug: string,
   fields: Record<string, string>,
   kv: MemoryKv,
+  extra: {
+    uploads?: MemoryBucket;
+    lines?: ReturnType<typeof recordingSink>;
+  } = {},
 ) {
   const pending: Promise<unknown>[] = [];
   const ctx = {
@@ -56,7 +67,19 @@ async function submit(
   const result = await action({
     request,
     params: { slug },
-    context: createLoadContext({ env: testEnv(kv), ctx }),
+    context: createLoadContext({
+      env: testEnv(kv, extra.uploads),
+      ctx,
+      ...(extra.lines
+        ? {
+            log: createLogger({
+              service: "dashboard",
+              environment: "test",
+              sink: extra.lines.sink,
+            }),
+          }
+        : {}),
+    }),
   } as never);
   await Promise.all(pending);
   return result;
@@ -175,5 +198,31 @@ describe("settings action", () => {
       { n: number }[]
     >`SELECT count(*)::int AS n FROM projects WHERE id = ${p.id}`;
     expect(row?.n).toBe(0);
+  });
+
+  it("deletes the project's upload files past the response and logs the count", async () => {
+    const p = await project(t.db, { accountId: demo.id, slug: "uploads-gone" });
+    const other = await project(t.db, { accountId: demo.id, slug: "kept" });
+    const uploads = new MemoryBucket([
+      `uploads/${p.id}/r1.csv`,
+      `uploads/${p.id}/r1.plan.json`,
+      `uploads/${p.id}/r1.errors.json`,
+      `uploads/${other.id}/r2.csv`,
+    ]);
+    const lines = recordingSink();
+
+    const deleted = (await submit(
+      "uploads-gone",
+      { intent: "delete", confirm: "uploads-gone" },
+      new MemoryKv(),
+      { uploads, lines },
+    )) as Response;
+
+    expect(deleted.status).toBe(302);
+    expect(uploads.keys()).toEqual([`uploads/${other.id}/r2.csv`]);
+    expect(lines.only("uploads.deleted")).toMatchObject({
+      project_id: p.id,
+      count: 3,
+    });
   });
 });

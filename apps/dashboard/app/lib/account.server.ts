@@ -139,6 +139,10 @@ export async function requireAccount(
   const account = await deps.withDb(args.context, async (db) => {
     const existing = await findAccountByClerkOrgId(db, orgId);
     if (existing && !existing.deletedAt) return existing;
+    // Soft-deleted (Clerk `organization.deleted`) and still within the
+    // 30-day grace: the upsert clears the mark. Once the pipeline's daily
+    // purge has hard-deleted it (#169) there is no row, and the upsert
+    // creates a new, empty account for the organization — by design.
     const name =
       (await deps.fetchOrganizationName(env, orgId)) ??
       auth.orgSlug ??

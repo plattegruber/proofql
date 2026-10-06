@@ -48,9 +48,13 @@ export const accounts = pgTable("accounts", {
    * Set by the dashboard's Clerk webhook on `organization.deleted` (#36).
    * A soft mark, not a DELETE: deleting the row would cascade through
    * every project, key, review and chunk the moment someone removes the
-   * organization in Clerk, and that is not reversible. The data stays until
-   * a retention job (later) purges it; `requireAccount` refuses deleted
-   * accounts, and re-creating the organization clears the mark.
+   * organization in Clerk, and that is not reversible. The data stays for
+   * `ACCOUNT_PURGE_AFTER_DAYS` (30), then the pipeline's daily purge
+   * hard-deletes the row and everything that cascades from it (#169,
+   * `purgeDeletedAccounts` in ../tenancy/purge.ts). Until then a sign-in
+   * with the same Clerk organization clears the mark (`requireAccount`
+   * upserts by `clerk_org_id`); after it, that sign-in creates a new,
+   * empty account — nothing is left to revive.
    */
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   /**

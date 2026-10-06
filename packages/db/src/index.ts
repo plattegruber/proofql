@@ -52,3 +52,11 @@ export {
   setAccountPlan,
   syncProjectBadges,
 } from "./tenancy/plan.js";
+export {
+  countAccountsDueForPurge,
+  type PurgeDeletedAccountsDeps,
+  type PurgeDeletedAccountsOptions,
+  type PurgeDeletedAccountsResult,
+  type PurgedAccount,
+  purgeDeletedAccounts,
+} from "./tenancy/purge.js";
