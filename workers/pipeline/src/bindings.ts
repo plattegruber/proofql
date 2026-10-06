@@ -47,4 +47,12 @@ export interface PipelineBindings {
   GOOGLE_PLACES_API_KEY?: string;
   /** Endpoint override; unset ⇒ `https://places.googleapis.com`. Locally the fake on :8803. */
   PLACES_API_BASE?: string;
+  /**
+   * The dashboard's uploads bucket (`proofql-uploads[-<env>]`), bound here
+   * only so the daily account purge (#169, src/account-purge.ts) can delete
+   * a purged workspace's `uploads/<projectId>/` prefixes. Optional in the
+   * type: without it the purge still deletes the rows and R2 is left to the
+   * bucket's 7-day lifecycle rule (infra/provisioning.md).
+   */
+  UPLOADS?: R2Bucket;
 }

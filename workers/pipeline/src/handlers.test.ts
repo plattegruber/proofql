@@ -22,6 +22,7 @@ import { testLogger } from "../test/log.js";
 import type { PipelineBindings } from "./bindings.js";
 import type { GooglePollResult } from "./google-poll.js";
 import {
+  ACCOUNT_PURGE_CRON,
   createClassifier,
   createEmbedder,
   GOOGLE_POLL_CRON,
@@ -499,6 +500,8 @@ describe("scheduledJob", () => {
     expect(scheduledJob(GOOGLE_POLL_CRON)).toBe("google_poll");
     expect(scheduledJob(PLACES_REFRESH_CRON)).toBe("places_refresh");
     expect(PLACES_REFRESH_CRON).toBe("30 3 * * *");
+    expect(scheduledJob(ACCOUNT_PURGE_CRON)).toBe("account_purge");
+    expect(ACCOUNT_PURGE_CRON).toBe("15 4 * * *");
     expect(scheduledJob(SWEEP_CRON)).toBe("sweep");
     expect(scheduledJob(undefined)).toBe("sweep");
     expect(scheduledJob("1 2 3 4 5")).toBe("sweep");

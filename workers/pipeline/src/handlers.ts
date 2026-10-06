@@ -7,7 +7,8 @@
  * sweep (src/sweep.ts) for reviews stuck unindexed, the six-hourly one
  * polls every Google connection (src/google-poll.ts, #46), the daily one
  * at 03:30 UTC refreshes Places-bootstrapped reviews older than 25 days
- * (src/places-refresh.ts, #116).
+ * (src/places-refresh.ts, #116), the daily one at 04:15 UTC hard-deletes
+ * workspaces soft-deleted 30+ days ago (src/account-purge.ts, #169).
  *
  * Queue consumer contract (`proofql-ingest`, wrangler.jsonc):
  *
@@ -70,6 +71,11 @@ import {
 } from "@proofql/core";
 import { createDb } from "@proofql/db";
 
+import {
+  ACCOUNT_PURGE_CRON,
+  type AccountPurgeResult,
+  runAccountPurge,
+} from "./account-purge.js";
 import type { PipelineBindings } from "./bindings.js";
 import {
   createDeadLetterContext,
@@ -416,33 +422,35 @@ export async function handleQueue(
 export const SWEEP_OLDER_THAN_MINUTES = 5;
 export const SWEEP_LIMIT = 500;
 
-/** The three cron expressions in wrangler.jsonc (all three env blocks). */
+/** The four cron expressions in wrangler.jsonc (all three env blocks). */
 export const SWEEP_CRON = "*/5 * * * *";
 export const GOOGLE_POLL_CRON = "0 */6 * * *";
-export { PLACES_REFRESH_CRON };
+export { ACCOUNT_PURGE_CRON, PLACES_REFRESH_CRON };
 
 export type ScheduledResult =
   | { job: "sweep"; result: SweepResult }
   | { job: "google_poll"; result: GooglePollResult }
-  | { job: "places_refresh"; result: PlacesRefreshResult };
+  | { job: "places_refresh"; result: PlacesRefreshResult }
+  | { job: "account_purge"; result: AccountPurgeResult };
 
 /**
- * Which job a cron expression runs. Anything that is neither the Google
- * poll nor the Places refresh is the sweep: it is the older, more important
+ * Which job a cron expression runs. Anything that is not the Google poll,
+ * the Places refresh or the account purge is the sweep: it is the older, more important
  * job, and a typo in a cron expression should still re-enqueue stuck
  * reviews rather than silently do nothing.
  */
 export function scheduledJob(cron: string | undefined): ScheduledResult["job"] {
   if (cron === GOOGLE_POLL_CRON) return "google_poll";
   if (cron === PLACES_REFRESH_CRON) return "places_refresh";
+  if (cron === ACCOUNT_PURGE_CRON) return "account_purge";
   return "sweep";
 }
 
 /**
  * One cron tick (`triggers.crons` in wrangler.jsonc), routed on the cron
  * expression (`controller.cron`): re-enqueue reviews stuck with
- * `indexed_at IS NULL`, poll every Google connection, or refresh the
- * Places bootstraps that are due. Opens its own database client, as the
+ * `indexed_at IS NULL`, poll every Google connection, refresh the Places
+ * bootstraps that are due, or purge workspaces deleted 30+ days ago. Opens its own database client, as the
  * queue handler does, and closes it when done.
  */
 export async function handleScheduled(
@@ -469,6 +477,12 @@ export async function handleScheduled(
         kv: env.CACHE,
       });
       return { job: "places_refresh", result };
+    }
+    if (job === "account_purge") {
+      const result = await runAccountPurge(
+        env.UPLOADS ? { db, uploads: env.UPLOADS, log } : { db, log },
+      );
+      return { job: "account_purge", result };
     }
     const result = await sweepUnindexed(
       { db, queue: env.INGEST_QUEUE, log },
