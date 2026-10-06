@@ -60,11 +60,7 @@ export function isPastRetention(
 
 /** The `list`/`delete` slice of `R2Bucket` a prefix delete uses. */
 export interface PrefixBucket {
-  list(options: {
-    prefix: string;
-    cursor?: string;
-    limit?: number;
-  }): Promise<{
+  list(options: { prefix: string; cursor?: string; limit?: number }): Promise<{
     objects: readonly { key: string }[];
     truncated: boolean;
     cursor?: string;
@@ -85,7 +81,8 @@ export async function deletePrefix(
   prefix: string,
   options: { batchSize?: number } = {},
 ): Promise<number> {
-  if (prefix.length === 0) throw new Error("refusing to delete an empty prefix");
+  if (prefix.length === 0)
+    throw new Error("refusing to delete an empty prefix");
   const limit = Math.min(options.batchSize ?? R2_BATCH_LIMIT, R2_BATCH_LIMIT);
   let deleted = 0;
   let cursor: string | undefined;

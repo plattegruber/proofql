@@ -79,7 +79,10 @@ describe("deletePrefix", () => {
     });
     expect(n).toBe(25);
     expect(bucket.deleteCalls.map((c) => c.length)).toEqual([10, 10, 5]);
-    expect(bucket.keys()).toEqual(["uploads/p10/run.csv", "uploads/p2/run.csv"]);
+    expect(bucket.keys()).toEqual([
+      "uploads/p10/run.csv",
+      "uploads/p2/run.csv",
+    ]);
   });
 
   it("returns 0 and makes no delete call for an empty prefix listing", async () => {
