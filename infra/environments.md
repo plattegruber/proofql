@@ -135,15 +135,17 @@ optional and falls back to an in-memory limiter, see
 `workers/api/src/rate-limit.ts`). The pipeline consumes the queue, embeds and classifies (AI),
 writes Postgres, and purges the cache for the projects a batch indexed (one
 generation bump per project per batch, #158); its
-five-minute cron (`triggers.crons`) also *produces* to the same queue to
-re-enqueue reviews stuck with `indexed_at IS NULL` (#72), and its second
-cron (`0 */6 * * *`) polls every Google connection (#46; docs/google.md),
+single five-minute cron (`triggers.crons`; one per environment because
+the Workers Free plan allows five per account, #174) also *produces* to
+the same queue to re-enqueue reviews stuck with `indexed_at IS NULL` (#72),
+and at 00/06/12/18:00 UTC the same tick polls every Google connection
+(#46; docs/google.md),
 producing `review.index` messages for what it imports; the dashboard
 produces a `connection.sync` message when a location mapping is saved
 (#45), which the pipeline consumes to poll that one connection at once. The poller
 does nothing until its three Google credentials are set, so a deploy
-without them is safe. A daily cron (`30 3 * * *`) refreshes Places
-bootstraps (#116), and another (`15 4 * * *`, #169) hard-deletes workspaces
+without them is safe. The 03:30 UTC tick refreshes Places
+bootstraps (#116), and the 04:15 UTC one (#169) hard-deletes workspaces
 soft-deleted more than 30 days ago — 50 per tick, FK cascades take every
 tenant row — and removes their projects' `uploads/<id>/` prefixes through
 the pipeline's `UPLOADS` binding. The

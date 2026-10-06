@@ -1,6 +1,6 @@
 /**
  * Ops: hard-delete workspaces deleted in Clerk more than 30 days ago (#169),
- * the same `purgeDeletedAccounts` the pipeline's daily cron (`15 4 * * *`)
+ * the same `purgeDeletedAccounts` the pipeline's daily cron tick (04:15 UTC)
  * runs. For catching up by hand or checking what the cron will do.
  *
  *     DATABASE_URL=postgres://... pnpm db:purge-accounts -- --dry-run

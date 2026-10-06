@@ -57,26 +57,30 @@
     // `places.refresh.skipped` and does nothing.
   },
 
-  // Four crons, routed on `controller.cron` in src/handlers.ts:
-  // - `*/5 * * * *`  re-enqueue sweep (#72, src/sweep.ts): reviews stuck with
+  // One cron per environment (#174): the Workers Free plan allows five cron
+  // triggers per account. Every five-minute tick, src/schedule.ts picks the
+  // jobs due at `controller.scheduledTime` (UTC, rounded down to 5 minutes);
+  // each runs isolated, so one failing does not skip the rest:
+  // - every tick: re-enqueue sweep (#72, src/sweep.ts): reviews stuck with
   //   indexed_at IS NULL for 5+ minutes go back on the queue (500/tick, five
   //   attempts per review).
-  // - `0 */6 * * *`  Google review polling (#46, src/google-poll.ts): every
+  // - 00/06/12/18:00: Google review polling (#46, src/google-poll.ts): every
   //   active Google connection, paced under the shared 300 QPM quota. Does
   //   nothing until CREDENTIALS_KEY / GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
-  //   are set (docs/secrets.md). Locally: `wrangler dev --test-scheduled`,
-  //   then GET /__scheduled?cron=0+*%2F6+*+*+* (docs/google.md).
-  // - `30 3 * * *`   Places bootstrap refresh (#116, src/places-refresh.ts):
+  //   are set (docs/secrets.md).
+  // - 03:30: Places bootstrap refresh (#116, src/places-refresh.ts):
   //   re-fetch every Places-bootstrapped place whose latest `places` run is
   //   25+ days old, for projects without an active Google connection
   //   (200/tick, oldest first). Does nothing until GOOGLE_PLACES_API_KEY is
-  //   set. Locally: GET /__scheduled?cron=30+3+*+*+* (docs/places.md).
-  // - `15 4 * * *`   account purge (#169, src/account-purge.ts): workspaces
+  //   set (docs/places.md).
+  // - 04:15: account purge (#169, src/account-purge.ts): workspaces
   //   soft-deleted 30+ days ago are hard-deleted (FK cascades) and their
   //   projects' `uploads/<id>/` R2 prefixes removed, 50 accounts per tick.
-  //   Locally: GET /__scheduled?cron=15+4+*+*+*.
+  // A skipped tick skips that run; every job is idempotent and age-based, so
+  // its next due tick catches up. Locally: `wrangler dev --test-scheduled`,
+  // then GET /cdn-cgi/local/scheduled?time=<epoch ms of a due time>.
   "triggers": {
-    "crons": ["*/5 * * * *", "0 */6 * * *", "30 3 * * *", "15 4 * * *"]
+    "crons": ["*/5 * * * *"]
   },
 
   "queues": {
@@ -143,7 +147,7 @@
         "GOOGLE_CLIENT_ID": "TBD-provision-in-m3"
       },
       "triggers": {
-        "crons": ["*/5 * * * *", "0 */6 * * *", "30 3 * * *", "15 4 * * *"]
+        "crons": ["*/5 * * * *"]
       },
       "queues": {
         "producers": [
@@ -189,7 +193,7 @@
         "GOOGLE_CLIENT_ID": "TBD-provision-in-m3"
       },
       "triggers": {
-        "crons": ["*/5 * * * *", "0 */6 * * *", "30 3 * * *", "15 4 * * *"]
+        "crons": ["*/5 * * * *"]
       },
       "queues": {
         "producers": [

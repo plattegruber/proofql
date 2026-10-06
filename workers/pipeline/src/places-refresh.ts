@@ -5,7 +5,7 @@
  * relevant public reviews at onboarding (#47). Its terms cap how long that
  * content may be stored at 30 days, and the owner's reading is that this
  * is a cache limit — so the rows are **refetched, never deleted**: once a
- * day (`30 3 * * *`) this cron re-fetches every bootstrapped place whose
+ * day (the 03:30 UTC tick of the pipeline cron, src/schedule.ts) this job re-fetches every bootstrapped place whose
  * latest `places` run is more than 25 days old, for projects that have not
  * since connected a Google Business Profile (the connector carries no
  * such limit and supersedes the bootstrap rows on its first sync, #115).
@@ -83,8 +83,6 @@ import type { IngestQueue } from "./sweep.js";
 
 const { connections, ingestRuns, projects, reviews } = schema;
 
-/** The cron expression in wrangler.jsonc (all three env blocks). */
-export const PLACES_REFRESH_CRON = "30 3 * * *";
 /** A succeeded (or still `running`) bootstrap is refreshed after this long. */
 export const PLACES_REFRESH_AFTER_DAYS = 25;
 /** A failed refresh is retried after this long rather than in 25 days. */

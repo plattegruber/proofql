@@ -95,7 +95,7 @@ reviews. Reply publishing and profile snapshots are out of scope.
 
 ## Cadence and first sync
 
-- **Cron:** `0 */6 * * *` on the pipeline worker (`workers/pipeline/wrangler.jsonc`, routed in `src/handlers.ts`; the five-minute sweep is the other cron). Review latency is therefore up to six hours.
+- **Cron:** the pipeline's single five-minute cron runs the poll on the 00:00, 06:00, 12:00 and 18:00 UTC ticks (`workers/pipeline/src/schedule.ts`, #174). Review latency is therefore up to six hours; a skipped tick defers it to the next one six hours later.
 - **First sync in seconds:** saving the location mapping in the dashboard sets `metadata.initial_sync_pending` and enqueues a `connection.sync` message on `proofql-ingest`; the pipeline consumes it and polls just that connection right away (`pollGoogleConnections({ connectionIds })`). If the message is lost, the next cron tick processes pending connections first.
 - **Order within a tick:** pending initial syncs first, then every other connection in a deterministic shuffle seeded by the tick's hour (`stableOrder`), so the order is reproducible for one tick and no connection is always last.
 - **Budget:** a tick stops after ten minutes and defers the rest to the next one (`google.tick.budget_exhausted`); cursors are persisted per completed location, so a cut-off tick never re-walks finished work.
@@ -212,7 +212,7 @@ To fire the cron locally:
 
 ```sh
 pnpm --filter @proofql/pipeline dev -- --test-scheduled
-curl "http://localhost:8798/__scheduled?cron=0+*%2F6+*+*+*"
+curl "http://localhost:8798/cdn-cgi/local/scheduled?time=1790812800000"  # 2026-10-01T00:00Z
 ```
 
 It finds work only if an `active` Google connection exists whose encrypted
@@ -236,6 +236,6 @@ in-process; no port is involved.
   disabled and unverified locations skipped, plan-cap truncation counted,
   5xx retry, the queue path, the unconfigured and rotated-key cases.
 - `workers/pipeline/src/handlers.test.ts`: `connection.sync` routing and
-  the cron-expression routing.
+  the tick's job isolation; `src/schedule.test.ts`: which jobs are due when.
 
 Log events: `docs/observability.md` → pipeline → `google.*`.

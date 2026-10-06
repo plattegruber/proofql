@@ -2,13 +2,15 @@
  * Pipeline handlers, kept out of the wrangler entrypoint (src/worker.ts) so
  * unit tests can call them under Node with hand-built batches.
  *
- * Cron contract (`triggers.crons`): `handleScheduled` routes on the cron
- * expression the runtime reports — the five-minute cron runs the re-enqueue
- * sweep (src/sweep.ts) for reviews stuck unindexed, the six-hourly one
- * polls every Google connection (src/google-poll.ts, #46), the daily one
- * at 03:30 UTC refreshes Places-bootstrapped reviews older than 25 days
- * (src/places-refresh.ts, #116), the daily one at 04:15 UTC hard-deletes
- * workspaces soft-deleted 30+ days ago (src/account-purge.ts, #169).
+ * Cron contract (`triggers.crons`, one five-minute cron; #174):
+ * `handleScheduled` runs the jobs `jobsDueAt` (src/schedule.ts) picks for
+ * the tick's scheduled time — always the re-enqueue sweep (src/sweep.ts)
+ * for reviews stuck unindexed; at 00/06/12/18:00 UTC the Google poll
+ * (src/google-poll.ts, #46); at 03:30 UTC the Places refresh of
+ * bootstraps older than 25 days (src/places-refresh.ts, #116); at 04:15
+ * UTC the hard-delete of workspaces soft-deleted 30+ days ago
+ * (src/account-purge.ts, #169). Each job is isolated: one that throws is
+ * logged (`cron.job_failed`) and the rest still run.
  *
  * Queue consumer contract (`proofql-ingest`, wrangler.jsonc):
  *
@@ -71,11 +73,7 @@ import {
 } from "@proofql/core";
 import { createDb } from "@proofql/db";
 
-import {
-  ACCOUNT_PURGE_CRON,
-  type AccountPurgeResult,
-  runAccountPurge,
-} from "./account-purge.js";
+import { type AccountPurgeResult, runAccountPurge } from "./account-purge.js";
 import type { PipelineBindings } from "./bindings.js";
 import {
   createDeadLetterContext,
@@ -93,10 +91,10 @@ import {
   indexReview,
 } from "./index-review.js";
 import {
-  PLACES_REFRESH_CRON,
   type PlacesRefreshResult,
   refreshPlacesBootstraps,
 } from "./places-refresh.js";
+import { jobsDueAt, type ScheduledJob } from "./schedule.js";
 import { type IngestQueue, type SweepResult, sweepUnindexed } from "./sweep.js";
 
 /** The subset of a Queues `Message` the handler reads and decides on. */
@@ -422,73 +420,94 @@ export async function handleQueue(
 export const SWEEP_OLDER_THAN_MINUTES = 5;
 export const SWEEP_LIMIT = 500;
 
-/** The four cron expressions in wrangler.jsonc (all three env blocks). */
-export const SWEEP_CRON = "*/5 * * * *";
-export const GOOGLE_POLL_CRON = "0 */6 * * *";
-export { ACCOUNT_PURGE_CRON, PLACES_REFRESH_CRON };
-
 export type ScheduledResult =
   | { job: "sweep"; result: SweepResult }
   | { job: "google_poll"; result: GooglePollResult }
   | { job: "places_refresh"; result: PlacesRefreshResult }
   | { job: "account_purge"; result: AccountPurgeResult };
 
-/**
- * Which job a cron expression runs. Anything that is not the Google poll,
- * the Places refresh or the account purge is the sweep: it is the older, more important
- * job, and a typo in a cron expression should still re-enqueue stuck
- * reviews rather than silently do nothing.
- */
-export function scheduledJob(cron: string | undefined): ScheduledResult["job"] {
-  if (cron === GOOGLE_POLL_CRON) return "google_poll";
-  if (cron === PLACES_REFRESH_CRON) return "places_refresh";
-  if (cron === ACCOUNT_PURGE_CRON) return "account_purge";
-  return "sweep";
+/** One runner per job; injectable so the isolation is unit-testable. */
+export type ScheduledRunners = {
+  [J in ScheduledJob]: () => Promise<
+    Extract<ScheduledResult, { job: J }>["result"]
+  >;
+};
+
+export interface TickResult {
+  ran: ScheduledResult[];
+  failed: ScheduledJob[];
 }
 
 /**
- * One cron tick (`triggers.crons` in wrangler.jsonc), routed on the cron
- * expression (`controller.cron`): re-enqueue reviews stuck with
- * `indexed_at IS NULL`, poll every Google connection, refresh the Places
- * bootstraps that are due, or purge workspaces deleted 30+ days ago. Opens its own database client, as the
- * queue handler does, and closes it when done.
+ * Run `jobs` in order, each isolated: a job that throws is logged as
+ * `cron.job_failed` and the next still runs. Logs one `cron.tick` line.
+ */
+export async function runScheduledJobs(
+  jobs: readonly ScheduledJob[],
+  runners: ScheduledRunners,
+  log: Logger,
+): Promise<TickResult> {
+  const ran: ScheduledResult[] = [];
+  const failed: ScheduledJob[] = [];
+  for (const job of jobs) {
+    try {
+      const result = await runners[job]();
+      ran.push({ job, result } as ScheduledResult);
+    } catch (error) {
+      failed.push(job);
+      log.log("cron.job_failed", { job, error });
+    }
+  }
+  log.log("cron.tick", {
+    jobs: ran.map((r) => r.job),
+    failed,
+    ...(failed.length > 0 ? { level: "warn" } : {}),
+  });
+  return { ran, failed };
+}
+
+/**
+ * One cron tick (the single `triggers.crons` entry in wrangler.jsonc):
+ * runs the jobs due at `scheduledTime` (`controller.scheduledTime`, epoch
+ * ms) — the sweep, plus the Google poll, Places refresh or account purge
+ * when their time of day comes round (src/schedule.ts). Opens its own
+ * database client, as the queue handler does, and closes it when done.
  */
 export async function handleScheduled(
   env: Omit<PipelineBindings, "AI">,
-  cron: string | undefined,
-): Promise<ScheduledResult> {
+  scheduledTime: number,
+): Promise<TickResult> {
   const { db, sql } = createDb(env.HYPERDRIVE.connectionString);
   const log = createPipelineLogger(env).child({ trigger: "cron" });
   try {
-    const job = scheduledJob(cron);
-    if (job === "google_poll") {
-      const result = await pollGoogleConnections(
-        { db, queue: env.INGEST_QUEUE, log, env, cache: env.CACHE },
-        { trigger: "cron" },
-      );
-      return { job: "google_poll", result };
-    }
-    if (job === "places_refresh") {
-      const result = await refreshPlacesBootstraps({
-        db,
-        queue: env.INGEST_QUEUE,
-        log,
-        env,
-        kv: env.CACHE,
-      });
-      return { job: "places_refresh", result };
-    }
-    if (job === "account_purge") {
-      const result = await runAccountPurge(
-        env.UPLOADS ? { db, uploads: env.UPLOADS, log } : { db, log },
-      );
-      return { job: "account_purge", result };
-    }
-    const result = await sweepUnindexed(
-      { db, queue: env.INGEST_QUEUE, log },
-      { olderThanMinutes: SWEEP_OLDER_THAN_MINUTES, limit: SWEEP_LIMIT },
+    return await runScheduledJobs(
+      jobsDueAt(scheduledTime),
+      {
+        sweep: () =>
+          sweepUnindexed(
+            { db, queue: env.INGEST_QUEUE, log },
+            { olderThanMinutes: SWEEP_OLDER_THAN_MINUTES, limit: SWEEP_LIMIT },
+          ),
+        google_poll: () =>
+          pollGoogleConnections(
+            { db, queue: env.INGEST_QUEUE, log, env, cache: env.CACHE },
+            { trigger: "cron" },
+          ),
+        places_refresh: () =>
+          refreshPlacesBootstraps({
+            db,
+            queue: env.INGEST_QUEUE,
+            log,
+            env,
+            kv: env.CACHE,
+          }),
+        account_purge: () =>
+          runAccountPurge(
+            env.UPLOADS ? { db, uploads: env.UPLOADS, log } : { db, log },
+          ),
+      },
+      log,
     );
-    return { job: "sweep", result };
   } finally {
     await sql.end();
   }

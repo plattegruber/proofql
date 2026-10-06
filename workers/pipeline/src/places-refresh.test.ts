@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   PLACES_REFRESH_AFTER_DAYS,
-  PLACES_REFRESH_CRON,
   PLACES_REFRESH_LIMIT,
   PLACES_REFRESH_RETRY_FAILED_AFTER_DAYS,
   planReconcile,
@@ -18,8 +17,7 @@ const NOW = new Date("2026-10-03T03:30:00.000Z");
 const DAY_MS = 86_400_000;
 
 describe("refreshWindow (candidate selection inputs)", () => {
-  it("is daily at 03:30 UTC, 25 days for a good run, a day for a failed one, 200 per tick", () => {
-    expect(PLACES_REFRESH_CRON).toBe("30 3 * * *");
+  it("is 25 days for a good run, a day for a failed one, 200 per tick", () => {
     expect(PLACES_REFRESH_AFTER_DAYS).toBe(25);
     expect(PLACES_REFRESH_RETRY_FAILED_AFTER_DAYS).toBe(1);
     expect(PLACES_REFRESH_LIMIT).toBe(200);

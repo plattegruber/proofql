@@ -5,7 +5,7 @@
  * (`accounts.deleted_at`, migration 0004): deleting the row at once would
  * be irreversible the moment someone removes an organization by mistake.
  * `purgeDeletedAccounts` finishes the job `ACCOUNT_PURGE_AFTER_DAYS` (30)
- * later. The pipeline runs it from its daily cron (`15 4 * * *`); ops can
+ * later. The pipeline runs it from its daily cron tick (04:15 UTC); ops can
  * run it by hand with `pnpm db:purge-accounts` (scripts/purge-accounts.ts).
  *
  * What goes:

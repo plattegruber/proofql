@@ -1,5 +1,5 @@
 /**
- * Daily workspace purge (#169): the pipeline's `15 4 * * *` cron runs
+ * Daily workspace purge (#169): the pipeline cron's 04:15 UTC tick runs
  * @proofql/db `purgeDeletedAccounts` — accounts soft-deleted by the Clerk
  * webhook more than `ACCOUNT_PURGE_AFTER_DAYS` (30) ago are hard-deleted
  * (FK cascades take every tenant row) and their projects' `uploads/<id>/`
@@ -12,7 +12,7 @@
  * says so with `upload_objects: null`.
  *
  * Locally: `wrangler dev --test-scheduled`, then
- * GET /__scheduled?cron=15+4+*+*+* on port 8798.
+ * GET /cdn-cgi/local/scheduled?time=<epoch ms of a 04:15 UTC> on port 8798.
  */
 
 import type { Logger, PrefixBucket } from "@proofql/core";
@@ -21,9 +21,6 @@ import {
   type PurgeDeletedAccountsResult,
   purgeDeletedAccounts,
 } from "@proofql/db";
-
-/** The cron expression in wrangler.jsonc (all three env blocks). */
-export const ACCOUNT_PURGE_CRON = "15 4 * * *";
 
 export interface AccountPurgeContext {
   db: Db;

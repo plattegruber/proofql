@@ -22,21 +22,18 @@ import { testLogger } from "../test/log.js";
 import type { PipelineBindings } from "./bindings.js";
 import type { GooglePollResult } from "./google-poll.js";
 import {
-  ACCOUNT_PURGE_CRON,
   createClassifier,
   createEmbedder,
-  GOOGLE_POLL_CRON,
   handleFetch,
   handleQueue,
   handleQueueBatch,
-  PLACES_REFRESH_CRON,
   type QueueConsumers,
   type QueueContext,
   type QueueHandlerOptions,
   type QueueMessage,
   retryDelaySeconds,
-  SWEEP_CRON,
-  scheduledJob,
+  runScheduledJobs,
+  type ScheduledRunners,
 } from "./handlers.js";
 import type { IndexOutcome } from "./index-review.js";
 
@@ -495,16 +492,80 @@ describe("connection.sync messages", () => {
   });
 });
 
-describe("scheduledJob", () => {
-  it("routes the six-hourly cron to the Google poll, the daily one to the Places refresh, and everything else to the sweep", () => {
-    expect(scheduledJob(GOOGLE_POLL_CRON)).toBe("google_poll");
-    expect(scheduledJob(PLACES_REFRESH_CRON)).toBe("places_refresh");
-    expect(PLACES_REFRESH_CRON).toBe("30 3 * * *");
-    expect(scheduledJob(ACCOUNT_PURGE_CRON)).toBe("account_purge");
-    expect(ACCOUNT_PURGE_CRON).toBe("15 4 * * *");
-    expect(scheduledJob(SWEEP_CRON)).toBe("sweep");
-    expect(scheduledJob(undefined)).toBe("sweep");
-    expect(scheduledJob("1 2 3 4 5")).toBe("sweep");
+describe("runScheduledJobs (#174)", () => {
+  const runners = (failing?: keyof ScheduledRunners): ScheduledRunners => {
+    const ok = (result: unknown) => async () => {
+      return result as never;
+    };
+    const r: ScheduledRunners = {
+      sweep: ok({ enqueued: 0 }),
+      google_poll: ok({ connections: 0 }),
+      places_refresh: ok({ candidates: 0 }),
+      account_purge: ok({ accounts: 0 }),
+    };
+    if (failing) {
+      r[failing] = async () => {
+        throw new Error(`${failing} down`);
+      };
+    }
+    return r;
+  };
+
+  it("runs every due job in order and logs one cron.tick", async () => {
+    const { log, out } = testLogger();
+    const tick = await runScheduledJobs(
+      ["sweep", "google_poll"],
+      runners(),
+      log,
+    );
+    expect(tick.ran.map((r) => r.job)).toEqual(["sweep", "google_poll"]);
+    expect(tick.failed).toEqual([]);
+    expect(out.only("cron.tick")).toMatchObject({
+      level: "info",
+      jobs: ["sweep", "google_poll"],
+      failed: [],
+    });
+  });
+
+  it("isolates a throwing job: the others still run", async () => {
+    const { log, out } = testLogger();
+    const order: string[] = [];
+    const r = runners("sweep");
+    const track =
+      <K extends keyof ScheduledRunners>(job: K) =>
+      () => {
+        order.push(job);
+        return r[job]();
+      };
+    const tick = await runScheduledJobs(
+      ["sweep", "places_refresh", "account_purge"],
+      {
+        ...r,
+        sweep: track("sweep") as ScheduledRunners["sweep"],
+        places_refresh: track(
+          "places_refresh",
+        ) as ScheduledRunners["places_refresh"],
+        account_purge: track(
+          "account_purge",
+        ) as ScheduledRunners["account_purge"],
+      },
+      log,
+    );
+    expect(order).toEqual(["sweep", "places_refresh", "account_purge"]);
+    expect(tick.ran.map((x) => x.job)).toEqual([
+      "places_refresh",
+      "account_purge",
+    ]);
+    expect(tick.failed).toEqual(["sweep"]);
+    expect(out.only("cron.job_failed")).toMatchObject({
+      level: "error",
+      job: "sweep",
+    });
+    expect(out.only("cron.tick")).toMatchObject({
+      level: "warn",
+      jobs: ["places_refresh", "account_purge"],
+      failed: ["sweep"],
+    });
   });
 });
 
