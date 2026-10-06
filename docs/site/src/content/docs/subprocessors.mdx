@@ -1,0 +1,36 @@
+---
+title: Subprocessors
+description: The third-party services that process personal data to run ProofQL, what each does, and where. Draft pending counsel review.
+---
+
+import LegalNotice from "../../components/LegalNotice.astro";
+import { SUPPORT_EMAIL } from "../../config";
+
+<LegalNotice />
+
+_Last updated: October 5, 2026 (draft)._
+
+We use a small number of third-party subprocessors — cloud infrastructure and service providers — to run ProofQL. This page lists every one that processes personal data, as described in our [Privacy policy](/privacy). [PLACEHOLDER: confirm a data processing agreement is in place with each, and link it.]
+
+## Current subprocessors
+
+| Subprocessor | What it does for ProofQL | Data it processes | Location |
+|---|---|---|---|
+| [Cloudflare, Inc.](https://www.cloudflare.com/privacypolicy/) | Runs our API, dashboard, snippet CDN and docs (Workers); caches query results (Workers Cache API, KV); stores uploaded review exports (R2); queues indexing work (Queues); computes embeddings and sentiment labels (Workers AI); pools database connections (Hyperdrive); rate limiting and logs (Workers Logs) | Review content and derived data, request metadata including IP addresses at the edge, account and project records in transit | Global edge network; [PLACEHOLDER: confirm storage locations for R2 and KV, and Workers AI inference locations] |
+| [Neon, Inc.](https://neon.com/privacy-policy) | Hosted Postgres database holding accounts, projects, hashed API keys, reviews, excerpts, embeddings, encrypted Google tokens and usage counts | All stored Service data | United States (AWS us-east-2, Ohio) |
+| [Clerk, Inc.](https://clerk.com/legal/privacy) | Customer sign-in, sessions and workspace membership; may use Cloudflare Turnstile for bot protection at sign-up | Customer names, email addresses, sign-in credentials, session and device data | United States |
+| [Google LLC](https://policies.google.com/privacy) | Only when a customer uses them: the Business Profile API (reading the customer's own reviews through its Google connection) and the Places API (looking up a business and its public reviews) | Business Profile account and location details, review content, search terms typed into the business lookup | United States |
+
+## Planned
+
+| Subprocessor | What it will do | Data it will process | Location |
+|---|---|---|---|
+| [Stripe, Inc.](https://stripe.com/privacy) | Payment processing, once self-serve billing opens (not yet in use) | Billing name, email, address and payment card details (sent directly to Stripe) | United States |
+
+## Changes
+
+We will update this page before a new subprocessor starts processing personal data, and email account owners about additions. You can follow every change in the project's [public repository history](https://github.com/plattegruber/proofql/commits/main/docs/site/src/content/docs/subprocessors.mdx). Questions: <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.
+
+---
+
+_The structure of this page is adapted from the [37signals policies](https://github.com/basecamp/policies) (Basecamp subprocessors), © 37signals LLC, used under the [Creative Commons Attribution 4.0 International license (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/), with changes; 37signals does not endorse ProofQL._

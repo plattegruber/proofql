@@ -1,53 +1,125 @@
 ---
 title: Terms of service
-description: The agreement for using ProofQL's API, dashboard and snippet. Placeholder text pending counsel.
+description: The agreement for using ProofQL's API, dashboard and snippet. Draft pending counsel review.
 ---
 
+import { Aside } from "@astrojs/starlight/components";
+import { PRICING_URL } from "@proofql/core";
 import LegalNotice from "../../components/LegalNotice.astro";
 import { SUPPORT_EMAIL } from "../../config";
 
 <LegalNotice />
 
-_Last updated: [PLACEHOLDER date]. These terms are between you and [PLACEHOLDER legal entity] ("ProofQL", "we")._
+_Last updated: October 5, 2026 (draft)._
 
-By creating an account or calling the API you agree to these terms.
+<Aside type="note" title="The short version">
+- **Your reviews stay yours.** You give us only the license we need to store, index and serve them to the sites you choose.
+- **Only import reviews you are allowed to display**, and follow the source platform's rules — for Google reviews, that means keeping the author attribution and the Google badge the snippet shows.
+- **The free plan is free** and shows a small "Reviews by ProofQL" badge. Paid plans are not on sale yet; contact us.
+- **Keep secret keys secret.** Publishable keys are meant to be public; secret keys are your responsibility.
+- **No uptime guarantee on the free plan**, and our liability is limited. Read [Liability](#limitation-of-liability) and [Indemnity](#indemnity).
+</Aside>
 
-## The service
+Thank you for using ProofQL. Because we cannot know every customer personally, these Terms of Service ("Terms") set out the rules that keep the Service running for everyone.
 
-ProofQL stores reviews you provide, indexes them, and returns the ones relevant to a query through an API and an embeddable snippet. The free tier's limits and the paid plan's limits are listed on [Limits](/limits) and may change with notice.
+When we say "**ProofQL**", "**we**", "**our**" or "**us**", we mean [COMPANY LEGAL NAME], [ADDRESS]. When we say the "**Service**", we mean the ProofQL API, dashboard, embeddable snippet, documentation and websites at proofql.dev and its subdomains. When we say "**you**" or "**your**", we mean the person or organization that holds a ProofQL account, and if you accept these Terms for an organization, you confirm you have authority to bind it.
+
+By creating an account or using the API, you agree to these Terms and to our [Privacy policy](/privacy). If we do not enforce a provision at some point, that does not waive it. **These Terms contain a limitation of our liability.**
 
 ## Your account
 
-You need a workspace created through our sign-in provider. You are responsible for the people you invite to it and for keeping your **secret** API keys secret; a leaked key can be revoked from the dashboard at any time. Publishable keys are meant to appear in web pages and are restricted to the origins you list.
+1. You need an account, created through our sign-in provider, to use the dashboard and get API keys. Give accurate information and keep it current. Accounts registered by bots or other automated means are not permitted.
+2. You are responsible for keeping your sign-in secure, for the people you invite to your workspace, and for everything that happens under your account. We recommend turning on two-factor authentication.
+3. You must be at least 16 years old, and old enough to enter a binding contract where you live.
 
-## Your content
+## API keys
 
-You keep all rights to the reviews and other data you import. You grant us the licence needed to store, index, cache and serve them to you and to the websites you authorize. You confirm you are allowed to use the reviews you import, including under the terms of the platform they came from (for Google-sourced reviews, Google's Places and Business Profile policies, which among other things require author attribution and a source badge, both of which the snippet renders).
+1. Each project has **publishable** keys (`pq_pk_…`), which are designed to appear in web pages and can only read the reviews your publication settings allow, from the website origins you list; and **secret** keys (`pq_sk_…`), which can read, write and delete your project's data.
+2. **You are responsible for keeping secret keys secret**: use them only on servers, never in browsers, apps or public repositories. If one leaks, revoke it in the dashboard at once. We are not liable for loss caused by a key you failed to secure, and traffic made with your keys counts against your plan.
+3. Use of the API is subject to the rate limits, quotas and request limits published on our [Limits](/limits) page, which is generated from the same plan table the Service enforces. Do not try to get around them, for example by spreading traffic over extra keys or accounts.
+
+## Your content and the reviews you import
+
+1. **You own your content.** You keep all rights in the reviews, settings and other material you or your users submit ("Your Content"). We claim no ownership of it.
+2. **License to us.** You grant us a worldwide, non-exclusive, royalty-free license to host, copy, process, index, create embeddings and excerpts from, cache, transmit and display Your Content only as needed to provide, secure and support the Service for you — including serving it to the websites and callers you authorize — and for no other purpose. The license ends when Your Content is deleted from the Service, except for copies in backups, which expire on their normal schedule.
+3. **Your rights to import.** You confirm that you have every right, license and consent needed to import, store and publicly display each review you bring into ProofQL, and that doing so does not infringe anyone's rights or break any law or agreement. In practice, import only reviews **of your own business** (or of a client who has authorized you).
+4. **Source platform terms.** You must comply with the terms of the platform each review came from. For Google reviews, that includes the [Google Maps Platform Terms](https://cloud.google.com/maps-platform/terms), the [Places API policies](https://developers.google.com/maps/documentation/places/web-service/policies) and Google Business Profile policies, which require you to display each review with its author's name, photo and a link to it, and to credit Google as the source. The snippet does this by default; if you render reviews with your own code, you must do it yourself. Do not alter a review's text or rating, present it as written about a different business, or display reviews from a platform whose terms forbid it.
+5. **Reviewer requests.** You are the controller of the personal data in the reviews you import. If a reviewer asks you to remove or correct a review, you are responsible for handling it, and you agree to act promptly on requests we forward to you.
+6. We do not pre-screen content, but we may remove or hide content that we reasonably believe breaks these Terms or the law, or that we are legally required to remove.
 
 ## Acceptable use
 
-Do not use the service to store content you have no right to, to fabricate or alter reviews, to circumvent rate limits or key restrictions, or to probe other customers' data. We may suspend an account that does.
+When you use the Service, you may not, and may not allow anyone else to:
 
-## Availability and changes
+- import or display reviews you do not have the right to use, or fabricate, alter, buy or misattribute reviews;
+- use the Service to scrape, harvest or collect reviews or personal data from websites or platforms, or use our API to extract data from projects or accounts that are not yours;
+- circumvent, disable or interfere with security features, keys, origin restrictions, rate limits or plan limits;
+- interfere with, disrupt or put an undue burden on the Service or its infrastructure, including load testing it without our written permission;
+- upload malware, or use the snippet or API to track visitors to a website;
+- trick, defraud or mislead us, other customers or the public, including by impersonating another person or business;
+- harass, threaten or abuse anyone, including our staff; or
+- use the Service in violation of any applicable law, including consumer-protection rules on endorsements and reviews.
 
-The service is provided as is, without an uptime guarantee on the free tier. [PLACEHOLDER: paid-tier SLA, if any.] We may change or discontinue features with reasonable notice; the API is versioned by path (`/v1`) and we announce breaking changes before making them.
+To report abuse, email <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> with the details, including URLs. We will not disclose your identity to the reported account.
 
-## Fees
+## Plans, the badge and fees
 
-The free tier is free. Paid plans are billed as described at the point of purchase. [PLACEHOLDER: billing terms once Stripe billing launches, #48.] Until then paid plans are arranged by email.
+1. **Free plan.** The free plan is really free: we do not ask for a card. Its limits are on the [Limits](/limits) page and may change; we will give reasonable notice of a reduction that affects you.
+2. **The badge.** On the free plan the snippet shows a small "Reviews by ProofQL" badge, and the API's `badge` field tells custom integrations to do the same. You agree not to hide, remove or obscure it while you are on the free plan.
+3. **Paid plans.** Paid plans are not sold yet. If you need higher limits or no badge, contact us at <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>; any paid arrangement will be agreed in writing until self-serve billing opens, at which point pricing will be published at <a href={PRICING_URL}>{PRICING_URL}</a> and this section updated. [PLACEHOLDER: billing, renewal, refund, tax and price-change terms for when Stripe billing launches.]
 
-## Termination
+## Availability, changes and support
 
-You can delete your projects or workspace at any time. We can terminate accounts that breach these terms. On termination your data is deleted as described in the [privacy policy](/privacy).
+1. We work hard to keep the Service fast and available, but **we provide no service-level agreement on the free plan**, and we do not promise the Service will be uninterrupted or error-free. [PLACEHOLDER: SLA for paid plans, if any.]
+2. We may change, add or remove features. The API is versioned by path (`/v1`); we will announce breaking changes to a version before making them, with reasonable notice. We may discontinue the Service with at least [PLACEHOLDER: N days] notice to account owners, so you can export your data.
+3. We may temporarily limit an account whose usage threatens the Service's stability for others; where we can, we will contact you first.
 
-## Liability
+## Suspension and termination
 
-To the extent permitted by law, ProofQL is not liable for indirect or consequential losses, and our total liability is limited to [PLACEHOLDER: the fees you paid in the preceding twelve months / a fixed amount]. Nothing here limits liability that cannot be limited by law.
+1. **You** can stop using the Service at any time and delete your projects or workspace from the dashboard.
+2. **We** may suspend or terminate your account, or refuse service, if you breach these Terms, if your use creates a security, legal or operational risk to us or others, if a source platform or the law requires it, or if your account has been inactive on the free plan for [PLACEHOLDER: N months] (with prior notice). Where reasonable we will tell you first and give you a chance to fix the problem.
+3. On termination your right to use the Service ends and your data is deleted as described in the [Privacy policy](/privacy). Sections that by their nature should survive — including ownership, disclaimers, limitation of liability, indemnity and governing law — survive.
 
-## Governing law
+## Our intellectual property and feedback
 
-[PLACEHOLDER jurisdiction and venue.]
+1. ProofQL and its licensors own the Service, including its software, design, documentation and trademarks. Apart from the rights in these Terms, you get no rights in them. Code we publish under an open-source license is governed by that license.
+2. You may not resell or sublicense access to the Service, or copy it to build a competing service, without our written permission. [PLACEHOLDER: confirm whether agencies may manage client projects under one account, and on what terms.]
+3. If you send us feedback or suggestions, we may use them without obligation to you.
+
+## Third-party services
+
+The Service works with third-party services such as Google, which have their own terms and privacy policies. Your use of them is between you and the third party, and we are not responsible for their availability, content or changes — for example, if Google changes or withdraws an API, the related feature may stop working.
+
+## Disclaimers
+
+**Your use of the Service is at your sole risk. The Service is provided "as is" and "as available". To the fullest extent permitted by law, we disclaim all warranties, express or implied, including warranties of merchantability, fitness for a particular purpose, title and non-infringement.** We do not warrant that search results will be complete, accurate or suitable for any purpose; reviews are the opinions of their authors, not ours.
+
+## Limitation of liability
+
+**To the fullest extent permitted by law, ProofQL will not be liable to you or any third party for any indirect, incidental, special, consequential, exemplary or punitive damages, or for lost profits, revenue, goodwill, use or data, however caused and on any theory of liability, even if we were advised of the possibility. Our total liability for all claims relating to the Service or these Terms is limited to the greater of the amount you paid us for the Service in the twelve months before the claim and [PLACEHOLDER: fixed amount, e.g. US$100].**
+
+Nothing in these Terms limits liability that cannot be limited by law.
+
+## Indemnity
+
+You will defend, indemnify and hold harmless ProofQL and its officers, employees and agents from any claims, damages, losses and expenses (including reasonable legal fees) arising from Your Content — including a claim that you had no right to import or display a review — your breach of these Terms or of a source platform's terms, or your violation of any law or third-party right. [PLACEHOLDER: counsel to confirm scope and procedure.]
+
+## Governing law and disputes
+
+These Terms are governed by the laws of [GOVERNING LAW / JURISDICTION], without regard to conflict-of-laws rules, and disputes will be resolved in the courts of [GOVERNING LAW / JURISDICTION]. [PLACEHOLDER: counsel to decide venue, any arbitration clause, and consumer-law carve-outs.]
+
+## General
+
+These Terms, the [Privacy policy](/privacy) and any written order form are the whole agreement between you and us about the Service. If a provision is unenforceable, the rest remains in effect. You may not assign these Terms without our consent; we may assign them in a merger, acquisition or sale of assets. Neither party is liable for delays caused by events beyond its reasonable control.
+
+## Changes to these Terms
+
+We may update these Terms. You can see every change in the project's [public repository history](https://github.com/plattegruber/proofql/commits/main/docs/site/src/content/docs/terms.mdx). For a significant change, we will update the date at the top and email account owners at least [PLACEHOLDER: 30] days before it takes effect. If you keep using the Service after a change takes effect, you accept the new Terms; if you do not agree, stop using the Service and delete your account.
 
 ## Contact
 
-<a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
+Questions about these Terms: <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>, or by post to [COMPANY LEGAL NAME], [ADDRESS].
+
+---
+
+_Portions of these Terms are adapted from the [37signals policies](https://github.com/basecamp/policies) (Basecamp Terms of Service and Use Restrictions policy), © 37signals LLC, used under the [Creative Commons Attribution 4.0 International license (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/). The text has been substantially modified and extended for ProofQL; 37signals does not endorse ProofQL or these Terms._

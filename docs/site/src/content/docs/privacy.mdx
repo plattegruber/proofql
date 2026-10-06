@@ -1,65 +1,159 @@
 ---
 title: Privacy policy
-description: What ProofQL stores, why, for how long, and who to ask. Placeholder text pending counsel.
+description: What ProofQL collects, why, who processes it, how long it is kept, how Google user data is handled, and your rights. Draft pending counsel review.
 ---
 
+import { Aside } from "@astrojs/starlight/components";
 import LegalNotice from "../../components/LegalNotice.astro";
 import { SUPPORT_EMAIL } from "../../config";
 
 <LegalNotice />
 
-_Last updated: [PLACEHOLDER date]. Operator: [PLACEHOLDER legal entity, address, country]._
+_Last updated: October 5, 2026 (draft). Operator: [COMPANY LEGAL NAME], [ADDRESS] ("ProofQL", "we", "us")._
 
-ProofQL is a review search API: a business (our **customer**) sends us its reviews, and we return the ones relevant to a question so the customer can show them on its own website. This page explains what we store to do that, and what we do not.
+<Aside type="note" title="The short version">
+- ProofQL stores a business's **public reviews** so its own website can show the ones relevant to each page. The reviews belong to that business; we process them on its behalf.
+- For **customers** (people with a dashboard account) we keep what we need to run the account: sign-in details via Clerk, workspace name, usage counts.
+- We **never sell** personal data, never use it for advertising, and never train AI models on it. No generative AI writes or rewrites reviews.
+- Google data reached through a customer's Google connection is used **only** to show that customer's reviews on its own site, under Google's Limited Use rules, and can be disconnected at any time.
+- Hidden or deleted reviews disappear from search at once. Everything runs in the **United States**.
+- Questions or requests: <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.
+</Aside>
 
-## What we collect
+The privacy of your data is a big deal to us. This policy lays out what we collect and why, how it is handled, and your rights. We promise we never sell your data.
 
-- **Account data.** Sign-in is handled by [Clerk](https://clerk.com/legal/privacy); we store the workspace's Clerk organization id, its name, and its plan. We do not store passwords.
-- **Reviews the customer imports.** The review text, rating, author display name, author avatar URL, source, date and link, as the customer pushed or uploaded them, plus derived data we compute from them: sentence excerpts, numeric embeddings, a sentiment label. Reviews are **the customer's data**; we process them on the customer's behalf. [PLACEHOLDER: confirm the controller/processor roles with counsel.]
-- **Usage and request logs.** For every API request: a request id, the project and key ids, timing, the result count, status codes, and the requesting IP address as recorded by Cloudflare. Query text is **not** logged; its length is. Logs are kept for [PLACEHOLDER retention, e.g. 30 days].
-- **Waitlist.** If you leave your email on `/sign-up` before public signup opens, we store that address and when you left it, and use it for one thing: telling you when signup opens.
-- **Support email.** Messages you send to <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> are kept to answer them.
+## Who this policy covers, and our role
 
-## What we do not do
+ProofQL is a hosted review search API and dashboard, available at proofql.dev and its subdomains (the "Service"). A business or developer (our **customer**) imports reviews of its business into ProofQL; we index them and return the ones relevant to a question, so the customer can display them on its own website, usually through our embeddable snippet.
 
-- We do not sell data, and we do not use reviews to train models. Embeddings are computed by Cloudflare Workers AI and stored only for the customer's own search.
-- No large language model reads review text in the current version of the service.
-- Review text is only ever returned to callers holding one of **that project's** API keys, and publishable keys are additionally restricted to the customer's listed website origins.
+That means two groups of people are involved, and our role differs for each:
 
-## Who processes data for us
-
-| Processor | Purpose | Location |
+| Who | Examples of data | Our role |
 |---|---|---|
-| Cloudflare | Hosting (Workers), caching, embeddings (Workers AI), request logs | Global edge; [PLACEHOLDER data region statement] |
-| Neon | The Postgres database holding accounts, reviews and derived data | [PLACEHOLDER region, e.g. AWS us-east-1] |
-| Clerk | Authentication and workspace membership | United States |
-| Google (Places API, Business Profile API) | When a customer imports reviews from Google, with its consent | United States |
+| **Customers and their team members** — people who sign up for, or are invited to, a ProofQL workspace | Name, email address, workspace name, plan, usage, support email | **Controller.** We decide why and how this data is used, as described in this policy. |
+| **Reviewers** — people whose public reviews a customer imports — and **visitors** to a customer's website on which the snippet or API runs | Reviewer display name, avatar URL, review text, rating, date, link; request metadata from a visitor's browser | **Processor** (in CCPA terms, a "service provider"). The customer is the controller (or "business") and decides what to import and display; we process this data only on the customer's instructions to provide the Service. |
 
-[PLACEHOLDER: add a payment processor row when billing launches.]
+If you are a reviewer or a visitor to a customer's website and have a question about how your information is used there, please contact that business first; it decides what is imported and shown. You can also write to us (see [Reviewers: removing a review](#reviewers-removing-a-review)) and we will pass your request to the right customer.
 
-## Google data
+[PLACEHOLDER: counsel to confirm the controller/processor split, and whether a Data Processing Addendum (DPA) with Standard Contractual Clauses should be published and incorporated into the Terms.]
 
-When a customer imports its own Google reviews, the import is done with the customer's consent and the reviews are displayed with their author attribution and a Google source badge, as Google's terms require. Where a customer connects a Google account (the Business Profile connector), we store an encrypted refresh token to keep the connection current and delete it when the connection is removed. Retention of Places-sourced content follows Google's Places policies; see the decision recorded in the project's `docs/places.md`. [PLACEHOLDER: confirm the retention position, issue #116.]
+## What we collect and why
 
-## Retention and deletion
+Our guiding principle is to collect only what we need.
 
-- Deleting a project deletes its reviews, excerpts, embeddings, keys and usage rows immediately.
-- Deleting a workspace in Clerk marks the account deleted; its data is removed after [PLACEHOLDER grace period].
-- Request logs expire after [PLACEHOLDER retention].
-- To have your data deleted or exported, email <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> from the workspace's sign-in address.
+### Customer accounts
+
+- **Identity and sign-in.** Sign-in is handled by our authentication provider, [Clerk](https://clerk.com/legal/privacy), which holds your name, email address and sign-in credentials (or your Google sign-in, if you choose it) and sets the session cookies that keep you signed in. Clerk may use Cloudflare Turnstile to tell people from bots at sign-up. We store the workspace's Clerk organization id, its name and its plan. We do not store passwords.
+- **Project configuration.** Project names, the website origins you allow, your publication settings (minimum rating, relevance floor), and your API keys — stored only as a one-way hash, with the full key shown to you once.
+- **Usage.** Per-project monthly counts of queries and cache hits, used to enforce plan limits and, later, for billing; and per-import run records (counts and status).
+- **Security signals.** To rate-limit failed sign-ins to the API and waitlist abuse, we count requests per IP address for a short window (seconds to an hour) in Cloudflare's rate-limiting and key-value services. We deliberately do not write IP addresses into our application logs.
+- **Waitlist.** If you leave your email on the sign-up page before public signup opens, we store that address, when you left it, and where, and use it only to tell you when signup opens.
+- **Voluntary correspondence.** When you email <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>, we keep that correspondence, including your email address, so we have a history to refer to if you write again.
+- **Billing (planned).** Paid plans are not sold yet. When self-serve billing opens, card details will be submitted directly to our payment processor (Stripe) and will not touch our servers; we will store a customer id and a record of payments. This section will be updated before then.
+
+### Reviews a customer imports (processed on the customer's behalf)
+
+A customer can bring reviews in four ways: the push API, a CSV/JSON export it uploads, the Google Places API bootstrap (up to five public reviews of its business), and, once approved by Google, its connected Google Business Profile. For each review we store what the customer or source provides: the review text, star rating, author display name, author avatar URL, the source (for example `google`), the review date, a link to the original, its language, and any labels the customer adds. From that we derive verbatim excerpts, numeric embeddings and a sentiment label (see [How we use AI](#how-we-use-ai)). Uploaded export files are stored so an import can be processed and are never served back.
+
+### Visitors to a customer's website
+
+When a page with the ProofQL snippet loads, the visitor's browser downloads the snippet from our CDN and calls our API with the customer's publishable key and the question the page asks. Our application logs record identifiers and measurements — a request id, the project and key ids, the length of the query (not its text), result counts, status and timing — and **never** the review text, author names, keys or the visitor's IP address. Cloudflare, which runs our infrastructure, necessarily processes the visitor's IP address and standard request headers at its edge to deliver and secure the request, and its platform request records may include them. The snippet sets **no cookies** and does no tracking. Reviewer avatar images are loaded by the visitor's browser directly from wherever the source hosts them (for Google reviews, Google's servers).
+
+## How we use AI
+
+To make reviews searchable by meaning, we convert review text into numeric vectors ("embeddings") using an open embedding model (`bge-m3`) run on Cloudflare Workers AI; for reviews without a star rating, a small open sentiment classifier on Workers AI labels them positive, neutral or negative. The vectors are stored only for that customer's own search. **No generative AI** reads, writes, summarizes or rewrites review content in the current Service: every excerpt we return is a verbatim slice of the original review. We do not use customer data, reviews or Google data to train or improve any AI or machine-learning model, ours or anyone else's.
+
+## Google user data
+
+This section describes how ProofQL accesses, uses, stores and shares data received from Google APIs, as required by the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy).
+
+**ProofQL's use and transfer of information received from Google APIs to any other app will adhere to the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), including the Limited Use requirements.**
+
+**What we access.** When a customer connects its Google account in the dashboard (Project → Integrations → Connect Google), we request the `https://www.googleapis.com/auth/business.manage` scope and use it, read-only, to list the Business Profile accounts and locations the customer manages (account and location names and ids, location title and address, and verification status) and to read the reviews of the locations the customer chooses (reviewer display name and profile photo URL, star rating, review text, and review dates). We store an access token and a refresh token, encrypted with AES-256-GCM, so the connection stays current.
+
+**Why.** Solely to provide the feature the customer asked for: importing that business's own Google reviews and keeping them up to date (we check for new and edited reviews about every six hours) so it can display them, with attribution, on its own website.
+
+**What we do not do.** We do not use Google user data for advertising, sell it, or transfer it to data brokers or information resellers; we do not use it to determine creditworthiness or for lending; we do not use it to develop, improve or train generalized AI or machine-learning models; and we do not transfer it to anyone except as necessary to provide or improve this feature, for security, to comply with law, or as part of a merger or acquisition with the user's prior consent. No ProofQL staff read this data unless the customer asks us to for support, it is needed for security or legal reasons, or it is aggregated for internal operations.
+
+**How to revoke.** Disconnect at any time in the dashboard (Project → Integrations → **Disconnect**), which deletes the stored tokens immediately; or remove ProofQL's access in your Google Account at [myaccount.google.com/permissions](https://myaccount.google.com/permissions). Disconnecting stops all further access. Reviews already imported stay in your project until you delete them or the project; to remove them too, delete the reviews or the project, or write to us.
+
+**Google Places API.** Separately from a Google account connection, the dashboard can look up a business on the Google Places API (with ProofQL's own API key, not your Google account) and import up to five of its public reviews to get started. These are displayed with the author's name, photo and a link, and a Google source badge, as Google's [Places API policies](https://developers.google.com/maps/documentation/places/web-service/policies) require. Google limits how long Places content may be stored, so we refresh these reviews from Google every 25 days, remove any Google no longer returns, and replace them with the connected-account copies when the customer connects its Business Profile. Use of Places data is also subject to the [Google Maps Platform Terms](https://cloud.google.com/maps-platform/terms) and [Google's Privacy Policy](https://policies.google.com/privacy).
+
+## When we access or disclose your information
+
+**To provide the Service.** We use a small number of subprocessors to host and run ProofQL. They are listed, with what they do and where, on our [subprocessors page](/subprocessors). We may disclose information at your direction when you connect a third-party service, such as your Google Business Profile.
+
+**Human access.** No ProofQL person looks at your content except for limited purposes: with your permission to help with a support request; when an automated process fails and needs manual repair (we fix the root cause wherever we can); to investigate abuse or a breach of our [Terms](/terms); or when required by law.
+
+**Aggregated and de-identified data.** We may use aggregated or de-identified information (for example, total query volumes) to operate and improve the Service. It does not identify you or any reviewer.
+
+**When required by law.** We disclose information only when compelled by valid legal process, or in an emergency involving a risk of serious harm, and we will notify affected customers before disclosing unless we are legally prohibited from doing so. [PLACEHOLDER: counsel to confirm the law-enforcement request position.]
+
+**Business transfers.** If ProofQL is acquired or merges with another company, we will notify you before your personal information is transferred or becomes subject to a different privacy policy.
+
+We never sell personal information and never share it for cross-context behavioral advertising.
 
 ## Cookies
 
-The dashboard sets the session cookies Clerk needs to keep you signed in, a short-lived cookie that carries a status message across a page change, and nothing for advertising or cross-site tracking. The embedded snippet sets no cookies on the customer's site.
+The dashboard uses the cookies Clerk needs to keep you signed in and a short-lived, signed cookie that carries a status message across one page change. The docs site and the snippet set no cookies. We use no advertising, analytics or cross-site tracking cookies.
+
+## Retention and deletion
+
+We keep information only as long as we need it for the purposes above, or as required by law.
+
+- **Hidden reviews** are excluded from search results immediately (cached results are refreshed within about a minute) and kept until the customer unhides or deletes them.
+- **Deleted reviews** are removed from the database, together with their excerpts and embeddings, at once, and drop out of cached results within about a minute.
+- **Deleting a project** deletes its reviews, excerpts, embeddings, API keys, Google connection, import records and usage rows at once. [PLACEHOLDER: uploaded export files in storage are not yet deleted with the project; decide a lifecycle (e.g. delete after the import completes, or after N days) and state it here.]
+- **Google Places bootstrap reviews** are refreshed every 25 days (inside Google's 30-day limit) and replaced on the first sync of a connected Business Profile, as described above.
+- **Google tokens** are deleted on disconnect, and when Google reports the connection revoked or expired.
+- **Deleting a workspace** marks the account deleted at once; its remaining data is purged within [PLACEHOLDER: N days]. [PLACEHOLDER: an automated purge is not yet built; confirm the period once it is.]
+- **Backups.** Our database provider keeps a point-in-time restore history of [PLACEHOLDER: N days — the Neon history-retention window configured for production], after which deleted data is gone from backups too.
+- **Logs.** Application logs are kept by Cloudflare Workers Logs for 3 days on the Workers Free plan and 7 days on Workers Paid ([Cloudflare documentation](https://developers.cloudflare.com/workers/observability/logs/workers-logs/), checked October 2026). [PLACEHOLDER: confirm the plan in use at launch.]
+- **Waitlist** addresses are kept until signup opens and we have told you, or until you ask us to delete them. [PLACEHOLDER: confirm.]
+- **Support email** is kept as long as needed to help you, and up to [PLACEHOLDER: N months/years] afterwards.
+
+## Reviewers: removing a review
+
+If a review you wrote appears on a website through ProofQL and you want it removed or corrected, the quickest route is to edit or delete it on the original platform (for example Google): on its next sync or refresh, ProofQL applies the change. You can also ask the business that displays it. Or write to <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> with a link to the page and the review; because the business controls its reviews, we will forward your request to it promptly and help it act on it, and we may hide a review ourselves where the law requires.
 
 ## Your rights
 
-Depending on where you live you may have rights to access, correct, delete or export personal data about you, and to complain to a supervisory authority. Write to <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>. [PLACEHOLDER: GDPR/UK GDPR/CCPA specifics, legal bases, and a representative if required.]
+We strive to apply the same data rights to everyone, wherever they live. Depending on your location — including under the EU and UK General Data Protection Regulation (GDPR / UK GDPR) and the California Consumer Privacy Act as amended by the CPRA — you may have the right to:
 
-## Changes
+- **Know and access** what personal information we hold about you and how it is used and shared;
+- **Correct** inaccurate information;
+- **Delete** your information ("to be forgotten"), subject to limits in law; deleting account data may mean closing the account;
+- **Port** your data — export it in a usable format (review data is available through `GET /v1/reviews`);
+- **Restrict or object** to processing, including processing based on our legitimate interests;
+- **Not be discriminated against** for exercising these rights; and
+- **Complain** to a supervisory authority, such as your local data protection authority in the EU or the UK Information Commissioner's Office.
 
-We will post changes here with a new date at the top. Material changes are announced to account owners by email.
+We do not sell or "share" personal information as the CCPA defines it, and we do not make decisions with legal or similarly significant effects based solely on automated processing.
+
+**Legal bases (GDPR).** We process customer account data to perform our contract with you; security signals, abuse prevention and service improvement under our legitimate interests; waitlist addresses with your consent (withdraw it at any time); and anything required by law under that legal obligation. For reviewer and visitor data, the customer, as controller, determines the legal basis. [PLACEHOLDER: counsel to confirm the legal bases and whether an EU/UK representative (GDPR Art. 27) is required.]
+
+**How to make a request.** Email <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>, from the address on your account if you have one. We may need to verify your identity before responding, and we will need signed authorization if an agent writes for you. We aim to respond within one month (GDPR) or 45 days (CCPA). If we deny a request, we will explain why and how to appeal. Requests about reviews a customer imported go to that customer, as above.
+
+## Children
+
+ProofQL is a business service and is not directed at children. We do not knowingly collect personal information from anyone under 16 through customer accounts. If you believe a child has given us personal information, contact us and we will delete it.
+
+## International transfers
+
+ProofQL is operated from the United States and our database is hosted in the US (AWS us-east-2, via Neon). If you are outside the US, your information will be transferred to and processed in the US, where data protection law may differ from yours. Where GDPR or UK GDPR applies, we rely on [PLACEHOLDER: Standard Contractual Clauses / the EU-US Data Privacy Framework / another transfer mechanism, to be chosen with counsel] for these transfers, and our subprocessors offer equivalent safeguards.
+
+## How we secure your data
+
+All connections to ProofQL use TLS, and responses carry HSTS. Secret API keys are high-entropy, shown once, and stored only as hashes; publishable keys can only read a project's displayable reviews. Google tokens are encrypted at rest with AES-256-GCM. Every database query is scoped to the requesting project, so one customer cannot read another's data. Our workers hold no database passwords or AI keys; they reach those services through platform bindings. Requests are rate-limited per key and per IP for failed authentication, and our logs never contain review text, author names or keys. We describe our threat model and controls in more detail in the project's [security documentation](https://github.com/plattegruber/proofql/blob/main/docs/security.md). To report a vulnerability, email <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.
+
+## Changes to this policy
+
+We may update this policy to reflect new practices or legal requirements. You can see every change to it in the project's [public repository history](https://github.com/plattegruber/proofql/commits/main/docs/site/src/content/docs/privacy.mdx). When we make a significant change, we will update the date at the top of this page and email account owners before it takes effect.
 
 ## Contact
 
-<a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> · [PLACEHOLDER postal address]
+Questions, comments or requests about this policy or your data: <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>, or by post to [COMPANY LEGAL NAME], [ADDRESS]. [PLACEHOLDER: a dedicated privacy@ address, if wanted.]
+
+---
+
+_Portions of this policy are adapted from the [37signals policies](https://github.com/basecamp/policies) (Basecamp), © 37signals LLC, used under the [Creative Commons Attribution 4.0 International license (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/). The text has been substantially modified and extended for ProofQL; 37signals does not endorse ProofQL or this policy._
