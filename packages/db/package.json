@@ -30,6 +30,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:set-plan": "tsx scripts/set-plan.ts",
+    "db:purge-accounts": "tsx scripts/purge-accounts.ts",
     "db:reindex": "tsx scripts/reindex.ts",
     "db:tune-floor": "tsx scripts/tune-floor.ts",
     "db:studio": "drizzle-kit studio",
