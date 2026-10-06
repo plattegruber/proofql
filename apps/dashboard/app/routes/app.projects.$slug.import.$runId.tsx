@@ -6,6 +6,7 @@
 // is deferred (`?indexing=deferred` from a Places import whose send was
 // refused, or reviews unindexed for over two minutes) it says so instead of
 // "searchable within seconds".
+import { UPLOAD_RETENTION_DAYS } from "@proofql/core";
 import { useEffect, useRef, useState } from "react";
 import { data, Form, Link, redirect } from "react-router";
 
@@ -23,6 +24,7 @@ import { requireAccount } from "~/lib/account.server";
 import { findProjectBySlug } from "~/lib/accounts";
 import { runImportInBackground } from "~/lib/background.server";
 import {
+  errorReportExpired,
   findProjectRun,
   getRunProgress,
   ImportError,
@@ -85,6 +87,8 @@ export async function loader(args: Route.LoaderArgs) {
       environment: run.environment,
       startedAt: run.startedAt.toISOString(),
       finishedAt: run.finishedAt?.toISOString() ?? null,
+      // Upload objects expire after UPLOAD_RETENTION_DAYS (#169).
+      reportExpired: errorReportExpired(run),
     },
     progress: view,
   };
@@ -181,7 +185,7 @@ export default function ImportRun({ loaderData }: Route.ComponentProps) {
                   duplicates and {progress.failed.toLocaleString("en-US")} rows
                   not imported
                   {progress.failed > 0
-                    ? " — the report says why, row by row."
+                    ? ` — the report says why, row by row. It is available for ${UPLOAD_RETENTION_DAYS} days.`
                     : "."}
                 </>
               )}
@@ -193,18 +197,25 @@ export default function ImportRun({ loaderData }: Route.ComponentProps) {
               >
                 Open reviews
               </Link>
-              {progress.failed > 0 && run.kind === "csv" && (
-                <a
-                  href={importErrorsPath(project.slug, run.id)}
-                  download={`import-${run.id.slice(0, 8)}-errors.csv`}
-                  className={cn(
-                    buttonVariants({ variant: "secondary", size: "md" }),
-                    "no-underline",
-                  )}
-                >
-                  Download error report
-                </a>
-              )}
+              {progress.failed > 0 &&
+                run.kind === "csv" &&
+                (run.reportExpired ? (
+                  <span className="text-small text-gray-600">
+                    The error report has expired (kept {UPLOAD_RETENTION_DAYS}{" "}
+                    days).
+                  </span>
+                ) : (
+                  <a
+                    href={importErrorsPath(project.slug, run.id)}
+                    download={`import-${run.id.slice(0, 8)}-errors.csv`}
+                    className={cn(
+                      buttonVariants({ variant: "secondary", size: "md" }),
+                      "no-underline",
+                    )}
+                  >
+                    Download error report
+                  </a>
+                ))}
               <Link
                 to={importPath(project.slug)}
                 className={cn(

@@ -12,6 +12,11 @@
  *   uploads/<projectId>/<runId>.plan.json    the confirmed mapping (step 2)
  *   uploads/<projectId>/<runId>.errors.json  per-row failures (step 3)
  *
+ * Every object under `uploads/` expires `UPLOAD_RETENTION_DAYS` (7) after
+ * it was written (R2 lifecycle rule, infra/provisioning.md; #169), and a
+ * deleted project's prefix is removed at once. A run whose report has gone
+ * shows "expired" (`errorReport`), never a 500.
+ *
  * The `ingest_runs` row (kind `csv`) is created at upload with status
  * `running` and `received = 0`; starting the run sets `received` to the
  * file's row count, so "has the mapping been confirmed" is readable from
@@ -47,6 +52,7 @@ import {
   detectMapping,
   enqueueOrDefer,
   type IngestMessage,
+  isPastRetention,
   JsonShapeError,
   type Logger,
   normalizeRow,
@@ -55,6 +61,7 @@ import {
   planFor,
   REVIEW_SOURCES,
   type ReviewInput,
+  UPLOAD_RETENTION_DAYS,
   validateRows,
 } from "@proofql/core";
 import { type Db, schema, upsertReviews } from "@proofql/db";
@@ -713,9 +720,13 @@ async function loadFailures(
 ): Promise<RowFailure[]> {
   const object = await store.get(errorsKey(artifactKey));
   if (object === null) return [];
+  return parseFailures(await object.text());
+}
+
+function parseFailures(text: string): RowFailure[] {
   return z
     .array(z.object({ rowNumber: z.number(), reason: z.string() }))
-    .parse(JSON.parse(await object.text()));
+    .parse(JSON.parse(text));
 }
 
 // ---------------------------------------------------------------------------
@@ -785,19 +796,57 @@ export async function getRunProgress(
   };
 }
 
-/** The per-row failures as a CSV (`row,reason`), or null when there were none. */
+/**
+ * The run's error report (#38, #169):
+ *
+ *   - `none`    the run had no per-row failures (or no file);
+ *   - `expired` it had failures, but the `.errors.json` object is gone —
+ *               the bucket's lifecycle rule deletes every upload object
+ *               `UPLOAD_RETENTION_DAYS` (7) after it was written, and the
+ *               project-delete path removes them at once;
+ *   - `ready`   the failures as a CSV (`row,reason`).
+ */
+export type ErrorReport =
+  | { state: "none" }
+  | { state: "expired" }
+  | { state: "ready"; csv: string };
+
+export async function errorReport(
+  store: UploadStore,
+  run: IngestRun,
+): Promise<ErrorReport> {
+  if (run.artifactKey === null) return { state: "none" };
+  const object = await store.get(errorsKey(run.artifactKey));
+  if (object === null) {
+    return run.failed > 0 ? { state: "expired" } : { state: "none" };
+  }
+  const failures = parseFailures(await object.text());
+  if (failures.length === 0) return { state: "none" };
+  const quote = (v: string) => `"${v.replace(/"/g, '""')}"`;
+  return {
+    state: "ready",
+    csv: [
+      "row,reason",
+      ...failures.map((f) => `${f.rowNumber},${quote(f.reason)}`),
+    ].join("\r\n"),
+  };
+}
+
+/** The per-row failures as a CSV (`row,reason`), or null when there is none to serve. */
 export async function errorReportCsv(
   store: UploadStore,
   run: IngestRun,
 ): Promise<string | null> {
-  if (run.artifactKey === null) return null;
-  const failures = await loadFailures(store, run.artifactKey);
-  if (failures.length === 0) return null;
-  const quote = (v: string) => `"${v.replace(/"/g, '""')}"`;
-  return [
-    "row,reason",
-    ...failures.map((f) => `${f.rowNumber},${quote(f.reason)}`),
-  ].join("\r\n");
+  const report = await errorReport(store, run);
+  return report.state === "ready" ? report.csv : null;
+}
+
+/** Whether a finished run's upload objects are past the lifecycle rule's age. */
+export function errorReportExpired(run: IngestRun, now = new Date()): boolean {
+  return (
+    run.finishedAt !== null &&
+    isPastRetention(run.finishedAt, now, UPLOAD_RETENTION_DAYS)
+  );
 }
 
 /** Validation summary of the preview rows under a mapping (step 2's live numbers, server-side). */

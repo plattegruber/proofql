@@ -18,7 +18,9 @@ import {
 import {
   capInfo,
   createUpload,
+  errorReport,
   errorReportCsv,
+  errorReportExpired,
   errorsKey,
   findProjectRun,
   getRunProgress,
@@ -394,6 +396,42 @@ describe("runImport", () => {
     expect(lines[1]).toMatch(/is empty/);
     expect(lines[2]).toMatch(/excellent.*not a rating/);
     expect(lines[3]).toMatch(/sometime last spring.*not a date/);
+  });
+
+  it("a report deleted by the lifecycle rule is expired, not missing or an error (#169)", async () => {
+    const p = await project(t.db);
+    const { store, queue, runId } = await uploadAndStart(
+      p.id,
+      "generic-50-3-bad.csv",
+    );
+    const outcome = await runImport({ db: t.db, store, queue }, runId);
+    expect(outcome.run.failed).toBe(3);
+    expect((await errorReport(store, outcome.run)).state).toBe("ready");
+    expect(errorReportExpired(outcome.run)).toBe(false);
+
+    // What the 7-day lifecycle rule leaves behind: the run row, no objects.
+    for (const key of [...store.objects.keys()]) await store.delete(key);
+
+    expect(await errorReport(store, outcome.run)).toEqual({ state: "expired" });
+    expect(await errorReportCsv(store, outcome.run)).toBeNull();
+    const finished = outcome.run.finishedAt as Date;
+    expect(
+      errorReportExpired(
+        outcome.run,
+        new Date(finished.getTime() + 8 * 24 * 60 * 60 * 1000),
+      ),
+    ).toBe(true);
+  });
+
+  it("a clean run with no report object has no report, not an expired one", async () => {
+    const p = await project(t.db);
+    const { store, queue, runId } = await uploadAndStart(
+      p.id,
+      "generic-50.csv",
+    );
+    const outcome = await runImport({ db: t.db, store, queue }, runId);
+    expect(outcome.run.failed).toBe(0);
+    expect(await errorReport(store, outcome.run)).toEqual({ state: "none" });
   });
 
   it("near the plan cap: inserts what fits, counts the rest as failed with the limit reason", async () => {
