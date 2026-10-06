@@ -89,15 +89,16 @@ async function tenantCounts(accountId: string, projectIds: string[]) {
   const out: Record<string, number> = {};
   for (const [table, column] of Object.entries(TENANT_TABLES)) {
     const ids = column === "account_id" ? [accountId] : projectIds;
-    const rows = await t.sql.unsafe(
+    const rows = await t.sql.unsafe<{ n: number }[]>(
       `SELECT count(*)::int AS n FROM "${table}" WHERE "${column}" = ANY($1::uuid[])`,
       [ids],
     );
-    out[table] = (rows[0] as { n: number }).n;
+    out[table] = rows[0]?.n ?? -1;
   }
-  const [acc] =
-    await t.sql`SELECT count(*)::int AS n FROM accounts WHERE id = ${accountId}`;
-  out.accounts = (acc as { n: number }).n;
+  const [acc] = await t.sql<
+    { n: number }[]
+  >`SELECT count(*)::int AS n FROM accounts WHERE id = ${accountId}`;
+  out.accounts = acc?.n ?? -1;
   return out;
 }
 
@@ -315,7 +316,9 @@ describe("purgeDeletedAccounts", () => {
       sql`INSERT INTO waitlist (email) VALUES ('someone@example.com')`,
     );
     await purgeDeletedAccounts({ db: t.db }, { now: NOW });
-    const [row] = await t.sql`SELECT count(*)::int AS n FROM waitlist`;
-    expect((row as { n: number }).n).toBe(1);
+    const [row] = await t.sql<
+      { n: number }[]
+    >`SELECT count(*)::int AS n FROM waitlist`;
+    expect(row?.n).toBe(1);
   });
 });
