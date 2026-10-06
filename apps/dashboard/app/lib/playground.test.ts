@@ -149,7 +149,7 @@ describe("snippetFor", () => {
     expect(snippetFor(request)).toBe(
       [
         '<div data-proofql data-query="dental &quot;implants&quot;" data-limit="3"></div>',
-        '<script async src="https://cdn.proofql.com/v1.js" data-key="pq_pk_live_…"></script>',
+        '<script async src="https://cdn.proofql.dev/v1.js" data-key="pq_pk_live_…"></script>',
       ].join("\n"),
     );
   });
@@ -174,9 +174,9 @@ describe("snippetFor", () => {
   it("points the script at a non-default api origin with data-api (local dev)", () => {
     const { request } = parsePlaygroundParams(new URLSearchParams("q=parking"));
     expect(snippetFor(request, "http://localhost:8797/")).toContain(
-      '<script async src="https://cdn.proofql.com/v1.js" data-key="pq_pk_live_…" data-api="http://localhost:8797"></script>',
+      '<script async src="https://cdn.proofql.dev/v1.js" data-key="pq_pk_live_…" data-api="http://localhost:8797"></script>',
     );
-    expect(snippetFor(request, "https://api.proofql.com")).not.toContain(
+    expect(snippetFor(request, "https://api.proofql.dev")).not.toContain(
       "data-api",
     );
   });

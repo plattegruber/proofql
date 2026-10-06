@@ -54,7 +54,7 @@ describe("sign-up loader", () => {
 
   it("falls back to the default support address when the var is empty", async () => {
     expect(await run(env({ SUPPORT_EMAIL: "" }))).toMatchObject({
-      supportEmail: "support@proofql.com",
+      supportEmail: "support@proofql.dev",
     });
   });
 

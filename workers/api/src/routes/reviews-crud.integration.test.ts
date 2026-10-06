@@ -427,7 +427,7 @@ describe("GET /v1/reviews/:id", () => {
       expect(json).toMatchObject({
         error: {
           code: "not_found",
-          doc_url: "https://docs.proofql.com/errors#not_found",
+          doc_url: "https://docs.proofql.dev/errors#not_found",
           request_id: res.headers.get(REQUEST_ID_HEADER),
         },
       });
@@ -795,7 +795,7 @@ describe("auth on every CRUD route", () => {
       expect(json).toMatchObject({
         error: {
           code: "forbidden",
-          doc_url: "https://docs.proofql.com/errors#forbidden",
+          doc_url: "https://docs.proofql.dev/errors#forbidden",
           request_id: res.headers.get(REQUEST_ID_HEADER),
         },
       });

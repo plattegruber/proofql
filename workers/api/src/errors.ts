@@ -43,7 +43,7 @@ import { databaseUnavailableCode, quotaExhaustion } from "./db.js";
 import { logFor } from "./request-id.js";
 
 /** Base of every `doc_url`; placeholder domain until the docs site exists. */
-export const ERROR_DOCS_BASE_URL = "https://docs.proofql.com/errors";
+export const ERROR_DOCS_BASE_URL = "https://docs.proofql.dev/errors";
 
 export const ERROR_CODES = [
   "unauthorized",

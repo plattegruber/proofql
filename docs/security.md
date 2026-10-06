@@ -336,21 +336,24 @@ reviews.
 
 ## 7. Owner-side settings (Cloudflare dashboard)
 
-These are zone-level features and **need a custom domain** (`api.proofql.com`,
-`cdn.proofql.com`, the dashboard's hostname; `infra/provisioning.md`
-"Custom domains"). On `workers.dev` there is no WAF; until then the
-worker-side controls in §4 are the whole defence. Apply in **Security →
-WAF** of the zone:
+These are zone-level features of the `proofql.dev` zone and cover the custom
+domains only (`api.proofql.dev`, `cdn.proofql.dev`, `app.proofql.dev`,
+`docs.proofql.dev`; `infra/provisioning.md` "Custom domains"). Those four
+prod workers set `workers_dev: false`, so the WAF cannot be bypassed through
+a workers.dev URL. Preview and the prod pipeline (cron and queue only; its
+`fetch` answers `/health`) stay on `*.workers.dev`, which has no WAF; there
+the worker-side controls in §4 are the whole defence. Apply in **Security → WAF** of the zone (the owner
+checklist is `docs/launch.md` §2):
 
 | # | Rule | Where | Expression / setting | Action |
 |---|---|---|---|---|
-| W1 | Rate limiting rule, backstop by IP | api host | `(http.host eq "api.proofql.com" and starts_with(http.request.uri.path, "/v1/"))`, characteristic **IP**, **600 requests / 10 s** (above any plan's per-key limit, so a legitimate client never meets it before the worker's 429 does) | Block for 10 s |
-| W2 | Custom rule: no User-Agent on ingest | api host | `(http.host eq "api.proofql.com" and starts_with(http.request.uri.path, "/v1/reviews") and len(http.user_agent) eq 0)` | Block |
-| W3 | Bot Fight Mode | dashboard zone | Security → Bots → **Bot Fight Mode** on; leave **Super Bot Fight Mode** off for the api and cdn hosts (the snippet is fetched by every browser and the api by servers — a bot challenge there blanks customer pages) | — |
-| W4 | Managed rules | all three | Cloudflare Managed Ruleset, default action | — |
+| W1 | Rate limiting rule, backstop by IP | api host | `(http.host eq "api.proofql.dev" and starts_with(http.request.uri.path, "/v1/"))`, characteristic **IP**, **600 requests / 10 s** (above any plan's per-key limit, so a legitimate client never meets it before the worker's 429 does) | Block for 10 s |
+| W2 | Custom rule: no User-Agent on ingest | api host | `(http.host eq "api.proofql.dev" and starts_with(http.request.uri.path, "/v1/reviews") and len(http.user_agent) eq 0)` | Block |
+| W3 | Bot Fight Mode: **leave off** | zone | Bot Fight Mode is zone-wide (it cannot be scoped to `app.` and WAF rules cannot skip it), and `api.`/`cdn.` share the `proofql.dev` zone: the snippet is fetched by every browser and the api by servers, so a bot challenge there blanks customer pages. The dashboard's bot defence is Clerk's sign-up bot protection (Turnstile, already in the CSP) plus W4 | — |
+| W4 | Managed rules | all four hosts | Cloudflare Managed Ruleset, default action | — |
 
-Owner: @plattegruber, when the zone exists; add a line to
-`infra/provisioning.md` "Custom domains" pointing here at that time.
+Owner: @plattegruber, after the first prod deploy creates the custom
+domains (#167).
 
 ## 8. Residual risks
 
@@ -361,7 +364,7 @@ Owner: @plattegruber, when the zone exists; add a line to
 | Penalty box is per isolate | The binding is the authoritative count; the box only saves the lookup on the isolate that saw the overflow | Accepted |
 | Cloudflare rate limiting bindings are approximate and per colo | Abuse protection, not billing; documented in `rate-limit.ts` | Accepted |
 | Queue schema strips unknown fields and caps no id length | No public producer; consumer re-reads the row | Accepted |
-| No WAF until a custom domain exists | `workers.dev` has none; §7 lists the rules to apply then | @plattegruber |
+| No WAF on preview (`*.workers.dev`) | Preview holds no customer data; prod's public workers serve only `*.proofql.dev` (`workers_dev: false`), which §7 covers | Accepted |
 | `pnpm audit` is report-only, and ignores `GHSA-ch52-4w7c-c8xp` | A blocking audit would stall every PR on an upstream advisory with no fix; the ignored advisory has no patched version and is build-time only (§4.9) | Accepted; Dependabot is the fix path |
 | Secret-key lookup cost on enumeration is a digest + indexed miss per guess until the throttle engages (30) | Entropy makes success impossible; cost is bounded by the throttle and W1 | Accepted |
 | Review avatars load from any `https:` host (`img-src`) | Source-hosted images; images cannot execute | Accepted |

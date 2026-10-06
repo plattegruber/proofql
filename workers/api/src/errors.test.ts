@@ -94,7 +94,7 @@ describe("error envelope", () => {
       error: {
         code: "validation_failed",
         message: "Nope.",
-        doc_url: "https://docs.proofql.com/errors#validation_failed",
+        doc_url: "https://docs.proofql.dev/errors#validation_failed",
         request_id: res.headers.get(REQUEST_ID_HEADER),
         details: [{ path: "0.rating", message: "Too big" }],
       },
@@ -124,7 +124,7 @@ describe("error envelope", () => {
       error: {
         code: "internal",
         message: "Internal error. Quote request id req-42 when reporting it.",
-        doc_url: "https://docs.proofql.com/errors#internal",
+        doc_url: "https://docs.proofql.dev/errors#internal",
         request_id: "req-42",
       },
     });
@@ -280,7 +280,7 @@ describe("error envelope", () => {
 
   it("has one doc anchor per code", () => {
     for (const code of ERROR_CODES) {
-      expect(docUrl(code)).toBe(`https://docs.proofql.com/errors#${code}`);
+      expect(docUrl(code)).toBe(`https://docs.proofql.dev/errors#${code}`);
     }
   });
 });

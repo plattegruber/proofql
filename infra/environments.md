@@ -80,7 +80,7 @@ identical across workers and environments.
 | `RL_PUBLISHABLE_PAID` | Rate limit | yes      | —        | —         | Miniflare simulator, 600 req / 60 s per key        | namespace `1004`, 600 req / 60 s per key (paid plan, publishable keys) |
 | `ENVIRONMENT`  | var               | yes      | yes      | yes       | `"local"`                                          | `"preview"` / `"prod"`                           |
 | `API_URL`      | var               | —        | —        | yes       | `http://localhost:8797`                            | the api worker's public origin                   |
-| `SNIPPET_SRC`  | var               | —        | —        | yes       | `http://localhost:8800/v1.js` (the local cdn worker) | `https://cdn.proofql.com/v1.js` — where the onboarding's snippet tag and preview load the snippet from (#53) |
+| `SNIPPET_SRC`  | var               | —        | —        | yes       | `http://localhost:8800/v1.js` (the local cdn worker) | `https://cdn.proofql.dev/v1.js` — where the onboarding's snippet tag and preview load the snippet from (#53) |
 | `AUTH_STUB_ORG_ID` | var (optional) | —      | —        | yes       | `.dev.vars`; set ⇒ the local auth stub acts as an empty account with this Clerk org id (created on first load) instead of the seeded demo | unset; ignored outside the stub |
 | `CLERK_PUBLISHABLE_KEY` | var      | —        | —        | yes       | `.dev.vars` (optional)                             | the Clerk instance's publishable key (`pk_test_…` preview, `pk_live_…` prod) |
 | `CLERK_SECRET_KEY` | secret        | —        | —        | yes       | `.dev.vars`; **unset ⇒ local auth stub** (acts as the seeded demo account) | `wrangler secret put` per env; required — no stub outside local |
@@ -117,8 +117,7 @@ a KV write. Cloudflare documents working cache operations only for
 "Workers deployed to custom domains" (and Pages). On `*.workers.dev`,
 `cache.put` is accepted and silently dropped. The api therefore checks
 the request's hostname (`isWorkersDevHost`, `workers/api/src/edge-cache.ts`).
-On `*.workers.dev`, which is preview and prod until `api.proofql.com` is
-routed, it falls back: results go to KV, but only from a query's second
+On `*.workers.dev` (preview; prod serves only `api.proofql.dev`), it falls back: results go to KV, but only from a query's second
 miss in an isolate (the write budget), and resolved keys are kept in the
 isolate only. Routing the custom domain switches the Cache API on, with no
 config change. The Cache API is per data center and is not shared between
@@ -168,11 +167,11 @@ name. Local has none of it (Miniflare simulators and the compose Postgres).
 | Hyperdrive (`HYPERDRIVE`) | `proofql-hyperdrive-preview` → Neon branch `preview`       | `proofql-hyperdrive-prod` → Neon branch `prod`            | `hyperdrive[].id` in all three configs  |
 | Neon                    | project `proofql`, branch `preview`, database `proofql`      | project `proofql`, branch `prod`, database `proofql`      | Hyperdrive config (pooled string); GitHub secret `NEON_<ENV>_DATABASE_URL` (direct string, migrator only) |
 | Workers AI (`AI`)       | account-level                                                | account-level                                             | nothing                                 |
-| api URL                 | `https://proofql-api-preview.<subdomain>.workers.dev`        | `https://proofql-api-prod.<subdomain>.workers.dev` (custom domain TBD, scope §7.6) | `env.<env>.vars.API_URL` in the dashboard config; repo variable `WORKERS_SUBDOMAIN` for the smoke check |
+| api URL                 | `https://proofql-api-preview.<subdomain>.workers.dev`        | `https://api.proofql.dev` (Workers Custom Domain, `env.prod.routes`; `workers_dev: false`) | `env.<env>.vars.API_URL` in the dashboard config; repo variable `WORKERS_SUBDOMAIN` for the smoke check |
 | pipeline URL            | `https://proofql-pipeline-preview.<subdomain>.workers.dev`   | `https://proofql-pipeline-prod.<subdomain>.workers.dev`   | `/health` only                          |
-| dashboard URL           | `https://proofql-dashboard-preview.<subdomain>.workers.dev`  | `https://proofql-dashboard-prod.<subdomain>.workers.dev` (custom domain TBD) | —                                       |
-| cdn URL                 | `https://proofql-cdn-preview.<subdomain>.workers.dev`        | `https://proofql-cdn-prod.<subdomain>.workers.dev` → `https://cdn.proofql.com` once the domain exists (TODO route in `workers/cdn/wrangler.jsonc`, provisioning.md "Custom domains") | the snippet tag's `src`; the demo link in the README |
-| docs URL                | `https://proofql-docs-preview.<subdomain>.workers.dev`       | `https://proofql-docs-prod.<subdomain>.workers.dev` → `https://docs.proofql.com` once the domain exists (provisioning.md "Custom domains"); every api error envelope's `doc_url` already points there | `/` smoke only; no bindings |
+| dashboard URL           | `https://proofql-dashboard-preview.<subdomain>.workers.dev`  | `https://app.proofql.dev` (Workers Custom Domain, `env.prod.routes`) | —                                       |
+| cdn URL                 | `https://proofql-cdn-preview.<subdomain>.workers.dev`        | `https://cdn.proofql.dev` (Workers Custom Domain, `env.prod.routes` in `workers/cdn/wrangler.jsonc`; provisioning.md "Custom domains") | the snippet tag's `src`; the demo link in the README |
+| docs URL                | `https://proofql-docs-preview.<subdomain>.workers.dev`       | `https://docs.proofql.dev` (Workers Custom Domain, `env.prod.routes`; provisioning.md "Custom domains"); every api error envelope's `doc_url` points there | `/` smoke only; no bindings |
 
 **Provisioning status:** every KV namespace id and Hyperdrive config id in
 the `wrangler.jsonc` env blocks, and the dashboard's `API_URL`, start as the

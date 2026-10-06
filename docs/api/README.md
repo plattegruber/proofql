@@ -8,7 +8,7 @@
 
 ## Rendered reference
 
-The docs site ([`docs/site`](../site/README.md), #43) renders this file at `https://docs.proofql.com/api` through `starlight-openapi`; nothing there is hand-written, so an edit here is the whole change. Its link check also holds `/errors` to the `ErrorCode` enum: every value needs an anchor on that page, because `doc_url` points there.
+The docs site ([`docs/site`](../site/README.md), #43) renders this file at `https://docs.proofql.dev/api` through `starlight-openapi`; nothing there is hand-written, so an edit here is the whole change. Its link check also holds `/errors` to the `ErrorCode` enum: every value needs an anchor on that page, because `doc_url` points there.
 
 ## Lint
 

@@ -3,7 +3,7 @@
 // An assets-only Worker: no script, no bindings — `astro build` writes dist/
 // and Workers Static Assets serves it. Pages are files (`errors.html`) and
 // `auto-trailing-slash` serves `/errors` directly, so an error envelope's
-// `doc_url` (`https://docs.proofql.com/errors#validation_failed`) resolves
+// `doc_url` (`https://docs.proofql.dev/errors#validation_failed`) resolves
 // with no redirect in front of the fragment. Unknown paths get Starlight's
 // 404 page.
 //
@@ -12,7 +12,7 @@
 // wrangler.jsonc in this repo: bindings-like keys repeat in full).
 //
 // Environment matrix and ports: infra/environments.md. Custom domain
-// `docs.proofql.com`: the TODO in env.prod and infra/provisioning.md
+// `docs.proofql.dev`: env.prod.routes and infra/provisioning.md
 // "Custom domains" (scope §7.6).
 {
   "$schema": "node_modules/wrangler/config-schema.json",
@@ -49,10 +49,12 @@
     },
     "prod": {
       "name": "proofql-docs-prod",
-      // TODO(docs.proofql.com): once the zone is on this account, add
-      // "routes": [{ "pattern": "docs.proofql.com", "custom_domain": true }]
-      // (infra/provisioning.md "Custom domains"). The api's doc_url and the
-      // dashboard's relevance link already point at that hostname.
+      // Workers Custom Domain on the proofql.dev zone (infra/provisioning.md
+      // "Custom domains"). The api's doc_url and the dashboard's relevance
+      // link point at this hostname.
+      "routes": [{ "pattern": "docs.proofql.dev", "custom_domain": true }],
+      // Custom domain only; workers.dev off (see workers/api/wrangler.jsonc).
+      "workers_dev": false,
       "assets": {
         "directory": "./dist",
         "html_handling": "auto-trailing-slash",

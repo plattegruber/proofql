@@ -122,7 +122,7 @@ describe("monthly query quota", () => {
     expect(json).toMatchObject({
       error: {
         code: "query_quota_exceeded",
-        doc_url: "https://docs.proofql.com/errors#query_quota_exceeded",
+        doc_url: "https://docs.proofql.dev/errors#query_quota_exceeded",
         message: expect.stringMatching(/50,000 uncached queries/),
       },
     });

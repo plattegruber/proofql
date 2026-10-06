@@ -6,7 +6,7 @@ description: From sign-up to reviews rendered on your own page in ten minutes, u
 By the end of this page a `<div>` on one of your pages shows the reviews that are relevant to that page. You need an account, a few reviews, and a page you can edit.
 
 :::note[Where the dashboard is]
-The hosted dashboard's domain is being set up alongside the API (`api.proofql.com`) and the snippet (`cdn.proofql.com`); the paths below are stable. Running the repo locally? `pnpm run setup && pnpm dev` serves the dashboard at `http://localhost:8799` and the API at `http://localhost:8797`, signed in as the seeded demo account (Cedar Ridge Dental, 80 reviews) with its live and test keys printed by `setup`.
+The hosted dashboard (`app.proofql.dev`), the API (`api.proofql.dev`) and the snippet (`cdn.proofql.dev`) go live with the first production deploy; the paths below are stable. Running the repo locally? `pnpm run setup && pnpm dev` serves the dashboard at `http://localhost:8799` and the API at `http://localhost:8797`, signed in as the seeded demo account (Cedar Ridge Dental, 80 reviews) with its live and test keys printed by `setup`.
 :::
 
 ## 1. Sign up and create a workspace
@@ -30,7 +30,7 @@ Two ways in today; the Google connector is third (see [Imports](/imports)).
 **The push API.** From your server, with the project's **secret** key (`pq_sk_live_…`), send one review or a batch of up to 100:
 
 ```sh
-curl https://api.proofql.com/v1/reviews \
+curl https://api.proofql.dev/v1/reviews \
   -H "Authorization: Bearer pq_sk_live_…" \
   -H "Content-Type: application/json" \
   -d '[
@@ -81,10 +81,10 @@ On the page that should show reviews:
 
 ```html
 <div data-proofql data-query="dental implants" data-limit="3"></div>
-<script async src="https://cdn.proofql.com/v1.js" data-key="pq_pk_live_…"></script>
+<script async src="https://cdn.proofql.dev/v1.js" data-key="pq_pk_live_…"></script>
 ```
 
-That is the whole integration ([the hosted demo](https://cdn.proofql.com/demo/) is exactly this, four times, on a fictional dental practice's site). `data-query` is the question the page asks of your reviews; put the page's topic in it. Without a `data-query`, the newest publishable reviews render. One script tag serves any number of `[data-proofql]` elements, each with its own query. The attribute table, styling variables, and the `data-template` escape hatch are on the [Snippet](/snippet) page.
+That is the whole integration ([the hosted demo](https://cdn.proofql.dev/demo/) is exactly this, four times, on a fictional dental practice's site). `data-query` is the question the page asks of your reviews; put the page's topic in it. Without a `data-query`, the newest publishable reviews render. One script tag serves any number of `[data-proofql]` elements, each with its own query. The attribute table, styling variables, and the `data-template` escape hatch are on the [Snippet](/snippet) page.
 
 If nothing shows up, that is the snippet doing its job: on an empty result, a refused key, or an unlisted origin it renders nothing and logs one `console.debug` line prefixed `[proofql]`. Open the console; the API's error message says what to fix, and the [Errors](/errors) page has a line for every code.
 
@@ -95,7 +95,7 @@ Before you deploy the page, run the same query in the project's **Playground** (
 The equivalent check from a terminal, with your page's origin:
 
 ```sh
-curl "https://api.proofql.com/v1/query?key=pq_pk_live_…&q=dental+implants&limit=3" \
+curl "https://api.proofql.dev/v1/query?key=pq_pk_live_…&q=dental+implants&limit=3" \
   -H "Origin: https://www.example.com"
 ```
 

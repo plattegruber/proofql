@@ -61,7 +61,7 @@ parking, and a whole-review feed. It is the page `workers/cdn` serves at
 
 The publishable key in that URL is public by design: it can only query, and
 only from the cdn's origin. The `&api=` parameter goes away once the API
-lives at `api.proofql.com`, the snippet's default.
+lives at `api.proofql.dev`, the snippet's default.
 
 Run it locally now:
 

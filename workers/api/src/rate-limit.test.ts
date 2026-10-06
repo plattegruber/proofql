@@ -262,7 +262,7 @@ describe("rateLimit middleware", () => {
     expect(await res.json()).toMatchObject({
       error: {
         code: "rate_limited",
-        doc_url: "https://docs.proofql.com/errors#rate_limited",
+        doc_url: "https://docs.proofql.dev/errors#rate_limited",
         message: expect.stringMatching(/300 requests per 60 seconds/),
         request_id: res.headers.get("x-request-id"),
       },

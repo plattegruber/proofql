@@ -5,18 +5,18 @@
  * the OpenAPI `info` block, error messages — names the same address and the
  * same URLs, and a change is one edit.
  *
- * `DEFAULT_SUPPORT_EMAIL` is the placeholder a deployment shows until the
- * owner sets the `SUPPORT_EMAIL` var on the dashboard (docs/secrets.md) and
- * at build time for the docs site; the mailbox itself is an owner step in
- * docs/launch.md "Support".
+ * `DEFAULT_SUPPORT_EMAIL` is the support address on the `proofql.dev` zone
+ * (Cloudflare Email Routing; the owner steps are docs/launch.md "Support").
+ * The dashboard's `SUPPORT_EMAIL` var and the docs build's `SUPPORT_EMAIL`
+ * override it (docs/secrets.md).
  */
 
-/** Shown wherever `SUPPORT_EMAIL` is unset. Must be a real mailbox at launch. */
-export const DEFAULT_SUPPORT_EMAIL = "support@proofql.com";
+/** Shown wherever `SUPPORT_EMAIL` is unset. A real inbox once Email Routing is on. */
+export const DEFAULT_SUPPORT_EMAIL = "support@proofql.dev";
 
 /** The privacy policy and terms pages on the docs site (docs/launch.md "Legal"). */
-export const PRIVACY_URL = "https://docs.proofql.com/privacy";
-export const TERMS_URL = "https://docs.proofql.com/terms";
+export const PRIVACY_URL = "https://docs.proofql.dev/privacy";
+export const TERMS_URL = "https://docs.proofql.dev/terms";
 
 /** Public roadmap and status: the GitHub issues (the repository is public). */
 export const ROADMAP_URL = "https://github.com/plattegruber/proofql/issues/52";

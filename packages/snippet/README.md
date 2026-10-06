@@ -6,7 +6,7 @@ The embeddable snippet: one script tag and one `div` render relevant reviews on 
 
 ```html
 <div data-proofql data-query="dental implants" data-limit="3"></div>
-<script async src="https://cdn.proofql.com/v1.js" data-key="pq_pk_live_…"></script>
+<script async src="https://cdn.proofql.dev/v1.js" data-key="pq_pk_live_…"></script>
 ```
 
 That is the whole integration. The script reads its configuration from its own tag, finds every `[data-proofql]` element, asks the API, and renders what comes back. Anything the element already contains (a fallback, a placeholder) is replaced only when there is something to show.
@@ -16,7 +16,7 @@ That is the whole integration. The script reads its configuration from its own t
 | attribute  | required | default                   | meaning                                                          |
 |------------|----------|---------------------------|------------------------------------------------------------------|
 | `data-key` | yes      | —                         | A **publishable** key (`pq_pk_live_…` / `pq_pk_test_…`). Never a secret key: it ships in page source. |
-| `data-api` | no       | `https://api.proofql.com` | API origin. For local development: `http://localhost:8797`.      |
+| `data-api` | no       | `https://api.proofql.dev` | API origin. For local development: `http://localhost:8797`.      |
 
 The page's origin must be in the project's allowed origins, or the API answers 403 and nothing renders.
 
@@ -55,7 +55,7 @@ Nothing else is sent. The API rejects unknown parameters, and the snippet adds n
     </footer>
   </li>
 </ul>
-<a class="pq-badge" href="https://proofql.com/?ref=badge" rel="noopener" target="_blank">Reviews by ProofQL</a>
+<a class="pq-badge" href="https://proofql.dev/?ref=badge" rel="noopener" target="_blank">Reviews by ProofQL</a>
 ```
 
 - Everything from the API is inserted as text, never parsed as HTML.
@@ -116,7 +116,7 @@ For full control, point `data-template` at a `<template>`. Its content is cloned
     <blockquote data-pq="excerpt"></blockquote>
     <figcaption>
       <b data-pq="author"></b> on
-      <a data-pq="url" href="https://proofql.com/" target="_blank"><span data-pq="source">source</span></a>,
+      <a data-pq="url" href="https://proofql.dev/" target="_blank"><span data-pq="source">source</span></a>,
       <time data-pq="date"></time>
     </figcaption>
   </figure>
@@ -171,6 +171,6 @@ The **hosted demo** — a fictional small-business site using the snippet the wa
 
 ## Publishing
 
-`workers/cdn` is how the bundle reaches `cdn.proofql.com`: its build runs `scripts/build.mjs` here, then serves `dist/v1.js` as `/v1.js` (5 minute cache) and as the content-addressed `/v1.<sha256-8>.js` (immutable, a year). Merge to `main` and the deploy workflow ships it; nothing is published from this package directly.
+`workers/cdn` is how the bundle reaches `cdn.proofql.dev`: its build runs `scripts/build.mjs` here, then serves `dist/v1.js` as `/v1.js` (5 minute cache) and as the content-addressed `/v1.<sha256-8>.js` (immutable, a year). Merge to `main` and the deploy workflow ships it; nothing is published from this package directly.
 
 `test` runs the size check, so CI's unit-test job fails when the bundle exceeds the budget (`scripts/size.mjs`). Tests mock `fetch` and need no services.

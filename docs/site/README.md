@@ -1,6 +1,6 @@
 # @proofql/docs
 
-The developer docs at `docs.proofql.com` (#43): Astro [Starlight](https://starlight.astro.build) with the product tokens, deployed as an assets-only Cloudflare Worker (`proofql-docs-<env>`, `wrangler.jsonc`).
+The developer docs at `docs.proofql.dev` (#43): Astro [Starlight](https://starlight.astro.build) with the product tokens, deployed as an assets-only Cloudflare Worker (`proofql-docs-<env>`, `wrangler.jsonc`).
 
 ```sh
 pnpm --filter @proofql/docs dev        # Astro dev server with hot reload, http://localhost:4321
@@ -21,7 +21,7 @@ pnpm --filter @proofql/docs exec wrangler deploy --dry-run --env preview
 | `astro.config.mjs` | Starlight config: no search, Google Fonts in `head`, the sidebar, and the `starlight-openapi` plugin that renders [`docs/api/openapi.yaml`](../api/openapi.yaml) at `/api/*`. |
 | `src/styles/theme.css` | The design tokens through Starlight's variables: ink, one green, Space Grotesk and IBM Plex Mono, square corners, light and dark. |
 | `scripts/check-limits.mjs` | The limits check. Re-reads the built `/limits` against the current `@proofql/core`: the plan table must equal `planTableRows()`, every number in `PLANS` must be in its plan's column, the rate-limit table and badge rule must match, and `PRICING_URL` must be linked. A core change without a docs rebuild fails here. |
-| `scripts/check-links.mjs` | The link check. Fails on a broken internal link, a missing anchor, on any `ErrorCode` from the spec without an `id` on `/errors` (the api emits `doc_url: https://docs.proofql.com/errors#<code>` for every error), and on a missing `/query#relevance` (the dashboard's settings tab links to it). |
+| `scripts/check-links.mjs` | The link check. Fails on a broken internal link, a missing anchor, on any `ErrorCode` from the spec without an `id` on `/errors` (the api emits `doc_url: https://docs.proofql.dev/errors#<code>` for every error), and on a missing `/query#relevance` (the dashboard's settings tab links to it). |
 | `wrangler.jsonc` | Assets-only Worker over `dist/`. Pages are files (`errors.html`, from `build.format: "file"`) served at `/errors` with no trailing slash, so a `doc_url` resolves with no redirect in front of its fragment. |
 
 ## Rules

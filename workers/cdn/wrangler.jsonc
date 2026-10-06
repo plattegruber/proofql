@@ -83,6 +83,12 @@
     },
     "prod": {
       "name": "proofql-cdn-prod",
+      // Workers Custom Domain on the proofql.dev zone (infra/provisioning.md
+      // "Custom domains"); the snippet tag and the dashboard's SNIPPET_SRC
+      // point here.
+      "routes": [{ "pattern": "cdn.proofql.dev", "custom_domain": true }],
+      // Custom domain only; workers.dev off (see workers/api/wrangler.jsonc).
+      "workers_dev": false,
       "vars": { "ENVIRONMENT": "prod" },
       "assets": {
         "directory": "./public",
@@ -91,13 +97,6 @@
         "html_handling": "auto-trailing-slash",
         "not_found_handling": "none"
       }
-      // TODO(cdn.proofql.com): once the domain exists (scope §7.6) and the
-      // zone is on this account, route the custom domain here and add the
-      // Zone permission to the CI token (infra/provisioning.md, "Custom
-      // domains"). Until then the worker answers on
-      // https://proofql-cdn-prod.<subdomain>.workers.dev only.
-      //
-      // "routes": [{ "pattern": "cdn.proofql.com", "custom_domain": true }]
     }
   }
 }

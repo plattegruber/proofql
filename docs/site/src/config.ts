@@ -17,8 +17,8 @@ export const SUPPORT_EMAIL_IS_PLACEHOLDER =
 
 export { ISSUES_URL, PRIVACY_URL, ROADMAP_URL, TERMS_URL };
 
-/** The dashboard's hostname once the zone exists (docs/launch.md "Domains"). */
-export const APP_URL = "https://app.proofql.com";
+/** The dashboard's hostname (docs/launch.md "Domains"). */
+export const APP_URL = "https://app.proofql.dev";
 
 /** Legal pages are paths on this site; link them relatively so the check passes. */
 export const PRIVACY_PATH = new URL(PRIVACY_URL).pathname;

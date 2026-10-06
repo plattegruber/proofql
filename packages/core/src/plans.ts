@@ -67,7 +67,7 @@ export const RATE_LIMIT_PERIOD_SECONDS = 60;
  * checkout. One constant so every message, link and error names the same
  * place and the swap is one line.
  */
-export const PRICING_URL = "https://proofql.com/pricing";
+export const PRICING_URL = "https://proofql.dev/pricing";
 
 /** Display names, for the dashboard and error messages. */
 export const PLAN_LABELS: Readonly<Record<Plan, string>> = {

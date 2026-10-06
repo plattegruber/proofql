@@ -55,7 +55,7 @@ describe("415 unsupported_media_type", () => {
     expect(await res.json()).toMatchObject({
       error: {
         code: "unsupported_media_type",
-        doc_url: "https://docs.proofql.com/errors#unsupported_media_type",
+        doc_url: "https://docs.proofql.dev/errors#unsupported_media_type",
         message: expect.stringMatching(/application\/json/),
       },
     });

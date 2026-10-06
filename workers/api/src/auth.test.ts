@@ -89,7 +89,7 @@ describe("POST /v1/reviews auth (no database)", () => {
     expect(await res.json()).toMatchObject({
       error: {
         code: "forbidden",
-        doc_url: "https://docs.proofql.com/errors#forbidden",
+        doc_url: "https://docs.proofql.dev/errors#forbidden",
       },
     });
   });

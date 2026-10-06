@@ -90,7 +90,7 @@ close the clock ([`docs/observability.md`](../../docs/observability.md)).
 
 **Local walkthrough from a fresh account.** The snippet loads from
 `SNIPPET_SRC` (`http://localhost:8800/v1.js` locally — run
-`pnpm --filter @proofql/cdn dev`; `https://cdn.proofql.com/v1.js`
+`pnpm --filter @proofql/cdn dev`; `https://cdn.proofql.dev/v1.js`
 deployed) and the preview queries the local api, so run the api and the
 pipeline too. Set `AUTH_STUB_ORG_ID=org_anything` in `.dev.vars` and the
 auth stub acts as an empty account with that id (created on first load)

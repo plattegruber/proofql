@@ -27,7 +27,7 @@ export const DEFAULT_LIMIT = 5;
 export const Q_MAX_LENGTH = 500;
 
 /** The one-tag embed's script origin (scope.md §3 "Snippet"). */
-export const SNIPPET_SRC = "https://cdn.proofql.com/v1.js";
+export const SNIPPET_SRC = "https://cdn.proofql.dev/v1.js";
 
 export const PLAYGROUND_FALLBACKS = ["none", "recent"] as const;
 export type PlaygroundFallback = (typeof PLAYGROUND_FALLBACKS)[number];
@@ -234,7 +234,7 @@ function attr(value: string): string {
 }
 
 /** The snippet's built-in API origin (`packages/snippet/src/config.ts`). */
-export const SNIPPET_DEFAULT_API = "https://api.proofql.com";
+export const SNIPPET_DEFAULT_API = "https://api.proofql.dev";
 
 /**
  * The one-tag embed exactly as `packages/snippet/README.md` documents it:

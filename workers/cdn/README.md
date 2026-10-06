@@ -1,6 +1,6 @@
 # @proofql/cdn
 
-The worker behind `cdn.proofql.com` (#34) and the hosted demo (#35). It serves two things from Workers static assets, with no database, queue, or KV:
+The worker behind `cdn.proofql.dev` (#34) and the hosted demo (#35). It serves two things from Workers static assets, with no database, queue, or KV:
 
 | Path | What | `Cache-Control` |
 |---|---|---|
@@ -54,7 +54,7 @@ A fictional small-business website — **Cedar Ridge Dental**, the practice in t
 **No key is committed.** The page reads the publishable key from its own URL and builds the script tag from it:
 
 ```
-/demo/?key=pq_pk_live_…                               hosted (API default https://api.proofql.com)
+/demo/?key=pq_pk_live_…                               hosted (API default https://api.proofql.dev)
 /demo/?key=pq_pk_live_…&api=http://localhost:8797     local api
 ```
 
@@ -75,6 +75,6 @@ The local seed embeds with a bag-of-words fake (`fakeEmbed` in `@proofql/ai`), s
 
 ### Hosted
 
-The hosted URL belongs in the root README's "Demo" section once the Cloudflare account is provisioned: `infra/provisioning.md`, "Demo project on preview" (seed the preview database, add the cdn origin to the demo project's allowed origins, paste the link with the key). `cdn.proofql.com` itself is a `TODO` route in `wrangler.jsonc` (`env.prod`) until the domain exists — "Custom domains" in the same document.
+The hosted URL belongs in the root README's "Demo" section once the Cloudflare account is provisioned: `infra/provisioning.md`, "Demo project on preview" (seed the preview database, add the cdn origin to the demo project's allowed origins, paste the link with the key). `cdn.proofql.dev` itself is a `TODO` route in `wrangler.jsonc` (`env.prod`) until the domain exists — "Custom domains" in the same document.
 
 `packages/snippet/demo/` is a different page: the snippet's own **styling test** (light and dark host, filters, a template). This one is the demo people are shown.

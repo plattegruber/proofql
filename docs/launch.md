@@ -60,43 +60,57 @@ merged; it depends on these resources existing.
 node scripts/check-provisioning.mjs                       # All bindings provisioned.
 gh secret list -R plattegruber/proofql                    # CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, NEON_PREVIEW_DATABASE_URL
 gh secret list -R plattegruber/proofql --env production   # NEON_PROD_DATABASE_URL
-for w in api pipeline cdn dashboard; do curl -fsS "https://proofql-$w-prod.$WORKERS_SUBDOMAIN.workers.dev/health"; echo; done
+curl -fsS "https://proofql-pipeline-prod.$WORKERS_SUBDOMAIN.workers.dev/health"; echo
+for h in api cdn app; do curl -fsS "https://$h.proofql.dev/health"; echo; done   # after the first prod deploy (§2)
 ```
 
 Then close #14.
 
 ## 2. Domains
 
-**Owner.** Scope §7.6. Five hostnames on the `proofql.com` zone, all served
-by Workers with Cloudflare-managed certificates (no certificate step; a
-`custom_domain` route creates the DNS record and the certificate on
-deploy):
+**Owner.** Scope §7.6, #167. The zone is **`proofql.dev`**, already active
+on the Cloudflare account (`6f9565cb51f0bb050c420ca18dfff22f`, nameservers
+`aarav.ns.cloudflare.com` / `laylah.ns.cloudflare.com`). The four product
+hosts are Workers Custom Domains already in the tree: the first prod deploy
+creates their proxied DNS records and Cloudflare-managed certificates, with
+no DNS or certificate step from you. The apex and `www` are yours (a
+redirect rule, below).
 
-| Host | Worker | Where the route goes |
+| Host | Served by | Configured in |
 |---|---|---|
-| `proofql.com` (apex) | none yet | a redirect rule (below) until a landing site exists |
-| `api.proofql.com` | `proofql-api-prod` | `workers/api/wrangler.jsonc` → `env.prod.routes` (the `TODO(api.proofql.com)` comment) |
-| `cdn.proofql.com` | `proofql-cdn-prod` | `workers/cdn/wrangler.jsonc` → `env.prod.routes` (`TODO(cdn.proofql.com)`) |
-| `app.proofql.com` | `proofql-dashboard-prod` | `apps/dashboard/wrangler.jsonc` → `env.prod.routes` (`TODO(app.proofql.com)`) |
-| `docs.proofql.com` | `proofql-docs-prod` | `docs/site/wrangler.jsonc` → `env.prod.routes` (`TODO(docs.proofql.com)`) |
+| `proofql.dev`, `www.proofql.dev` | redirect rules (step 4) | Cloudflare dashboard |
+| `api.proofql.dev` | `proofql-api-prod` | `workers/api/wrangler.jsonc` → `env.prod.routes` |
+| `cdn.proofql.dev` | `proofql-cdn-prod` | `workers/cdn/wrangler.jsonc` → `env.prod.routes` |
+| `app.proofql.dev` | `proofql-dashboard-prod` | `apps/dashboard/wrangler.jsonc` → `env.prod.routes` |
+| `docs.proofql.dev` | `proofql-docs-prod` | `docs/site/wrangler.jsonc` → `env.prod.routes` |
+| `clerk.`, `accounts.`, `clkmail.`, `clk._domainkey.`, `clk2._domainkey.` | Clerk | DNS records from Clerk (§6, step 2) |
 
-1. [ ] **Zone.** Register or transfer `proofql.com` and add it to the Cloudflare account (Dashboard → Add a domain → follow the nameserver change). Verify: `dig NS proofql.com +short` shows two `*.ns.cloudflare.com` names and the zone says **Active**.
-2. [ ] **Token scopes.** Add **Zone → Workers Routes: Edit** and **Zone → DNS: Edit** for this zone to the `proofql-github-actions` token (provisioning step 8). Verify: `curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/user/tokens/verify | jq .result.status` → `"active"`, and the next prod deploy does not fail with code 10000.
-3. [ ] **Routes.** In each of the four `wrangler.jsonc` files above, replace the TODO comment in `env.prod` with
-   `"routes": [{ "pattern": "<host>", "custom_domain": true }]`. In the same PR: `apps/dashboard/wrangler.jsonc` `env.prod.vars.API_URL` → `https://api.proofql.com`; the smoke step in `.github/workflows/deploy.yml` (prod job) → the new hosts; the README "Demo" link → `https://cdn.proofql.com/demo/?key=…`; remove the "Where the dashboard is" caution from `docs/site/src/content/docs/getting-started.md`. Title: `infra: custom domains`, `Part of #51`. Merge; run the prod deploy. Verify:
+1. [x] **Zone.** `proofql.dev` is on the account. Verify: `dig NS proofql.dev +short` → `aarav.ns.cloudflare.com.`, `laylah.ns.cloudflare.com.`.
+2. [ ] **Token scopes.** API Tokens → `proofql-github-actions` → Edit → add **Zone → Workers Routes: Edit** and **Zone → DNS: Edit**, Zone Resources "Specific zone → `proofql.dev`" (provisioning step 8). The token value does not change. Verify: `curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/user/tokens/verify | jq .result.status` → `"active"`, and the prod deploy does not fail with code 10000.
+3. [ ] **First prod deploy.** The routes are in the tree; provisioning step 13 runs it (`gh workflow run deploy.yml -R plattegruber/proofql -f environment=prod`). Its "Smoke check custom domains" step checks all four hosts. Verify by hand:
 
    ```sh
-   curl -fsS https://api.proofql.com/health            # {"ok":true}
-   curl -fsSI https://cdn.proofql.com/v1.js | grep -i cache-control
-   curl -fsS https://app.proofql.com/health            # {"ok":true,"worker":"dashboard"}
-   curl -fsSI https://docs.proofql.com/errors | head -1  # 200
+   curl -fsS https://api.proofql.dev/health              # {"ok":true}
+   curl -fsSI https://cdn.proofql.dev/v1.js | grep -i cache-control
+   curl -fsS https://app.proofql.dev/health              # {"ok":true,"worker":"dashboard"}
+   curl -fsSI https://docs.proofql.dev/errors | head -1  # 200
    ```
 
-4. [ ] **Apex.** Until a landing site exists the apex and `/pricing` redirect to the docs: DNS → add a proxied `AAAA proofql.com 100::` record (a placeholder origin so the redirect rule has something to attach to), then Rules → Redirect Rules → create: `(http.host eq "proofql.com" and http.request.uri.path eq "/pricing")` → `https://docs.proofql.com/limits` (301), and a second rule `(http.host eq "proofql.com")` → `https://docs.proofql.com/` (302, so it can change). `PRICING_URL` in `@proofql/core` stays `https://proofql.com/pricing`; the Limits page is where the plan table lives. Verify: `curl -sI https://proofql.com/pricing | grep -i location` → the limits page.
-5. [ ] **WAF.** Apply the four rules in [`docs/security.md` §7](security.md#7-owner-side-settings-cloudflare-dashboard) (rate-limit backstop by IP on `api.`, no-User-Agent block on ingest, Bot Fight Mode on the dashboard host only, Managed Ruleset). Verify: Security → WAF lists W1, W2; Security → Bots shows Bot Fight Mode on; `for i in $(seq 1 700); do curl -s -o /dev/null https://api.proofql.com/v1/query; done` ends in 429s from Cloudflare (then wait 10 s).
-6. [ ] **Clerk DNS** happens in §6 (Clerk needs the zone first).
+   Workers & Pages → each prod worker → Settings → **Domains & Routes** lists its custom domain as Active. `workers_dev` is `false` in these four `env.prod` blocks, so their prod `*.workers.dev` URLs stop answering at this deploy (only the pipeline keeps one); that is intended (no WAF bypass, and Clerk's production instance only works on `proofql.dev` hosts anyway). Then update the README "Demo" link to `https://cdn.proofql.dev/demo/?key=…` (no `&api=`) and remove the "Where the dashboard is" note from `docs/site/src/content/docs/getting-started.md`.
+4. [ ] **Apex, `www` and `/pricing`.** Until a landing page exists the apex redirects to the docs. `PRICING_URL` in `@proofql/core` is `https://proofql.dev/pricing` (the dashboard's upgrade link), so `/pricing` needs its own rule.
+   1. DNS → Records → **Add record**: type `AAAA`, name `@`, IPv6 `100::`, **Proxied** (orange cloud). Again for name `www`. `100::` is a discard address: the records only exist so the proxy (and so the redirect rules) sees the requests.
+   2. Rules → **Redirect Rules** → Create rule "pricing": custom filter expression `(http.host in {"proofql.dev" "www.proofql.dev"} and http.request.uri.path eq "/pricing")` → URL redirect, type **Static**, URL `https://docs.proofql.dev/limits`, status **302**, preserve query string off.
+   3. Create a second rule "apex to docs", ordered **after** "pricing": `(http.host in {"proofql.dev" "www.proofql.dev"})` → Static `https://docs.proofql.dev`, status **302** (temporary, so browsers do not cache it once a landing page replaces it), preserve query string off.
+   4. Verify: `curl -sI https://proofql.dev/pricing | grep -i '^location'` → `https://docs.proofql.dev/limits`; `curl -sI https://www.proofql.dev/ | grep -i '^location'` → `https://docs.proofql.dev/`.
+5. [ ] **WAF** ([`docs/security.md` §7](security.md#7-owner-side-settings-cloudflare-dashboard)), on the `proofql.dev` zone after step 3:
+   1. Security → WAF → **Rate limiting rules** → Create "W1 api backstop": expression `(http.host eq "api.proofql.dev" and starts_with(http.request.uri.path, "/v1/"))`, counting characteristic **IP**, **600 requests per 10 seconds**, action **Block**, duration **10 seconds**. (The Free plan allows one rate limiting rule; this is it.)
+   2. Security → WAF → **Custom rules** → Create "W2 ingest without User-Agent": `(http.host eq "api.proofql.dev" and starts_with(http.request.uri.path, "/v1/reviews") and len(http.user_agent) eq 0)` → **Block**.
+   3. Security → Bots: **Bot Fight Mode stays off** (W3). It is zone-wide and would challenge `api.` and `cdn.`, which blanks customer pages.
+   4. Security → WAF → **Managed rules**: deploy the Cloudflare Managed Ruleset with its default action (W4), if the plan offers it; on Free the "Cloudflare Free Managed Ruleset" is on by default — leave it on.
+   5. Verify: Security → WAF lists W1 and W2; `curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.proofql.dev/v1/reviews -A ''` → `403`; `for i in $(seq 1 700); do curl -s -o /dev/null -w '%{http_code}\n' https://api.proofql.dev/v1/query; done | sort | uniq -c` shows 429s from Cloudflare (wait 10 s afterwards).
+6. [ ] **Clerk DNS** happens in §6, step 2; **Email Routing** for `support@proofql.dev` in §11.
 
-Preview keeps its `workers.dev` hostnames; give it `*-preview.proofql.com`
+Preview keeps its `workers.dev` hostnames; give it `*-preview.proofql.dev`
 hosts the same way only if a stable preview URL is wanted.
 
 ## 3. Secrets
@@ -143,7 +157,7 @@ cd apps/dashboard && for env in preview prod; do echo $env; pnpm exec wrangler s
 **Owner.** Four separate tracks; only the fourth gates the launch.
 
 1. [ ] **Business Profile API access (#44).** File it **now**; lead time 1–6 weeks and nothing else on this page waits for it. Steps and the exact wording are in the issue. Verify: Cloud Console → APIs & Services → Business Profile APIs → Quotas shows 300 QPM (was 0); record the case number in #44.
-2. [ ] **OAuth verification (scope §7.2).** Needed before the public can connect Google accounts through the connector (#45) — not before launch, because the connector ships behind #44 anyway. Prerequisites it will ask for, all produced here: the homepage (`https://proofql.com`, §2), the privacy policy and terms URLs (§5), a demo video of the connect flow (record once #45 is on preview), and the sensitive scope `https://www.googleapis.com/auth/business.manage` with its justification ("read the business's own reviews, with its consent, to display them on its own website"). Click path: Cloud Console → APIs & Services → OAuth consent screen → Publishing status → **Publish app** → **Prepare for verification**. Verify: the consent screen status reads *In production* with no "unverified app" warning on the connect flow.
+2. [ ] **OAuth verification (scope §7.2).** Needed before the public can connect Google accounts through the connector (#45) — not before launch, because the connector ships behind #44 anyway. Prerequisites it will ask for, all produced here: the homepage (`https://proofql.dev`, §2), the privacy policy and terms URLs (§5), a demo video of the connect flow (record once #45 is on preview), and the sensitive scope `https://www.googleapis.com/auth/business.manage` with its justification ("read the business's own reviews, with its consent, to display them on its own website"). The connector's OAuth client (infra/provisioning.md "Track 2") lists exactly two authorised redirect URIs: the preview `workers.dev` one and, for prod, **`https://app.proofql.dev/app/integrations/google/callback`**; add `proofql.dev` under the consent screen's **Authorised domains**. Click path: Cloud Console → APIs & Services → OAuth consent screen → Publishing status → **Publish app** → **Prepare for verification**. Verify: the consent screen status reads *In production* with no "unverified app" warning on the connect flow.
 3. [ ] **Places API key (#47).** Provisioning step 14; §3 sets it. Verify: the prod dashboard → a project → Import → "Find your business on Google" shows a search box, not "Not configured"; a search logs `places.searched`.
 4. [ ] **Places retention decision (#116).** Decide before Go, record the decision in `docs/places.md` "Terms and attribution" and close #116. Recommendation (from the issue): option 2 — expire bootstrap-only rows after 30 days unless the connector has re-imported them; that is a small pipeline sweep, filed as its own task when you decide. If you choose option 1, paste the source (Google support reply or the terms text) into the doc. Verify: #116 closed; `docs/places.md` no longer says "Open point for the owner".
 
@@ -152,7 +166,7 @@ cd apps/dashboard && for env in preview prod; do echo $env; pnpm exec wrangler s
 **Owner + counsel.** Three things need the privacy policy and terms URLs:
 Clerk's production instance (sign-up consent links), Google's OAuth consent
 screen (§4.2), and the API spec's `info` block. The URLs exist now and are
-stable — `https://docs.proofql.com/privacy` and `https://docs.proofql.com/terms`
+stable — `https://docs.proofql.dev/privacy` and `https://docs.proofql.dev/terms`
 (`PRIVACY_URL`, `TERMS_URL` in `@proofql/core`) — so every integration can
 be wired today; the **text** is a placeholder.
 
@@ -164,28 +178,30 @@ marked `[PLACEHOLDER]`; `docs/api/openapi.yaml` `info.contact`,
 docs footers link them.
 
 1. [ ] Send counsel the two pages plus the facts they need: the legal entity, address and jurisdiction; the processors table (Cloudflare, Neon, Clerk, Google); log retention (decide a number — Workers Logs keep 7 days on Free, 30 on Paid, which bounds what you can promise); the deletion grace period after a workspace is deleted; the liability cap. Effort: an hour to brief, counsel's time to draft.
-2. [ ] Replace the text, delete every `[PLACEHOLDER]`, remove the `<LegalNotice />` line from both pages, set the "Last updated" date. One PR, `Part of #51`. Verify: `grep -rn "PLACEHOLDER\|LegalNotice" docs/site/src/content/docs/privacy.mdx docs/site/src/content/docs/terms.mdx` prints nothing; `pnpm --filter @proofql/docs check` passes; the pages render without the caution box on `https://docs.proofql.com/privacy` and `/terms` after the deploy.
+2. [ ] Replace the text, delete every `[PLACEHOLDER]`, remove the `<LegalNotice />` line from both pages, set the "Last updated" date. One PR, `Part of #51`. Verify: `grep -rn "PLACEHOLDER\|LegalNotice" docs/site/src/content/docs/privacy.mdx docs/site/src/content/docs/terms.mdx` prints nothing; `pnpm --filter @proofql/docs check` passes; the pages render without the caution box on `https://docs.proofql.dev/privacy` and `/terms` after the deploy.
 3. [ ] Paste both URLs into Clerk (§6.6) and the Google consent screen (§4.2).
 
 ## 6. Clerk production instance
 
 **Owner.** The development instance (`pk_test_…`) serves local and preview;
-prod needs the production instance of the same application
-(`app_3K61mygiVkqZZcrltxAu8UpG5kx`). It needs the domain (§2) first: Clerk's
-production Frontend API lives on your zone.
+prod uses the production instance of the same application
+(`app_3K61mygiVkqZZcrltxAu8UpG5kx`) on the domain **`proofql.dev`**: the
+dashboard is `app.proofql.dev`, Clerk's Frontend API is `clerk.proofql.dev`
+and its account portal `accounts.proofql.dev`.
 
-1. [ ] **Create it.** Clerk dashboard → the ProofQL application → instance switcher (top left, "Development") → **Create production instance** → clone settings from development. Domain: `proofql.com` (the dashboard is `app.proofql.com`; Clerk serves `clerk.proofql.com` and `accounts.proofql.com`).
-2. [ ] **DNS.** Clerk → Configure → **Domains** lists the records (CNAMEs for `clerk`, `accounts`, `clkmail`, and two DKIM `clk._domainkey`/`clk2._domainkey`). Add each in Cloudflare DNS with the proxy **off** (grey cloud, "DNS only") — Clerk terminates TLS itself and a proxied record breaks its certificate issuance. Verify: Clerk's Domains page shows every record **Verified** and the SSL certificate **Issued**; `dig CNAME clerk.proofql.com +short` returns a `*.clerk.services` host.
-3. [ ] **Keys.** Configure → API keys: paste `pk_live_…` into `apps/dashboard/wrangler.jsonc` `env.prod.vars.CLERK_PUBLISHABLE_KEY` (PR, `Part of #51`); `wrangler secret put CLERK_SECRET_KEY --env prod` with `sk_live_…` (§3). The CSP derives Clerk's origin from the publishable key, so nothing else changes.
-4. [ ] **Paths and redirects.** Configure → **Paths**: sign-in `https://app.proofql.com/sign-in`, sign-up `https://app.proofql.com/sign-up`, after sign-in/sign-up `https://app.proofql.com/app`, home `https://app.proofql.com`. Allowed redirect origins: only needed for non-Clerk-domain hosts; the `workers.dev` prod hostname is one — add `https://proofql-dashboard-prod.<subdomain>.workers.dev` there only if you keep using it after the domain exists (you should not).
+1. [x] **Create it.** Done: the production instance exists with domain `proofql.dev`.
+2. [ ] **DNS.** Clerk dashboard → instance switcher → **Production** → Configure → **Domains**. It lists the records to add, typically five CNAMEs: `clerk`, `accounts`, `clkmail`, `clk._domainkey`, `clk2._domainkey`. Copy each name and target **exactly as Clerk shows it** (the targets are per-instance; do not guess them). In Cloudflare → `proofql.dev` → DNS → Records → **Add record** for each: type `CNAME`, name as shown, target as shown, **Proxy status: DNS only** (grey cloud, proxy **off**). Clerk terminates TLS on these hosts itself; a proxied record breaks its certificate issuance and the DKIM lookups. Then **Verify configuration** on Clerk's Domains page. Verify: every record shows **Verified** and the SSL certificates show **Issued** (can take up to a few hours); `dig CNAME clerk.proofql.dev +short` returns the target Clerk showed (not a Cloudflare IP).
+3. [x] **Keys.** Done: `pk_live_…` (Frontend API `clerk.proofql.dev`) is in `apps/dashboard/wrangler.jsonc` `env.prod.vars.CLERK_PUBLISHABLE_KEY`, and `CLERK_SECRET_KEY` is set with `wrangler secret put CLERK_SECRET_KEY --env prod`. That `secret put` created an empty `proofql-dashboard-prod` worker; the first prod deploy uploads over it (infra/provisioning.md step 13). The CSP derives `https://clerk.proofql.dev` from the publishable key (unit-tested in `apps/dashboard/app/lib/security-headers.test.ts`), so nothing else changes. Verify: `cd apps/dashboard && wrangler secret list --env prod` lists `CLERK_SECRET_KEY`.
+4. [ ] **Paths.** Configure → **Paths**: sign-in `https://app.proofql.dev/sign-in`, sign-up `https://app.proofql.dev/sign-up`, after sign-in and after sign-up `https://app.proofql.dev/app`, home `https://app.proofql.dev`. `app.proofql.dev` is a subdomain of the instance's domain, so no allowed-redirect-origin entry is needed; do not add the `workers.dev` prod hostname.
 5. [ ] **Organizations.** Configure → Organizations: enabled, "Allow users to create organizations" on (a workspace is an organization; `requireAccount` needs one). Same as development.
-6. [ ] **Legal links.** Configure → Settings → **Legal**: privacy `https://docs.proofql.com/privacy`, terms `https://docs.proofql.com/terms`, "Require express consent" on (§5).
-7. [ ] **Webhook.** Configure → Webhooks → Add endpoint `https://app.proofql.com/webhooks/clerk`, events `organization.created`, `organization.updated`, `organization.deleted`; copy the signing secret → `wrangler secret put CLERK_WEBHOOK_SIGNING_SECRET --env prod` (§3). Verify: the endpoint's **Testing** tab → send `organization.created` → `2xx`; `wrangler tail proofql-dashboard-prod` shows the webhook line.
-8. [ ] **Google sign-in.** Configure → SSO connections → Google: production instances must use **your own** OAuth client (the shared development credentials do not work in production). Cloud Console (the project from §4) → Credentials → Create OAuth client (Web) with the redirect URI Clerk shows (`https://clerk.proofql.com/v1/oauth_callback`); paste client id and secret into Clerk. Verify: "Continue with Google" on `https://app.proofql.com/sign-in` completes against a real Google account.
-9. [ ] **Sign-up mode.** Configure → **Restrictions** → Sign-up mode **Restricted** until §13 (the `/sign-up` page is closed by `SIGNUP_OPEN`, this is the server-side belt behind it). Allowlist your own address(es) so §12 can create a test account.
+6. [ ] **Legal links.** Configure → Settings → **Legal**: privacy `https://docs.proofql.dev/privacy`, terms `https://docs.proofql.dev/terms`, "Require express consent" on (§5).
+7. [ ] **Email sender.** Configure → **Emails**: the sender is `@proofql.dev` once the `clkmail` and DKIM records verify (step 2). Set the "from" name to `ProofQL` and the reply-to (or support email in Customization) to `support@proofql.dev`, which §11 makes a real inbox.
+8. [ ] **Webhook.** Configure → Webhooks → Add endpoint `https://app.proofql.dev/webhooks/clerk`, events `organization.created`, `organization.updated`, `organization.deleted`; copy the signing secret → `cd apps/dashboard && wrangler secret put CLERK_WEBHOOK_SIGNING_SECRET --env prod` (§3). Verify (after the first prod deploy): the endpoint's **Testing** tab → send `organization.created` → `2xx`; `wrangler tail proofql-dashboard-prod` shows the webhook line.
+9. [ ] **Google sign-in.** Configure → SSO connections → Google: production instances need **your own** OAuth client (the shared development credentials do not work in production). Cloud Console (the project from §4) → Credentials → Create OAuth client (Web) with the redirect URI Clerk shows (`https://clerk.proofql.dev/v1/oauth_callback`); paste client id and secret into Clerk. This client is for sign-in only; the Business Profile connector's client (§4) has its own redirect URI, `https://app.proofql.dev/app/integrations/google/callback`. Verify: "Continue with Google" on `https://app.proofql.dev/sign-in` completes against a real Google account.
+10. [ ] **Sign-up mode.** Configure → **Restrictions** → Sign-up mode **Restricted** until §13 (the `/sign-up` page is closed by `SIGNUP_OPEN`; this is the server-side belt behind it). Allowlist your own address(es) so §12 can create a test account.
 
 **Verify** (end to end): sign up with an allowlisted address at
-`https://app.proofql.com/sign-up`, create a workspace at `/app/workspace`,
+`https://app.proofql.dev/sign-up`, create a workspace at `/app/workspace`,
 land on `/app/onboarding`; the `accounts` row exists
 (`psql "<prod DIRECT string>" -c "select name, created_at from accounts order by created_at desc limit 3"`).
 
@@ -194,7 +210,7 @@ land on `/app/onboarding`; the `accounts` row exists
 **Not required to launch the free tier.** Stripe (#48) is user-gated on the
 Stripe account and lands after launch. Until then:
 
-- The paid plan is **"contact us"**: `PRICING_URL` (`https://proofql.com/pricing`) redirects to the docs Limits page (§2.4), whose plan table shows both tiers, and the footer's support address is how someone asks. Upgrading an account is the ops command `pnpm db:set-plan -- --account <org_…> --plan paid` (`packages/db/README.md`), run by you against the prod branch (`DATABASE_URL=<prod DIRECT string>`).
+- The paid plan is **"contact us"**: `PRICING_URL` (`https://proofql.dev/pricing`) redirects to `https://docs.proofql.dev/limits` (§2.4), whose plan table shows both tiers, and the footer's support address is how someone asks. Upgrading an account is the ops command `pnpm db:set-plan -- --account <org_…> --plan paid` (`packages/db/README.md`), run by you against the prod branch (`DATABASE_URL=<prod DIRECT string>`).
 - [ ] Add one sentence to the Limits page when the first paid customer asks ("Paid plans are arranged by email until self-serve billing opens"), or leave it: the terms page already says so.
 - The `STRIPE_*` rows in secrets.md stay *M3* until #48.
 
@@ -222,7 +238,7 @@ structured lines ([`docs/observability.md`](observability.md)).
 
 - [ ] **Alert on 5xx.** Cloudflare Notifications has **no Workers error-rate alert** below Enterprise ("Advanced Error Rate Alert" and "Traffic Anomalies" are Enterprise; "Health Checks" needs Pro). So:
   1. Dashboard → Notifications → **Add** → search "Workers"; if your plan offers a Workers error alert, pick it for `proofql-api-prod` and `proofql-dashboard-prod` with an email destination, and skip the next line.
-  2. Otherwise use a free external monitor on the health endpoints: Better Stack (free tier), UptimeRobot (free, 5-min interval) or the Upptime repo from §9, checking `https://api.proofql.com/health`, `https://app.proofql.com/health`, `https://cdn.proofql.com/health`, `https://proofql-pipeline-prod.<subdomain>.workers.dev/health` (the pipeline has no custom host), each with "expected body contains `"ok":true`" and email/SMS on failure. This catches a worker that is down, not an elevated 5xx rate; the 5xx rate is a Workers Logs query during day one (§14) and the Logs page's status-code chart, until the account is on a plan with error alerts.
+  2. Otherwise use a free external monitor on the health endpoints: Better Stack (free tier), UptimeRobot (free, 5-min interval) or the Upptime repo from §9, checking `https://api.proofql.dev/health`, `https://app.proofql.dev/health`, `https://cdn.proofql.dev/health`, `https://proofql-pipeline-prod.<subdomain>.workers.dev/health` (the pipeline has no custom host), each with "expected body contains `"ok":true`" and email/SMS on failure. This catches a worker that is down, not an elevated 5xx rate; the 5xx rate is a Workers Logs query during day one (§14) and the Logs page's status-code chart, until the account is on a plan with error alerts.
   3. Verify: break something on purpose — `wrangler secret delete SESSION_SECRET --env preview` on **preview**, load the preview dashboard, confirm the monitor (or the alert) fires within its interval, then `wrangler secret put` it back.
 - [ ] **Billing alerts.** Dashboard → Notifications → Add → **Usage Based Billing** (Workers requests, Workers AI neurons, KV, Queues) with thresholds a little above the expected first-month numbers; and in Google Cloud a budget on the Places project (provisioning step 14).
 
@@ -232,11 +248,11 @@ structured lines ([`docs/observability.md`](observability.md)).
 status and roadmap until a page exists (the docs footer and the landing
 page's "Status and roadmap" line link to them).
 
-- [ ] Pick one: **Upptime** (free, a public GitHub repo of scheduled Actions that probe URLs and publish a static status site — fits a public repo and a `status.proofql.com` CNAME to GitHub Pages), Better Stack or Instatus (free tiers, hosted). Create it with the four health URLs from §8.
-- [ ] DNS: `CNAME status.proofql.com` → the provider's target, proxy off if the provider manages TLS.
+- [ ] Pick one: **Upptime** (free, a public GitHub repo of scheduled Actions that probe URLs and publish a static status site — fits a public repo and a `status.proofql.dev` CNAME to GitHub Pages), Better Stack or Instatus (free tiers, hosted). Create it with the four health URLs from §8.
+- [ ] DNS: `CNAME status.proofql.dev` → the provider's target, proxy off if the provider manages TLS.
 - [ ] Add `STATUS_URL` to `packages/core/src/contact.ts` and a "Status" link beside "Status and roadmap" in `apps/dashboard/app/components/shell/site-footer.tsx` and `docs/site/src/components/Footer.astro` (one small PR; the constants are the only place the URLs live).
 
-**Verify:** `curl -sI https://status.proofql.com | head -1` → 200; the page shows the four checks green.
+**Verify:** `curl -sI https://status.proofql.dev | head -1` → 200; the page shows the four checks green.
 
 ## 10. Backups
 
@@ -259,22 +275,31 @@ branch created at a timestamp. The retention window is a project setting.
 
 ## 11. Support
 
-**Owner.** The address shown in every footer, the OpenAPI `info.contact`,
-and the "Contact" sections of the legal pages.
+**Owner.** The address is **`support@proofql.dev`**: the default
+everywhere (`DEFAULT_SUPPORT_EMAIL` in `packages/core/src/contact.ts`, the
+`SUPPORT_EMAIL` var in all three `vars` blocks of
+`apps/dashboard/wrangler.jsonc`, the docs build's fallback, the OpenAPI
+`info.contact.email`). It shows in every footer, the sign-up page, the
+OpenAPI spec and the "Contact" sections of the legal pages. Make it a real
+inbox with Cloudflare **Email Routing** (free, receive-only):
 
-- [ ] **Mailbox.** Cheapest: Cloudflare **Email Routing** on the zone (Email → Email Routing → **Create address** `support@proofql.com` → forward to your mailbox; add the MX/TXT records it asks for — the wizard adds them). Replying "from" `support@` needs a sending mailbox (Google Workspace, Fastmail) or Gmail's "Send mail as" with Cloudflare's SMTP relay; decide one. Verify: `echo test | mail -s test support@proofql.com` (or any mail client) arrives in your inbox; a reply shows `support@proofql.com` as sender.
-- [ ] **The address in the product.** If the mailbox is not `support@proofql.com`, change it in three places: `SUPPORT_EMAIL` in the three `vars` blocks of `apps/dashboard/wrangler.jsonc` (footer and sign-in pages read it), the repository variable the docs build reads (`gh variable set SUPPORT_EMAIL -R plattegruber/proofql --body "<address>"`; `.github/workflows/deploy.yml` passes it to `astro build`), and `DEFAULT_SUPPORT_EMAIL` in `packages/core/src/contact.ts` (the fallback, the spec's `info.contact.email`, and `docs/api/openapi.yaml` which repeats it as text). If it **is** `support@proofql.com`, nothing to change: that is the default everywhere.
-- [ ] Verify: the footer on `https://app.proofql.com/sign-in` and on `https://docs.proofql.com/` shows the address as a `mailto:` link; `curl -s https://docs.proofql.com/ | grep -o 'mailto:[^"]*'`.
+1. [ ] **Enable Email Routing.** Cloudflare → `proofql.dev` → **Email** → **Email Routing** → **Get started** / **Enable Email Routing**. It asks to add its MX records (`route1/2/3.mx.cloudflare.net`) and an SPF TXT record (`v=spf1 include:_spf.mx.cloudflare.net ~all`) to the zone; click **Add records and enable**. If Clerk's `clkmail` records (§6.2) are already there they do not conflict (they are on a subdomain). Verify: Email Routing → Settings shows the DNS records as **Configured** and routing **Enabled**.
+2. [ ] **Destination address.** Email Routing → **Destination addresses** → **Add destination address** → your own mailbox. Cloudflare emails a verification link; click it. Verify: the address shows **Verified**.
+3. [ ] **Rule.** Email Routing → **Routing rules** → **Create address**: custom address `support` (→ `support@proofql.dev`), action **Send to an email**, destination the verified address → **Save**. Optionally turn on the **Catch-all** to the same destination so `hello@`/`security@` do not bounce. Verify: send a mail to `support@proofql.dev` from an outside account; it arrives in your inbox, and Email Routing → **Activity log** shows it as forwarded.
+4. [ ] **Replying.** Email Routing only receives. Until you pick a sending mailbox (Google Workspace or Fastmail on `proofql.dev`, or Gmail "Send mail as" via that provider's SMTP), reply from your own address and say so. If you add a provider later, its SPF/DKIM records go in the same zone; merge its SPF `include:` into the one TXT record, never two SPF records.
+5. [ ] **Docs build variable (optional).** The docs site uses `SUPPORT_EMAIL` from the repository variable if set, else the default. No repository variable is set today (`gh variable list -R plattegruber/proofql`), so the default `support@proofql.dev` is what builds; set one only if the address ever differs (and then change the three `wrangler.jsonc` vars and `DEFAULT_SUPPORT_EMAIL` with it).
+6. [ ] **Where the address is also typed by hand** (outside the repo, all `support@proofql.dev`): Clerk → Emails (reply-to / support email, §6.7); Google OAuth consent screen "User support email" and "Developer contact" (§4); the privacy policy and terms "Contact" sections (§5, they read `DEFAULT_SUPPORT_EMAIL`; check the rendered pages once the counsel text lands). The OpenAPI `info.contact.email` already says it.
+7. [ ] Verify: the footer on `https://app.proofql.dev/sign-in` and on `https://docs.proofql.dev/` shows `support@proofql.dev` as a `mailto:` link: `curl -s https://docs.proofql.dev/ | grep -o 'mailto:[^"]*' | sort -u`.
 
 ## 12. Smoke test on prod
 
-**Owner.** Two passes, both against `api.proofql.com` / `app.proofql.com`
+**Owner.** Two passes, both against `api.proofql.dev` / `app.proofql.dev`
 after §1–§11: the browser walkthrough below, and the curl pass, which is
 [`scripts/demo.sh`](../scripts/demo.sh) (#31) pointed at prod.
 
 **Browser walkthrough** (the M2 exit, now on prod):
 
-1. [ ] `https://app.proofql.com/sign-up` with an allowlisted address (§6.9) → create a workspace → land on `/app/onboarding`.
+1. [ ] `https://app.proofql.dev/sign-up` with an allowlisted address (§6.10) → create a workspace → land on `/app/onboarding`.
 2. [ ] Step 1: name a project; copy both keys from the page (they are shown once).
 3. [ ] Step 2: upload `packages/core/test/fixtures/csv/` any `*.csv`, or use "Find your business on Google" with a real business (one billable Places call), or run the curl below with the secret key.
 4. [ ] Step 3: the meter reaches "Indexed N of N"; `wrangler tail proofql-pipeline-prod` shows `review.indexed` lines and no `dlq`.
@@ -285,7 +310,7 @@ after §1–§11: the browser walkthrough below, and the curl pass, which is
 origin you added under Keys → allowed origins):
 
 ```sh
-API_URL=https://api.proofql.com ORIGIN=https://<an allowed origin> \
+API_URL=https://api.proofql.dev ORIGIN=https://<an allowed origin> \
 PQ_SECRET_KEY=pq_sk_live_… PQ_PUBLISHABLE_KEY=pq_pk_live_… pnpm demo
 ```
 
@@ -304,7 +329,7 @@ its timing and the last line carries the three numbers to record.
 
 **Owner.** Two switches, in this order, five minutes.
 
-1. [ ] Clerk → production instance → Configure → Restrictions → Sign-up mode **Public** (§6.9 set it to Restricted).
+1. [ ] Clerk → production instance → Configure → Restrictions → Sign-up mode **Public** (§6.10 set it to Restricted).
 2. [ ] Open the dashboard's `/sign-up`:
 
    ```sh
@@ -318,11 +343,11 @@ its timing and the last line carries the three numbers to record.
 **Verify**
 
 ```sh
-curl -s https://app.proofql.com/sign-up | grep -c "not open yet"      # 0 (was 1)
+curl -s https://app.proofql.dev/sign-up | grep -c "not open yet"      # 0 (was 1)
 cd apps/dashboard && pnpm exec wrangler secret list --env prod | grep SIGNUP_OPEN; cd ../..
 ```
 
-and in a private window `https://app.proofql.com/sign-up` shows Clerk's
+and in a private window `https://app.proofql.dev/sign-up` shows Clerk's
 card; sign up with a **non**-allowlisted address and reach `/app/onboarding`.
 
 **Close again** (anything goes wrong): `echo false | pnpm exec wrangler secret put SIGNUP_OPEN --env prod` from `apps/dashboard`, and Clerk Restrictions back to Restricted. The waitlist page returns on the next request; signed-in accounts are unaffected.
@@ -387,7 +412,7 @@ counts behind these numbers are in
 | Workers AI | 10,000 neurons | ~30,000 reviews indexed, or far more queries. Not the constraint |
 
 Cached queries cost no database queries and, on a custom domain, no KV
-writes. Once `api.proofql.com` is routed (§2), the result and auth caches
+writes. Once the first prod deploy routes `api.proofql.dev` (§2), the result and auth caches
 move to the Workers Cache API by themselves
 ([`infra/environments.md`](../infra/environments.md) "Cache API").
 

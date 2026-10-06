@@ -68,7 +68,7 @@
     // Shown in the footer (components/shell/site-footer.tsx) and as the
     // reply-to everywhere; placeholder until the mailbox exists
     // (docs/launch.md "Support"). Empty ⇒ DEFAULT_SUPPORT_EMAIL from core.
-    "SUPPORT_EMAIL": "support@proofql.com"
+    "SUPPORT_EMAIL": "support@proofql.dev"
     // Clerk (docs/secrets.md): locally CLERK_PUBLISHABLE_KEY, CLERK_SECRET_KEY
     // and CLERK_WEBHOOK_SIGNING_SECRET come from the gitignored `.dev.vars`
     // (copy `.dev.vars.example`). Leave CLERK_SECRET_KEY empty and the app
@@ -127,7 +127,7 @@
         // Preview is always open: it runs the Clerk development instance and
         // is where the onboarding walkthrough happens (docs/launch.md).
         "SIGNUP_OPEN": "true",
-        "SUPPORT_EMAIL": "support@proofql.com",
+        "SUPPORT_EMAIL": "support@proofql.dev",
         // <TBD>: the Clerk *development* instance's publishable key (public,
         // `pk_test_…`; docs/secrets.md). The matching CLERK_SECRET_KEY and
         // CLERK_WEBHOOK_SIGNING_SECRET are wrangler secrets, never vars.
@@ -156,17 +156,17 @@
     },
     "prod": {
       "name": "proofql-dashboard-prod",
-      // TODO(app.proofql.com): once the zone is on this account, add
-      // "routes": [{ "pattern": "app.proofql.com", "custom_domain": true }]
-      // and move the Clerk production instance's allowed origins and
-      // webhook URL to it (docs/launch.md "Domains", "Clerk production
-      // instance"). Until then the worker answers on
-      // https://proofql-dashboard-prod.<subdomain>.workers.dev only.
+      // Workers Custom Domain on the proofql.dev zone (docs/launch.md
+      // "Domains"; infra/provisioning.md "Custom domains"). The Clerk
+      // production instance's paths and webhook point here (docs/launch.md
+      // "Clerk production instance").
+      "routes": [{ "pattern": "app.proofql.dev", "custom_domain": true }],
+      // Custom domain only; workers.dev off (see workers/api/wrangler.jsonc).
+      "workers_dev": false,
       "vars": {
         "ENVIRONMENT": "prod",
-        // <TBD>: the proofql-api-prod public origin.
-        "API_URL": "https://proofql-api-prod.gruberplatte.workers.dev",
-        "SNIPPET_SRC": "https://cdn.proofql.com/v1.js",
+        "API_URL": "https://api.proofql.dev",
+        "SNIPPET_SRC": "https://cdn.proofql.dev/v1.js",
         // <TBD>: the Google OAuth client id (public; docs/secrets.md,
         // infra/provisioning.md "Google OAuth client"). Not flagged by
         // check-provisioning.mjs on purpose: the connector stays dark —
@@ -178,10 +178,11 @@
         // switch is `echo true | wrangler secret put SIGNUP_OPEN --env prod`
         // from this directory, flipped back with `false` (docs/launch.md
         // "Go"). A var would need a PR and a deploy to flip.
-        "SUPPORT_EMAIL": "support@proofql.com",
-        // <TBD>: the Clerk *production* instance's publishable key
-        // (`pk_live_…`).
-        "CLERK_PUBLISHABLE_KEY": "TBD-provision-in-m0"
+        "SUPPORT_EMAIL": "support@proofql.dev",
+        // The Clerk *production* instance's publishable key (public by
+        // design; it encodes the Frontend API host, clerk.proofql.dev, which
+        // the CSP derives from it).
+        "CLERK_PUBLISHABLE_KEY": "pk_live_Y2xlcmsucHJvb2ZxbC5kZXYk"
       },
       "kv_namespaces": [
         // KV namespace proofql-cache-prod (created 2026-10-04).

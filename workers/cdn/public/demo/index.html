@@ -15,7 +15,7 @@
     Served by workers/cdn at /demo/ next to the snippet it loads (/v1.js).
     The publishable key and the API origin come from this page's own URL:
 
-      /demo/?key=pq_pk_live_…                      hosted (api.proofql.com)
+      /demo/?key=pq_pk_live_…                      hosted (api.proofql.dev)
       /demo/?key=pq_pk_live_…&api=http://localhost:8797   local api
 
     No key is ever committed. Locally: `pnpm seed` prints the demo project's
@@ -352,7 +352,7 @@
       </div>
     </div>
     <div class="fine">
-      <span>© Cedar Ridge Dental. A fictional practice built to demonstrate <a href="https://proofql.com/" rel="noopener">ProofQL</a>; every name and review is invented.</span>
+      <span>© Cedar Ridge Dental. A fictional practice built to demonstrate <a href="https://proofql.dev/" rel="noopener">ProofQL</a>; every name and review is invented.</span>
       <span>Reviews rendered by the ProofQL snippet.</span>
     </div>
   </div>
@@ -361,7 +361,7 @@
 <script>
   // The snippet tag, built from this page's URL so no key is ever committed:
   //   ?key=pq_pk_…          the project's publishable key (required)
-  //   ?api=http://…         API origin override (default: https://api.proofql.com)
+  //   ?api=http://…         API origin override (default: https://api.proofql.dev)
   // Exactly what a customer would paste, except the attributes come from
   // the query string. /v1.js is served by the same worker as this page.
   (() => {

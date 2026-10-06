@@ -1106,7 +1106,7 @@ not re-measured: no load on preview) is that `cache.put` is accepted and
 dropped and every `match` misses. The api therefore never uses the
 Cache API for a request whose hostname ends in `.workers.dev`
 (`isWorkersDevHost`). That is preview and prod today (`infra/environments.md`).
-Once `api.proofql.com` is routed (scope §7.6), the Cache API path turns on
+Once `api.proofql.dev` is routed (scope §7.6), the Cache API path turns on
 by itself, with no deploy flag. Verify it then with two identical
 `/v1/query` requests to the custom domain: the second is `x-cache: HIT`,
 and `wrangler tail` shows no `kv.*` lines and no KV writes for it.

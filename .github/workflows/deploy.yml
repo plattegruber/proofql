@@ -283,7 +283,7 @@ jobs:
           command: deploy --env prod
       # workers.dev URLs are deterministic once the account subdomain is
       # known (repository variable WORKERS_SUBDOMAIN, infra/provisioning.md).
-      - name: Smoke check /health
+      - name: Smoke check pipeline /health
         env:
           SUBDOMAIN: ${{ vars.WORKERS_SUBDOMAIN }}
         run: |
@@ -291,13 +291,21 @@ jobs:
             echo "::notice::WORKERS_SUBDOMAIN variable not set; skipping smoke check (infra/provisioning.md)."
             exit 0
           fi
-          for worker in api pipeline cdn dashboard; do
-            url="https://proofql-${worker}-prod.${SUBDOMAIN}.workers.dev/health"
-            echo "GET $url"
-            curl --fail --silent --show-error --max-time 20 "$url"
-            echo
-          done
-          # The docs site has no /health (static assets); its front page is the smoke.
-          url="https://proofql-docs-prod.${SUBDOMAIN}.workers.dev/"
+          # Only the pipeline keeps a workers.dev URL in prod; api, cdn,
+          # dashboard and docs set workers_dev: false (next step).
+          url="https://proofql-pipeline-prod.${SUBDOMAIN}.workers.dev/health"
           echo "GET $url"
-          curl --fail --silent --show-error --max-time 20 --output /dev/null "$url"
+          curl --fail --silent --show-error --max-time 20 "$url"
+          echo
+      # The custom domains (env.prod.routes; docs/launch.md "Domains"). A
+      # first deploy creates the DNS record and certificate, which can take a
+      # minute to answer, hence the retries. The docs site has no /health
+      # (static assets); its front page is the smoke.
+      - name: Smoke check custom domains
+        run: |
+          for url in https://api.proofql.dev/health https://cdn.proofql.dev/health \
+                     https://app.proofql.dev/health https://docs.proofql.dev/; do
+            echo "GET $url"
+            curl --fail --silent --show-error --max-time 20 --output /dev/null \
+              --retry 6 --retry-delay 10 --retry-all-errors "$url"
+          done

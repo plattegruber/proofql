@@ -1,7 +1,7 @@
 // Bundle src/index.ts into a single minified IIFE, dist/v1.js (+ .map).
 //
 // esbuild is the only build tool: no runtime dependencies, no framework. The
-// output is what cdn.proofql.com/v1.js serves (scope.md §3 "Snippet"); its
+// output is what cdn.proofql.dev/v1.js serves (scope.md §3 "Snippet"); its
 // size is policed by scripts/size.mjs, which the `test` script runs.
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";

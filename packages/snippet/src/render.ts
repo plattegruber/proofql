@@ -19,7 +19,7 @@
  *     </footer>
  *   </li>
  * </ul>
- * <a class="pq-badge" href="https://proofql.com/?ref=badge" …>Reviews by ProofQL</a>
+ * <a class="pq-badge" href="https://proofql.dev/?ref=badge" …>Reviews by ProofQL</a>
  * ```
  *
  * A native list (`<ul>`/`<li>`): `role="listitem"` is not an allowed role on
@@ -71,7 +71,7 @@ export function renderHeading(
   return text ? element(doc, "p", "pq-heading", text) : null;
 }
 
-export const BADGE_HREF = "https://proofql.com/?ref=badge";
+export const BADGE_HREF = "https://proofql.dev/?ref=badge";
 export const BADGE_TEXT = "Reviews by ProofQL";
 
 const SOURCE_NAMES: Record<string, string> = {

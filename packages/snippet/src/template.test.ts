@@ -196,7 +196,7 @@ describe("renderTemplate", () => {
 describe("renderElement with data-template", () => {
   const config: SnippetConfig = {
     key: "pq_pk_test_abc",
-    api: "https://api.proofql.com",
+    api: "https://api.proofql.dev",
   };
 
   it("uses the template and still injects the stylesheet (for the badge)", async () => {

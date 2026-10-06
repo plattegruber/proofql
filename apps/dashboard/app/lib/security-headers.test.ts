@@ -1,6 +1,8 @@
 // The dashboard's response headers (#49): the CSP's moving parts (Clerk's
 // host from the key, the api and snippet origins, local relaxations), the
 // route-owned-CSP rule for the onboarding preview, and HSTS by environment.
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -19,9 +21,9 @@ function fakeKey(host: string, kind: "test" | "live" = "test"): string {
 
 const prodEnv = {
   ENVIRONMENT: "prod",
-  API_URL: "https://api.proofql.com",
-  SNIPPET_SRC: "https://cdn.proofql.com/v1.js",
-  CLERK_PUBLISHABLE_KEY: fakeKey("clerk.proofql.com", "live"),
+  API_URL: "https://api.proofql.dev",
+  SNIPPET_SRC: "https://cdn.proofql.dev/v1.js",
+  CLERK_PUBLISHABLE_KEY: fakeKey("clerk.proofql.dev", "live"),
 };
 
 function directive(csp: string, name: string): string | undefined {
@@ -36,8 +38,8 @@ describe("clerkFrontendApi", () => {
     expect(clerkFrontendApi(fakeKey("foo-bar-12.clerk.accounts.dev"))).toBe(
       "https://foo-bar-12.clerk.accounts.dev",
     );
-    expect(clerkFrontendApi(fakeKey("clerk.proofql.com", "live"))).toBe(
-      "https://clerk.proofql.com",
+    expect(clerkFrontendApi(fakeKey("clerk.proofql.dev", "live"))).toBe(
+      "https://clerk.proofql.dev",
     );
   });
 
@@ -53,10 +55,49 @@ describe("clerkFrontendApi", () => {
   });
 });
 
+/**
+ * `env.prod.vars` of the real apps/dashboard/wrangler.jsonc. The file's
+ * comments are whole lines, so dropping those and trailing commas is enough
+ * to make it JSON.
+ */
+function deployedProdVars(): Record<string, string> {
+  const source = readFileSync(
+    new URL("../../wrangler.jsonc", import.meta.url),
+    "utf8",
+  );
+  const json = source
+    .replace(/^\s*\/\/.*$/gm, "")
+    .replace(/,(\s*[}\]])/g, "$1");
+  return JSON.parse(json).env.prod.vars;
+}
+
+describe("the deployed prod config (apps/dashboard/wrangler.jsonc)", () => {
+  const vars = deployedProdVars();
+
+  it("carries the Clerk production key, whose Frontend API is clerk.proofql.dev", () => {
+    expect(vars.CLERK_PUBLISHABLE_KEY).toMatch(/^pk_live_/);
+    expect(clerkFrontendApi(vars.CLERK_PUBLISHABLE_KEY)).toBe(
+      "https://clerk.proofql.dev",
+    );
+    expect(vars.API_URL).toBe("https://api.proofql.dev");
+    expect(vars.SNIPPET_SRC).toBe("https://cdn.proofql.dev/v1.js");
+  });
+
+  it("yields a CSP that allows Clerk's FAPI, the snippet origin and the api", () => {
+    const csp = contentSecurityPolicy({ ...vars, ENVIRONMENT: "prod" });
+    for (const name of ["script-src", "connect-src"]) {
+      expect(directive(csp, name)).toContain("https://clerk.proofql.dev");
+      expect(directive(csp, name)).toContain("https://cdn.proofql.dev");
+    }
+    expect(directive(csp, "frame-src")).toContain("https://clerk.proofql.dev");
+    expect(directive(csp, "connect-src")).toContain("https://api.proofql.dev");
+  });
+});
+
 describe("originOf", () => {
   it("reduces a URL to its origin and refuses non-URLs", () => {
-    expect(originOf("https://cdn.proofql.com/v1.js")).toBe(
-      "https://cdn.proofql.com",
+    expect(originOf("https://cdn.proofql.dev/v1.js")).toBe(
+      "https://cdn.proofql.dev",
     );
     expect(originOf("http://localhost:8800/v1.js")).toBe(
       "http://localhost:8800",
@@ -71,7 +112,7 @@ describe("contentSecurityPolicy", () => {
   it("allows Clerk, Turnstile and the snippet origin to run scripts, and nothing else", () => {
     const csp = contentSecurityPolicy(prodEnv);
     expect(directive(csp, "script-src")).toBe(
-      "script-src 'self' 'unsafe-inline' https://clerk.proofql.com https://challenges.cloudflare.com https://cdn.proofql.com",
+      "script-src 'self' 'unsafe-inline' https://clerk.proofql.dev https://challenges.cloudflare.com https://cdn.proofql.dev",
     );
     expect(directive(csp, "default-src")).toBe("default-src 'self'");
     expect(directive(csp, "object-src")).toBe("object-src 'none'");
@@ -81,10 +122,10 @@ describe("contentSecurityPolicy", () => {
   it("lets the browser reach Clerk and the api, and frame the preview page and Turnstile", () => {
     const csp = contentSecurityPolicy(prodEnv);
     expect(directive(csp, "connect-src")).toBe(
-      "connect-src 'self' https://clerk.proofql.com https://clerk-telemetry.com https://api.proofql.com https://cdn.proofql.com",
+      "connect-src 'self' https://clerk.proofql.dev https://clerk-telemetry.com https://api.proofql.dev https://cdn.proofql.dev",
     );
     expect(directive(csp, "frame-src")).toBe(
-      "frame-src 'self' https://challenges.cloudflare.com https://clerk.proofql.com",
+      "frame-src 'self' https://challenges.cloudflare.com https://clerk.proofql.dev",
     );
     expect(directive(csp, "frame-ancestors")).toBe("frame-ancestors 'none'");
     expect(directive(csp, "upgrade-insecure-requests")).toBe(
@@ -98,7 +139,7 @@ describe("contentSecurityPolicy", () => {
       CLERK_PUBLISHABLE_KEY: "TBD-provision-in-m0",
     });
     expect(directive(csp, "script-src")).not.toContain("clerk");
-    expect(directive(csp, "connect-src")).toContain("https://api.proofql.com");
+    expect(directive(csp, "connect-src")).toContain("https://api.proofql.dev");
   });
 
   it("relaxes connect-src for the Vite dev server locally and drops upgrade-insecure-requests", () => {

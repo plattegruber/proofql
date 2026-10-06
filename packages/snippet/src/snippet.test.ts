@@ -11,7 +11,7 @@ import { fixtureResponse, stubFetch } from "./test/fixture.js";
 
 const config: SnippetConfig = {
   key: "pq_pk_test_abc",
-  api: "https://api.proofql.com",
+  api: "https://api.proofql.dev",
 };
 
 function host(attrs: Record<string, string> = {}): HTMLElement {
@@ -48,7 +48,7 @@ describe("renderElement", () => {
     await renderElement(el, config);
 
     expect(fetchStub.calls).toEqual([
-      "https://api.proofql.com/v1/query?key=pq_pk_test_abc&q=implants&limit=2",
+      "https://api.proofql.dev/v1/query?key=pq_pk_test_abc&q=implants&limit=2",
     ]);
     expect(el.querySelectorAll(".pq-item")).toHaveLength(3);
     expect(el.querySelector(".pq-badge")).not.toBeNull();

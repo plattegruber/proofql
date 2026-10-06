@@ -165,12 +165,14 @@
     },
     "prod": {
       "name": "proofql-api-prod",
-      // TODO(api.proofql.com): once the zone is on this account, add
-      // "routes": [{ "pattern": "api.proofql.com", "custom_domain": true }]
-      // and move the dashboard's API_URL and deploy.yml's smoke check to it
-      // (docs/launch.md "Domains"; infra/provisioning.md "Custom domains").
-      // Until then the worker answers on
-      // https://proofql-api-prod.<subdomain>.workers.dev only.
+      // Workers Custom Domain on the proofql.dev zone: the first deploy
+      // creates the DNS record and the certificate (docs/launch.md
+      // "Domains"; infra/provisioning.md "Custom domains").
+      "routes": [{ "pattern": "api.proofql.dev", "custom_domain": true }],
+      // workers.dev is off in prod: wrangler would turn it off anyway once a
+      // route exists, and the custom domain is the only hostname behind the
+      // zone's WAF and the Cache API. (The pipeline keeps workers.dev.)
+      "workers_dev": false,
       "vars": { "ENVIRONMENT": "prod" },
       "queues": {
         "producers": [

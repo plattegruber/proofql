@@ -9,7 +9,7 @@ function el(attrs: Record<string, string>): Element {
   return div;
 }
 
-const API = "https://api.proofql.com";
+const API = "https://api.proofql.dev";
 const KEY = "pq_pk_test_abc";
 
 function params(attrs: Record<string, string>): URLSearchParams {
