@@ -56,10 +56,15 @@ protection.
 | `preview` | `CLERK_SECRET_KEY_PREVIEW` | repository secret |
 | `prod` | `CLERK_SECRET_KEY_PROD` | environment `acceptance-prod` (main only); the job skips with a notice while it is empty |
 
-Optional repository variable `AT_PROD_EMAIL`. On failure the Playwright
-report is uploaded as an artifact (7 days). The repository is public, so
-the artifact is too: preview keeps traces and video (the user, keys and
-project in them are deleted by the run), prod keeps screenshots only.
+Optional repository variable `AT_PROD_EMAIL`. On a preview failure the
+Playwright report, traces, video and screenshots are uploaded as an artifact
+(7 days); everything in them (user, keys, project) is deleted by the run.
+The repository is public, so artifacts are too: **prod captures no
+screenshots, traces, video or HTML report and uploads no artifact**, since a
+failure at the Keys step would otherwise show a live `pq_sk_live` key. A prod
+failure is debugged from the job log, which names the failing step, the
+page's path and its visible error text, with keys redacted
+(`[at] FAILED at "…"`).
 
 Prerequisites on the Clerk side (owner, once per instance): Organizations
 enabled with user-created organizations (the dashboard needs a workspace;

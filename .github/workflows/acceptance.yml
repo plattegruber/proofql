@@ -16,9 +16,10 @@
 #          CLERK_SECRET_KEY_PROD is the Clerk production instance's key; the
 #          job skips with a notice while that secret is empty.
 #
-# Artifacts are uploaded on failure only. The repository is public, so its
-# artifacts are too: preview keeps traces (everything in them is deleted by
-# the run's cleanup), prod keeps screenshots only (playwright.config.ts).
+# Artifacts are uploaded on failure, for preview only. The repository is
+# public, so its artifacts are too: preview's traces hold only what the
+# run's cleanup deletes; prod captures and uploads nothing, and its failures
+# are debugged from the log (playwright.config.ts).
 name: Acceptance
 
 on:
@@ -185,12 +186,9 @@ jobs:
             echo "::warning title=Acceptance (prod)::$line"
             echo "- :warning: **prod:** $line" >> "$GITHUB_STEP_SUMMARY"
           done
-      - name: Upload Playwright report and screenshots
-        if: failure() && steps.secret.outputs.present == 'true'
-        uses: actions/upload-artifact@v7
-        with:
-          name: acceptance-prod-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            e2e/playwright-report/
-            e2e/test-results/
-          retention-days: 7
+      # No artifact for prod, on purpose: screenshots, traces, the HTML
+      # report and error-context snapshots could show a live pq_sk_live key
+      # or a Clerk session, and this public repository's artifacts are
+      # downloadable by anyone signed in to GitHub. Prod captures none of
+      # them (playwright.config.ts); the log names the failing step, the URL
+      # and the visible error text, with keys redacted.
