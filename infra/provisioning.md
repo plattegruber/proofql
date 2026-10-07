@@ -672,6 +672,7 @@ certificate itself; there is no DNS or certificate step for these four:
 | `cdn.proofql.dev` | `proofql-cdn-prod` | `workers/cdn/wrangler.jsonc` |
 | `app.proofql.dev` | `proofql-dashboard-prod` | `apps/dashboard/wrangler.jsonc` |
 | `docs.proofql.dev` | `proofql-docs-prod` | `docs/site/wrangler.jsonc` |
+| `proofql.dev`, `www.proofql.dev` | `proofql-www-prod` | `apps/www/wrangler.jsonc` (deployed only once the repository variable `WWW_PROD_ENABLED` is `true`; docs/launch.md §2 step 7) |
 
 ```jsonc
 "routes": [{ "pattern": "api.proofql.dev", "custom_domain": true }]

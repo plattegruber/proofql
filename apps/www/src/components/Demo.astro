@@ -1,0 +1,274 @@
+---
+// "See it in action": the three example pages from the table, each a mock
+// service page with the reviews block the snippet renders on it. The blocks
+// are rendered at build time by the snippet's own code (src/lib/reviews.ts)
+// and styled by its own stylesheet, imported below. The reviews are
+// illustrative and labelled "Example reviews"; nothing calls the API.
+import "@proofql/snippet/src/styles.css";
+
+import { DEMO_PAGES } from "../lib/demo";
+import { renderBlock } from "../lib/reviews";
+
+const pages = DEMO_PAGES.map((page) => ({ page, block: renderBlock(page) }));
+---
+
+<section id="demo" class="demo" aria-labelledby="demo-title">
+  <div class="container">
+    <h2 id="demo-title" class="demo-title">See it in action</h2>
+    <p class="demo-note">
+      Example reviews, written for this demo. They are not real customers.
+    </p>
+
+    <div class="tablist" role="tablist" aria-label="Example service pages">
+      {
+        pages.map(({ page }, i) => (
+          <button
+            type="button"
+            role="tab"
+            id={`tab-${page.id}`}
+            aria-controls={`panel-${page.id}`}
+            aria-selected={i === 0 ? "true" : "false"}
+            tabindex={i === 0 ? 0 : -1}
+          >
+            {page.label}
+          </button>
+        ))
+      }
+    </div>
+
+    <div class="panels">
+      {
+        pages.map(({ page, block }, i) => (
+          <div
+            class="panel"
+            role="tabpanel"
+            id={`panel-${page.id}`}
+            aria-labelledby={`tab-${page.id}`}
+            tabindex="0"
+            hidden={i !== 0}
+          >
+            <div
+              class="frame"
+              role="group"
+              aria-label={`Example service page: ${page.label}`}
+            >
+              <div class="frame-bar">
+                <span class="frame-dots" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+                <span class="frame-url">{`${page.host}${page.path}`}</span>
+              </div>
+              <div class="site">
+                <p class="site-name">{page.business}</p>
+                <p class="site-title">{page.label}</p>
+                <div class="site-copy" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+                <Fragment set:html={block.html} />
+              </div>
+            </div>
+            <div class="code">
+              <p class="label">Snippet</p>
+              <pre><code>{block.tag}</code></pre>
+              <p class="label">Request</p>
+              <pre><code>{block.request}</code></pre>
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<script>
+  import { initTabs } from "../scripts/tabs";
+
+  const tablist = document.querySelector('#demo [role="tablist"]');
+  if (tablist) initTabs(tablist);
+</script>
+
+<style>
+  .demo {
+    padding-block: clamp(3.5rem, 8vw, 6rem);
+    background: var(--bg-sunken);
+    border-block: 1px solid var(--hairline);
+  }
+  .demo-title {
+    font-size: clamp(1.75rem, 1.2rem + 2.4vw, 2.75rem);
+    line-height: 1.1;
+  }
+  .demo-note {
+    margin-top: 0.75rem;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    color: var(--fg-secondary);
+  }
+
+  /* Tabs: mono labels on a hairline, the selected one underlined in ink. */
+  .tablist {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 1.5rem;
+    margin-top: 2rem;
+    border-bottom: 1px solid var(--hairline-strong);
+  }
+  [role="tab"] {
+    appearance: none;
+    margin: 0 0 -1px;
+    padding: 0.875rem 0 0.75rem;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: none;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: var(--fg-secondary);
+    cursor: pointer;
+  }
+  [role="tab"]:hover {
+    color: var(--fg);
+  }
+  [role="tab"][aria-selected="true"] {
+    color: var(--fg);
+    border-bottom-color: var(--fg);
+  }
+  [role="tab"]:focus-visible {
+    outline-offset: 2px;
+  }
+  @media (forced-colors: active) {
+    [role="tab"][aria-selected="true"] {
+      border-bottom-color: Highlight;
+    }
+  }
+
+  /* Without JavaScript every panel shows, stacked, and the tab list hides.
+     With it (the `js` class from Base.astro), the panels share one grid
+     cell so switching tabs never changes the section's height; a hidden
+     panel is `visibility: hidden`, which also takes it out of the
+     accessibility tree and the tab order. */
+  :global(html:not(.js)) .tablist {
+    display: none;
+  }
+  .panel[hidden] {
+    display: grid;
+  }
+  :global(html:not(.js)) .panel + .panel {
+    margin-top: 3rem;
+  }
+  :global(html.js) .panels {
+    display: grid;
+  }
+  :global(html.js) .panel {
+    grid-area: 1 / 1;
+  }
+  :global(html.js) .panel[hidden] {
+    visibility: hidden;
+  }
+
+  .panels {
+    margin-top: 2rem;
+  }
+  .panel {
+    display: grid;
+    gap: 1.5rem;
+    align-items: start;
+  }
+  .panel:focus-visible {
+    outline-offset: 6px;
+  }
+  @media (min-width: 60rem) {
+    .panel {
+      grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+      gap: 2.5rem;
+    }
+  }
+
+  /* The mock client site: always a light page in a serif face, so it is
+     plainly someone else's website; the snippet inherits both. */
+  .frame {
+    border: 1px solid var(--hairline-strong);
+    background: #ffffff;
+    color: #1f2523;
+  }
+  .frame-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 0.875rem;
+    border-bottom: 1px solid #e3e6e4;
+    background: #f7f8f7;
+  }
+  .frame-dots {
+    display: inline-flex;
+    gap: 0.375rem;
+  }
+  .frame-dots span {
+    width: 0.5rem;
+    height: 0.5rem;
+    border: 1px solid #9ca3a0;
+  }
+  .frame-url {
+    min-width: 0;
+    padding: 0.25rem 0.625rem;
+    border: 1px solid #e3e6e4;
+    background: #ffffff;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: #575f5b;
+    overflow-wrap: anywhere;
+  }
+  .site {
+    padding: clamp(1.25rem, 4vw, 2rem);
+    font-family: Georgia, "Times New Roman", serif;
+  }
+  .site-name {
+    font-size: 0.875rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #575f5b;
+  }
+  .site-title {
+    margin-top: 0.5rem;
+    font-size: clamp(1.5rem, 1.2rem + 1.2vw, 2rem);
+    line-height: 1.15;
+  }
+  .site-copy {
+    display: grid;
+    gap: 0.5rem;
+    margin: 1rem 0 1.75rem;
+  }
+  .site-copy span {
+    height: 0.5rem;
+    background: #eff1f0;
+  }
+  .site-copy span:nth-child(2) {
+    width: 92%;
+  }
+  .site-copy span:nth-child(3) {
+    width: 64%;
+  }
+
+  .code {
+    display: grid;
+    gap: 0.5rem;
+  }
+  .code .label:not(:first-child) {
+    margin-top: 1rem;
+  }
+  pre {
+    margin: 0;
+    padding: 1rem;
+    border: 1px solid var(--hairline-strong);
+    background: var(--bg);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+</style>

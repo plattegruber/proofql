@@ -1,0 +1,42 @@
+---
+// The ProofQL logo. A text wordmark for now; the animated logo from Claude
+// Design replaces the contents of this one component (every use on the site
+// goes through it). When it lands, its motion must stop under
+// `prefers-reduced-motion: reduce` and the accessible name stays "ProofQL".
+interface Props {
+  /** Visual size; the footer uses the smaller one. */
+  size?: "md" | "sm";
+}
+
+const { size = "md" } = Astro.props;
+---
+
+<span class:list={["logo", `logo-${size}`]}>
+  <span class="logo-word">ProofQL</span><span class="logo-dot" aria-hidden="true"
+  ></span>
+</span>
+
+<style>
+  .logo {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.2em;
+    font-family: var(--font-sans);
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    color: var(--fg);
+  }
+  .logo-md {
+    font-size: 1.375rem;
+  }
+  .logo-sm {
+    font-size: 1.125rem;
+  }
+  /* The favicon's green square. */
+  .logo-dot {
+    width: 0.3em;
+    height: 0.3em;
+    background: var(--accent);
+  }
+</style>

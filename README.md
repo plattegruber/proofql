@@ -124,6 +124,7 @@ After `pnpm run setup && pnpm dev` you have:
 | `workers/pipeline` | <http://localhost:8798> | queue consumer (Miniflare-simulated queue) — `GET /health` |
 | `apps/dashboard` | <http://localhost:8799> | customer dashboard (React Router v7 via Vite + workerd) — `GET /health`; runs with the local auth stub as the seeded demo account until Clerk keys are in `apps/dashboard/.dev.vars` (see `apps/dashboard/README.md`) |
 | `workers/cdn` | <http://localhost:8800> | the snippet (`/v1.js`, `/v1.<hash>.js`) and the demo site (`/demo/`) from Workers static assets — `GET /health` → `{ "ok": true, "version", "hash" }` |
+| `apps/www` | <http://localhost:4322> | the marketing site (`proofql.dev`), Astro dev server; `wrangler dev` serves the built `dist/` on 8804 (see `apps/www/README.md`) |
 | fake Google server | <http://localhost:8802> | **not part of `pnpm dev`**: `pnpm --filter @proofql/google dev:fake` when working on the Google connector; the pipeline's `.dev.vars` already points at it ([`docs/google.md`](docs/google.md)) |
 
 Ports are fixed in each workspace's `wrangler.jsonc` (inspector ports 9239–9243, and 9244 for the fake Google server; full matrix and bindings in [`infra/environments.md`](infra/environments.md)). To run a subset, filter: `pnpm dev --filter @proofql/api`.

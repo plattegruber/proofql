@@ -1,0 +1,6 @@
+# PRICING_URL in @proofql/core is https://proofql.dev/pricing (the
+# dashboard's upgrade link). Until a pricing page exists it is the docs'
+# Limits page. The zone's "pricing" Redirect Rule does the same and runs
+# before the Worker (docs/launch.md §2); this line keeps the link working if
+# that rule is ever removed.
+/pricing https://docs.proofql.dev/limits 302

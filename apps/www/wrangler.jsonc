@@ -1,0 +1,66 @@
+// Wrangler configuration for the ProofQL marketing site (`proofql-www-<env>`).
+//
+// An assets-only Worker, the same shape as docs/site/wrangler.jsonc: no
+// script, no bindings. `astro build` writes dist/ and Workers Static Assets
+// serves it (asset requests are free and unmetered on the Workers Free
+// plan). `public/_headers` sets caching and security headers, and
+// `public/_redirects` keeps `/pricing` (PRICING_URL in @proofql/core)
+// pointing at the docs' Limits page. Unknown paths get dist/404.html.
+//
+// `assets` is NOT inherited across envs (same rule as every other
+// wrangler.jsonc in this repo): it repeats in full in each block.
+//
+// Environment matrix and ports: infra/environments.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+
+  "name": "proofql-www-local",
+  "compatibility_date": "2026-09-01",
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+
+  // Fixed ports so every worker can run side by side (infra/environments.md).
+  "dev": {
+    "port": 8804,
+    "inspector_port": 9245
+  },
+
+  "assets": {
+    "directory": "./dist",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+
+  "env": {
+    "preview": {
+      "name": "proofql-www-preview",
+      "assets": {
+        "directory": "./dist",
+        "html_handling": "auto-trailing-slash",
+        "not_found_handling": "404-page"
+      }
+    },
+    "prod": {
+      "name": "proofql-www-prod",
+      // Workers Custom Domains on the proofql.dev zone. NOT deployed by
+      // deploy.yml until the owner removes the apex redirect rule and the
+      // placeholder AAAA records (docs/launch.md §2 "Marketing site
+      // cutover"); attaching a custom domain to a hostname that already has
+      // DNS records fails, and would fail the whole prod deploy with it.
+      "routes": [
+        { "pattern": "proofql.dev", "custom_domain": true },
+        { "pattern": "www.proofql.dev", "custom_domain": true }
+      ],
+      // Custom domains only; workers.dev off (see workers/api/wrangler.jsonc).
+      "workers_dev": false,
+      "assets": {
+        "directory": "./dist",
+        "html_handling": "auto-trailing-slash",
+        "not_found_handling": "404-page"
+      }
+    }
+  }
+}

@@ -1,0 +1,425 @@
+---
+// The landing page. The copy is the owner's, verbatim: change it only with
+// the owner. scripts/check-site.mjs fails the build when a heading, a button
+// label, or a CTA target drifts.
+import Demo from "../components/Demo.astro";
+import { SIGN_UP_URL } from "../config";
+import Base from "../layouts/Base.astro";
+
+const title = "ProofQL · Social proof, in context.";
+const description =
+  "Your clients have already earned the social proof. ProofQL matches their Google reviews to the service on each page, so visitors see customer experiences relevant to what they’re considering.";
+---
+
+<Base title={title} description={description}>
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="container">
+      <p class="label hero-overline">ProofQL · Social proof, in context.</p>
+      <h1 id="hero-title">The right Google reviews. On the right pages.</h1>
+      <p class="lede">
+        Your clients have already earned the social proof. ProofQL matches
+        their Google reviews to the service on each page, so visitors see
+        customer experiences relevant to what they’re considering.
+      </p>
+      <p class="hero-sub">
+        Built for developers. Ready for client websites. Generous free tier.
+      </p>
+      <div class="actions">
+        <a class="button button-primary" href={SIGN_UP_URL}>Get started free</a>
+        <a class="button button-secondary" href="#demo">See it in action</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="roofer-title">
+    <div class="container split">
+      <h2 id="roofer-title">
+        They’re looking for a roofer. Show them roofing reviews.
+      </h2>
+      <div class="prose">
+        <p>
+          Your client might do roofing, remodels, and repairs. Each service page
+          deserves reviews about that service.
+        </p>
+        <p>
+          ProofQL finds the relevant feedback in their existing Google reviews
+          and puts it to work.
+        </p>
+        <table class="pages-table">
+          <thead>
+            <tr>
+              <th scope="col">On this page…</th>
+              <th scope="col">Show reviews about…</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">Roof replacement</th>
+              <td>New roofs, shingle replacement, and cleanup</td>
+            </tr>
+            <tr>
+              <th scope="row">Root canals</th>
+              <td>Root canal treatment and the patient’s experience</td>
+            </tr>
+            <tr>
+              <th scope="row">Kitchen remodeling</th>
+              <td>Kitchen renovations and the finished result</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          The visitor sees what other customers experienced with the work
+          they’re considering.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <Demo />
+
+  <section class="section section-flush" aria-labelledby="promise-title">
+    <div class="container split">
+      <h2 id="promise-title">
+        Every service page makes a promise. Give it some proof.
+      </h2>
+      <div class="prose">
+        <p>
+          A visitor on a service page has a specific question: <em
+            >Can you do this well?</em
+          >
+        </p>
+        <p>
+          A review from someone who hired the business for that same work helps
+          answer it.
+        </p>
+        <p>
+          That’s social proof at its most useful: a real customer’s experience,
+          relevant to the decision in front of you.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="words-title">
+    <div class="container split">
+      <h2 id="words-title">
+        Customers use their own words. ProofQL makes the connection.
+      </h2>
+      <div class="prose">
+        <p>
+          Someone writes about “replacing our shingles.” Your page says
+          “roofing.”
+        </p>
+        <div class="connection" aria-hidden="true">
+          <span class="connection-term">“replacing our shingles”</span>
+          <span class="connection-line"></span>
+          <span class="connection-term connection-page">“roofing”</span>
+        </div>
+        <p>
+          ProofQL matches meaning, so relevant feedback surfaces even when the
+          wording is different.
+        </p>
+        <p class="emphasis">
+          <strong
+            >Less sorting for you. More relevant proof for your client.</strong
+          >
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="handpick-title">
+    <div class="container">
+      <h2 id="handpick-title" class="section-title">
+        One less thing to handpick on every client site.
+      </h2>
+      <ol class="steps" role="list">
+        <li>
+          <span class="step-number label" aria-hidden="true">01</span>
+          <h3>Bring in the reviews.</h3>
+          <p>Use the Google reviews your client has already earned.</p>
+        </li>
+        <li>
+          <span class="step-number label" aria-hidden="true">02</span>
+          <h3>Match them to the page.</h3>
+          <p>
+            Surface customer experiences relevant to the service, topic, or
+            project.
+          </p>
+        </li>
+        <li>
+          <span class="step-number label" aria-hidden="true">03</span>
+          <h3>Put them in front of visitors.</h3>
+          <p>
+            Keep the original customer feedback at the center of the decision.
+          </p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="free-title">
+    <div class="container split">
+      <h2 id="free-title">A free tier you can actually ship with.</h2>
+      <div class="prose">
+        <p>
+          Use ProofQL on a real client website, with core review matching
+          included and generous limits for everyday use.
+        </p>
+        <p>
+          Try it on one service page. Put it on the next project. Keep using the
+          free tier for as long as it meets your needs.
+        </p>
+        <div class="actions">
+          <a class="button button-primary" href={SIGN_UP_URL}
+            >Start building free</a
+          >
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="faq-title">
+    <div class="container">
+      <h2 id="faq-title" class="visually-hidden">Questions</h2>
+      <div class="faq">
+        <div>
+          <h3>Can I use ProofQL for client websites?</h3>
+          <p>
+            Yes. ProofQL is built for developers adding relevant Google reviews
+            to the websites they build and maintain.
+          </p>
+        </div>
+        <div>
+          <h3>Does it rewrite the reviews?</h3>
+          <p>
+            The matching selects relevant reviews. The customer’s words remain
+            their own.
+          </p>
+        </div>
+        <div>
+          <h3>What happens when there aren’t relevant reviews?</h3>
+          <p>
+            ProofQL falls back to general reviews, keeping useful social proof
+            on the page when there isn’t a strong match.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="closing" aria-labelledby="closing-title">
+    <div class="container">
+      <h2 id="closing-title">
+        They earned the social proof. You put it in the right place.
+      </h2>
+      <p>Make the reviews as relevant as the rest of the site.</p>
+      <div class="actions">
+        <a class="button button-inverse" href={SIGN_UP_URL}>Get started free</a>
+      </div>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .hero {
+    padding-block: clamp(3.5rem, 10vw, 7.5rem) clamp(3.5rem, 9vw, 6.5rem);
+  }
+  .hero-overline {
+    color: var(--link);
+  }
+  h1 {
+    max-width: 18ch;
+    margin-top: 1.25rem;
+    font-size: clamp(2.375rem, 1.4rem + 4.6vw, 4.5rem);
+    line-height: 1.02;
+  }
+  .lede {
+    max-width: var(--measure);
+    margin-top: 1.75rem;
+    font-size: clamp(1.125rem, 1rem + 0.5vw, 1.3125rem);
+    line-height: 1.55;
+  }
+  .hero-sub {
+    margin-top: 1rem;
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    color: var(--fg-secondary);
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 2rem;
+  }
+
+  .section {
+    padding-block: clamp(3.5rem, 8vw, 6rem);
+    border-top: 1px solid var(--hairline);
+  }
+  /* Straight after the demo, whose own rule closes it. */
+  .section-flush {
+    border-top: 0;
+  }
+  h2 {
+    font-size: clamp(1.75rem, 1.2rem + 2.4vw, 2.75rem);
+    line-height: 1.1;
+  }
+  .split {
+    display: grid;
+    gap: 1.5rem 4rem;
+  }
+  @media (min-width: 60rem) {
+    .split {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+      align-items: start;
+    }
+  }
+  .prose {
+    display: grid;
+    gap: 1.125rem;
+    max-width: var(--measure);
+  }
+  .prose em {
+    font-style: italic;
+  }
+  .emphasis {
+    margin-top: 0.5rem;
+    padding-left: 1rem;
+    border-left: 2px solid var(--accent);
+    font-size: 1.1875rem;
+  }
+  .emphasis strong {
+    font-weight: 600;
+  }
+
+  .pages-table {
+    width: 100%;
+    margin-block: 0.75rem;
+    border-collapse: collapse;
+    font-size: 0.9375rem;
+  }
+  .pages-table th,
+  .pages-table td {
+    padding: 0.875rem 1rem 0.875rem 0;
+    border-bottom: 1px solid var(--hairline);
+    text-align: left;
+    vertical-align: top;
+  }
+  .pages-table thead th {
+    padding-block: 0.5rem;
+    border-bottom-color: var(--fg);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-secondary);
+  }
+  .pages-table tbody th {
+    font-weight: 600;
+    width: 42%;
+  }
+  .pages-table td {
+    color: var(--fg-secondary);
+  }
+
+  /* “replacing our shingles” —— “roofing”: the wording differs, the
+     meaning connects. Decorative; the sentence above says it. */
+  .connection {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    margin-block: 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+  }
+  .connection-term {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--hairline-strong);
+    background: var(--bg-sunken);
+  }
+  .connection-page {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .connection-line {
+    flex: 1 1 2rem;
+    min-width: 2rem;
+    max-width: 6rem;
+    height: 1px;
+    background: var(--accent);
+  }
+
+  .section-title {
+    max-width: 24ch;
+  }
+  .steps {
+    display: grid;
+    gap: 2rem;
+    margin: 2.5rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  @media (min-width: 48rem) {
+    .steps {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  .steps li {
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--fg);
+  }
+  .steps h3,
+  .faq h3 {
+    font-size: 1.25rem;
+    line-height: 1.3;
+    letter-spacing: -0.02em;
+  }
+  .steps h3 {
+    margin-top: 0.75rem;
+  }
+  .steps p,
+  .faq p {
+    margin-top: 0.5rem;
+    color: var(--fg-secondary);
+  }
+
+  .faq {
+    display: grid;
+    gap: 2rem 3rem;
+  }
+  @media (min-width: 48rem) {
+    .faq {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  .closing {
+    padding-block: clamp(4rem, 10vw, 7rem);
+    background: var(--band-bg);
+    color: var(--band-fg);
+  }
+  .closing h2 {
+    max-width: 22ch;
+  }
+  .closing p {
+    margin-top: 1.25rem;
+    font-size: 1.125rem;
+    color: var(--band-fg-secondary);
+  }
+  .closing :focus-visible {
+    outline-color: var(--band-fg);
+  }
+  .button-inverse {
+    background: var(--band-fg);
+    border-color: var(--band-fg);
+    color: var(--band-bg);
+  }
+  .button-inverse:hover {
+    background: var(--band-fg-secondary);
+    border-color: var(--band-fg-secondary);
+    color: var(--band-bg);
+  }
+</style>

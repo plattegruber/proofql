@@ -1,0 +1,20 @@
+{
+  // Astro's base (module resolution for `astro:*` virtual modules) under the
+  // shared strictness; the shared config is listed last so it wins. Same
+  // shape as docs/site/tsconfig.json.
+  "extends": ["astro/tsconfigs/base", "@proofql/tsconfig/base.json"],
+  "compilerOptions": {
+    // The site check is plain ESM JavaScript with JSDoc; check it as
+    // strictly as the TypeScript.
+    "checkJs": true,
+    "types": ["node"]
+  },
+  "include": [
+    ".astro/types.d.ts",
+    "src/**/*",
+    "test/**/*",
+    "scripts/**/*.mjs",
+    "vitest.config.ts"
+  ],
+  "exclude": ["dist"]
+}

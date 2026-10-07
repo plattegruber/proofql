@@ -1,4 +1,4 @@
-# Deploy (#14): migrate Neon, then `wrangler deploy` the five workers.
+# Deploy (#14): migrate Neon, then `wrangler deploy` the workers.
 #
 #   push to main            → preview  (migrate-preview → deploy-preview)
 #   workflow_dispatch       → preview by default, or prod via the
@@ -25,7 +25,16 @@
 # a consumer attached, then the cdn (the snippet the demo and every customer
 # page load, built from packages/snippet right before the deploy, #34), then
 # the dashboard, then the docs site (#43; static assets, nothing depends on
-# it). Each `wrangler deploy` is its own step so a failure names the worker.
+# it), then the marketing site (apps/www; static assets too). Each `wrangler
+# deploy` is its own step so a failure names the worker.
+#
+# The marketing site's PROD steps are additionally gated on the repository
+# variable WWW_PROD_ENABLED == 'true' (default unset ⇒ skipped). Its prod
+# config attaches Workers Custom Domains to proofql.dev and www.proofql.dev,
+# which fails while those hostnames still carry the placeholder AAAA records
+# behind the apex→docs redirect rule, and a failed step would fail the whole
+# prod deploy. docs/launch.md §2 "Marketing site cutover" is the owner's
+# sequence; its last step is `gh variable set WWW_PROD_ENABLED --body true`.
 name: Deploy
 
 on:
@@ -160,6 +169,22 @@ jobs:
           packageManager: pnpm
           workingDirectory: docs/site
           command: deploy --env preview
+      # The marketing site (apps/www) is an assets-only Worker like the docs:
+      # `astro build` writes apps/www/dist and `wrangler deploy` uploads it.
+      # The demo is rendered at build time by @proofql/snippet's own code and
+      # the footer reads @proofql/core, so build the workspace deps first.
+      - name: Build proofql-www-preview
+        env:
+          SUPPORT_EMAIL: ${{ vars.SUPPORT_EMAIL }}
+        run: pnpm --filter "@proofql/www..." build
+      - name: Deploy proofql-www-preview
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: apps/www
+          command: deploy --env preview
       # workers.dev URLs are deterministic once the account subdomain is
       # known (repository variable WORKERS_SUBDOMAIN, infra/provisioning.md).
       - name: Smoke check /health
@@ -176,10 +201,13 @@ jobs:
             curl --fail --silent --show-error --max-time 20 "$url"
             echo
           done
-          # The docs site has no /health (static assets); its front page is the smoke.
-          url="https://proofql-docs-preview.${SUBDOMAIN}.workers.dev/"
-          echo "GET $url"
-          curl --fail --silent --show-error --max-time 20 --output /dev/null "$url"
+          # The docs and marketing sites have no /health (static assets);
+          # their front pages are the smoke.
+          for worker in docs www; do
+            url="https://proofql-${worker}-preview.${SUBDOMAIN}.workers.dev/"
+            echo "GET $url"
+            curl --fail --silent --show-error --max-time 20 --output /dev/null "$url"
+          done
 
   # ------------------------------------------------------------------- prod
   # Both prod jobs carry `environment: production`, so the required reviewer
@@ -281,6 +309,27 @@ jobs:
           packageManager: pnpm
           workingDirectory: docs/site
           command: deploy --env prod
+      # The marketing site (apps/www) on proofql.dev and www.proofql.dev.
+      # GUARDED: skipped unless the repository variable WWW_PROD_ENABLED is
+      # 'true'. Do not remove the guard before the owner has deleted the
+      # apex→docs Redirect Rule and the AAAA 100:: records for @ and www
+      # (docs/launch.md §2 "Marketing site cutover"): attaching the custom
+      # domains to hostnames that already have DNS records fails this step,
+      # and with it the prod deploy.
+      - name: Build proofql-www-prod
+        if: vars.WWW_PROD_ENABLED == 'true'
+        env:
+          SUPPORT_EMAIL: ${{ vars.SUPPORT_EMAIL }}
+        run: pnpm --filter "@proofql/www..." build
+      - name: Deploy proofql-www-prod
+        if: vars.WWW_PROD_ENABLED == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: apps/www
+          command: deploy --env prod
       # workers.dev URLs are deterministic once the account subdomain is
       # known (repository variable WORKERS_SUBDOMAIN, infra/provisioning.md).
       - name: Smoke check pipeline /health
@@ -305,6 +354,15 @@ jobs:
         run: |
           for url in https://api.proofql.dev/health https://cdn.proofql.dev/health \
                      https://app.proofql.dev/health https://docs.proofql.dev/; do
+            echo "GET $url"
+            curl --fail --silent --show-error --max-time 20 --output /dev/null \
+              --retry 6 --retry-delay 10 --retry-all-errors "$url"
+          done
+      # The marketing site's hosts, only once it is deployed (same guard).
+      - name: Smoke check marketing site domains
+        if: vars.WWW_PROD_ENABLED == 'true'
+        run: |
+          for url in https://proofql.dev/ https://www.proofql.dev/; do
             echo "GET $url"
             curl --fail --silent --show-error --max-time 20 --output /dev/null \
               --retry 6 --retry-delay 10 --retry-all-errors "$url"
