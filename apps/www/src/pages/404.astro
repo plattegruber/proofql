@@ -1,0 +1,31 @@
+---
+import { DOCS_URL } from "../config";
+import Base from "../layouts/Base.astro";
+---
+
+<Base
+  title="Page not found · ProofQL"
+  description="This page does not exist."
+  path="/404"
+  noindex
+>
+  <section class="container not-found" aria-labelledby="nf-title">
+    <p class="label">404</p>
+    <h1 id="nf-title">Page not found</h1>
+    <p>
+      Go to the <a href="/">home page</a> or the <a href={DOCS_URL}>docs</a>.
+    </p>
+  </section>
+</Base>
+
+<style>
+  .not-found {
+    display: grid;
+    gap: 1rem;
+    padding-block: clamp(4rem, 12vw, 8rem);
+  }
+  h1 {
+    font-size: clamp(2rem, 1.4rem + 3vw, 3rem);
+    line-height: 1.1;
+  }
+</style>

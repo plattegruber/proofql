@@ -1,0 +1,79 @@
+---
+import {
+  DOCS_URL,
+  PRICING_PAGE_URL,
+  SIGN_IN_URL,
+  SIGN_UP_URL,
+} from "../config";
+import Logo from "./Logo.astro";
+---
+
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="home" href="/" aria-label="ProofQL home"><Logo /></a>
+    <nav class="nav" aria-label="Main">
+      <ul role="list">
+        <li><a href={DOCS_URL}>Docs</a></li>
+        <li><a href={PRICING_PAGE_URL}>Pricing</a></li>
+        <li><a href={SIGN_IN_URL}>Sign in</a></li>
+      </ul>
+    </nav>
+    <a class="button button-primary button-sm cta" href={SIGN_UP_URL}
+      >Get started free</a
+    >
+  </div>
+</header>
+
+<style>
+  .site-header {
+    border-bottom: 1px solid var(--hairline);
+  }
+  .header-inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1.5rem;
+    padding-block: 0.875rem;
+  }
+  .home {
+    display: inline-flex;
+    padding-block: 0.25rem;
+    text-decoration: none;
+  }
+  .cta {
+    margin-inline-start: auto;
+  }
+  .nav {
+    order: 3;
+    flex-basis: 100%;
+  }
+  .nav ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.25rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .nav a {
+    display: inline-block;
+    padding-block: 0.375rem;
+    font-size: 0.9375rem;
+    color: var(--fg-secondary);
+    text-decoration: none;
+  }
+  .nav a:hover {
+    color: var(--fg);
+    text-decoration: underline;
+  }
+  @media (min-width: 40rem) {
+    .nav {
+      order: 0;
+      flex-basis: auto;
+      margin-inline-start: auto;
+    }
+    .cta {
+      margin-inline-start: 0;
+    }
+  }
+</style>

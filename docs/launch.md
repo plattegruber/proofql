@@ -78,7 +78,7 @@ redirect rule, below).
 
 | Host | Served by | Configured in |
 |---|---|---|
-| `proofql.dev`, `www.proofql.dev` | redirect rules (step 4) | Cloudflare dashboard |
+| `proofql.dev`, `www.proofql.dev` | redirect rules (step 4) today; `proofql-www-prod` after the cutover (step 7) | Cloudflare dashboard; then `apps/www/wrangler.jsonc` → `env.prod.routes` |
 | `api.proofql.dev` | `proofql-api-prod` | `workers/api/wrangler.jsonc` → `env.prod.routes` |
 | `cdn.proofql.dev` | `proofql-cdn-prod` | `workers/cdn/wrangler.jsonc` → `env.prod.routes` |
 | `app.proofql.dev` | `proofql-dashboard-prod` | `apps/dashboard/wrangler.jsonc` → `env.prod.routes` |
@@ -97,7 +97,7 @@ redirect rule, below).
    ```
 
    Workers & Pages → each prod worker → Settings → **Domains & Routes** lists its custom domain as Active. `workers_dev` is `false` in these four `env.prod` blocks, so their prod `*.workers.dev` URLs stop answering at this deploy (only the pipeline keeps one); that is intended (no WAF bypass, and Clerk's production instance only works on `proofql.dev` hosts anyway). Then update the README "Demo" link to `https://cdn.proofql.dev/demo/?key=…` (no `&api=`) and remove the "Where the dashboard is" note from `docs/site/src/content/docs/getting-started.md`.
-4. [ ] **Apex, `www` and `/pricing`.** Until a landing page exists the apex redirects to the docs. `PRICING_URL` in `@proofql/core` is `https://proofql.dev/pricing` (the dashboard's upgrade link), so `/pricing` needs its own rule.
+4. [ ] **Apex, `www` and `/pricing`.** Until the marketing site is live (step 7) the apex redirects to the docs. `PRICING_URL` in `@proofql/core` is `https://proofql.dev/pricing` (the dashboard's upgrade link), so `/pricing` needs its own rule.
    1. DNS → Records → **Add record**: type `AAAA`, name `@`, IPv6 `100::`, **Proxied** (orange cloud). Again for name `www`. `100::` is a discard address: the records only exist so the proxy (and so the redirect rules) sees the requests.
    2. Rules → **Redirect Rules** → Create rule "pricing": custom filter expression `(http.host in {"proofql.dev" "www.proofql.dev"} and http.request.uri.path eq "/pricing")` → URL redirect, type **Static**, URL `https://docs.proofql.dev/limits`, status **302**, preserve query string off.
    3. Create a second rule "apex to docs", ordered **after** "pricing": `(http.host in {"proofql.dev" "www.proofql.dev"})` → Static `https://docs.proofql.dev`, status **302** (temporary, so browsers do not cache it once a landing page replaces it), preserve query string off.
@@ -109,6 +109,13 @@ redirect rule, below).
    4. Security → WAF → **Managed rules**: deploy the Cloudflare Managed Ruleset with its default action (W4), if the plan offers it; on Free the "Cloudflare Free Managed Ruleset" is on by default — leave it on.
    5. Verify: Security → WAF lists W1 and W2; `curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.proofql.dev/v1/reviews -A ''` → `403`; `for i in $(seq 1 700); do curl -s -o /dev/null -w '%{http_code}\n' https://api.proofql.dev/v1/query; done | sort | uniq -c` shows 429s from Cloudflare (wait 10 s afterwards).
 6. [ ] **Clerk DNS** happens in §6, step 2; **Email Routing** for `support@proofql.dev` in §11.
+7. [ ] **Marketing site cutover** (`apps/www`, the landing page at `proofql.dev`). The site already deploys to preview on every push to `main` (`https://proofql-www-preview.<subdomain>.workers.dev/`, smoke-checked by the deploy). Its prod config is in the tree (`apps/www/wrangler.jsonc` → `env.prod`: Workers Custom Domains `proofql.dev` and `www.proofql.dev`, `workers_dev: false`), but the prod deploy skips it until you set `WWW_PROD_ENABLED`: a custom domain cannot attach to a hostname that already has DNS records, so deploying it over step 4's setup would fail the whole prod deploy. In this order:
+   1. Check the preview: open the workers.dev URL above, read the page, try the demo tabs.
+   2. Rules → **Redirect Rules** → delete **"apex to docs"**. **Keep "pricing"** (recommended): Redirect Rules run before Workers, so `https://proofql.dev/pricing` (`PRICING_URL`, the dashboard's upgrade link) keeps going to `https://docs.proofql.dev/limits` until a pricing page exists. `apps/www/public/_redirects` sends `/pricing` to the same place, so dropping the rule instead also works; it just moves the redirect into the Worker.
+   3. DNS → Records → delete the two **AAAA `100::`** records (names `@` and `www`). From here until the deploy below, `proofql.dev` and `www` do not resolve, so do steps 3–5 together.
+   4. `gh variable set WWW_PROD_ENABLED --body true -R plattegruber/proofql`, then `gh workflow run deploy.yml -R plattegruber/proofql -f environment=prod` and approve it. The "Deploy proofql-www-prod" step creates both custom domains (proxied records and certificates); "Smoke check marketing site domains" retries until they answer.
+   5. Verify: `curl -fsSI https://proofql.dev/ | head -1` → `200`; `curl -fsSI https://www.proofql.dev/ | head -1` → `200`; `curl -sI https://proofql.dev/pricing | grep -i '^location'` → `https://docs.proofql.dev/limits`; Workers & Pages → `proofql-www-prod` → Settings → **Domains & Routes** lists both as Active.
+   6. Rollback: `gh variable set WWW_PROD_ENABLED --body false`, delete the two custom domains on `proofql-www-prod` (Domains & Routes), then redo step 4's records and "apex to docs" rule.
 
 Preview keeps its `workers.dev` hostnames; give it `*-preview.proofql.dev`
 hosts the same way only if a stable preview URL is wanted.

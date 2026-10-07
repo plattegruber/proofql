@@ -25,6 +25,7 @@ Every deployable workspace ships as a Cloudflare Worker configured by a
 | `workers/cdn`      | `proofql-cdn-local`       | `proofql-cdn-preview`       | `proofql-cdn-prod`       |
 | `apps/dashboard`   | `proofql-dashboard-local` | `proofql-dashboard-preview` | `proofql-dashboard-prod` |
 | `docs/site`        | `proofql-docs-local`      | `proofql-docs-preview`      | `proofql-docs-prod`      |
+| `apps/www`         | `proofql-www-local`       | `proofql-www-preview`       | `proofql-www-prod`       |
 
 ## Local dev ports
 
@@ -39,6 +40,7 @@ so both repos can run at once on one machine.
 | `apps/dashboard`   | <http://localhost:8799> | 8799       | 9241                 |
 | `docs/site`        | <http://localhost:8801> | 8801       | 9243                 |
 | `workers/cdn`      | <http://localhost:8800> | 8800       | 9242                 |
+| `apps/www`         | <http://localhost:8804> | 8804       | 9245                 |
 | `packages/google` fake GBP server (`pnpm --filter @proofql/google dev:fake`; local only, never deployed, not part of `pnpm dev`) | <http://localhost:8802> | 8802 | 9244 |
 | fake Places API (`node apps/dashboard/test/fake-places-server.ts` after `pnpm build`; local only, not part of `pnpm dev`; used by the dashboard's card and the pipeline's refresh cron) | <http://localhost:8803> | 8803 | — |
 | Postgres (compose) | `localhost:54323`       | —          | —                    |
@@ -99,6 +101,12 @@ writes `dist/` and `wrangler deploy` uploads it with no script and no
 bindings, so it has no row in the bindings table below. `wrangler dev` on
 8801 serves the built `dist/`; for authoring, `pnpm --filter @proofql/docs
 dev` runs Astro's own dev server on 4321 with hot reload.
+
+The marketing site (`apps/www`) is the same kind of assets-only Worker:
+`astro build` writes `dist/`, `wrangler dev` on 8804 serves it, and
+`pnpm --filter @proofql/www dev` runs Astro's dev server on 4322. Its demo is
+rendered at build time by `@proofql/snippet`'s own code; there are no
+bindings and no API calls.
 
 The cdn worker has none of the above. Its only binding is `ASSETS` (Workers
 static assets, the `public/` directory), plus the `ENVIRONMENT` var. The
@@ -179,6 +187,7 @@ name. Local has none of it (Miniflare simulators and the compose Postgres).
 | dashboard URL           | `https://proofql-dashboard-preview.<subdomain>.workers.dev`  | `https://app.proofql.dev` (Workers Custom Domain, `env.prod.routes`) | —                                       |
 | cdn URL                 | `https://proofql-cdn-preview.<subdomain>.workers.dev`        | `https://cdn.proofql.dev` (Workers Custom Domain, `env.prod.routes` in `workers/cdn/wrangler.jsonc`; provisioning.md "Custom domains") | the snippet tag's `src`; the demo link in the README |
 | docs URL                | `https://proofql-docs-preview.<subdomain>.workers.dev`       | `https://docs.proofql.dev` (Workers Custom Domain, `env.prod.routes`; provisioning.md "Custom domains"); every api error envelope's `doc_url` points there | `/` smoke only; no bindings |
+| marketing site URL      | `https://proofql-www-preview.<subdomain>.workers.dev`        | `https://proofql.dev` and `https://www.proofql.dev` (Workers Custom Domains, `env.prod.routes`); deployed only once the repository variable `WWW_PROD_ENABLED` is `true` (docs/launch.md §2 step 7) | `/` smoke only; no bindings |
 
 **Provisioning status:** every KV namespace id and Hyperdrive config id in
 the `wrangler.jsonc` env blocks, and the dashboard's `API_URL`, start as the
@@ -192,10 +201,11 @@ a **real** `wrangler deploy` fails on the placeholders until then — expected.
 ## Deploys
 
 [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml): a push to
-`main` migrates the Neon `preview` branch then deploys the five preview
-workers (pipeline, api, cdn, dashboard, docs, in that order — the cdn is built
-from `packages/snippet` and the docs from `docs/site` right before their
-deploys); `workflow_dispatch` with
+`main` migrates the Neon `preview` branch then deploys the six preview
+workers (pipeline, api, cdn, dashboard, docs, www, in that order — the cdn is
+built from `packages/snippet`, the docs from `docs/site` and the marketing
+site from `apps/www` right before their deploys; prod skips www until
+`WWW_PROD_ENABLED` is `true`); `workflow_dispatch` with
 `environment=prod` does the same for prod inside the GitHub environment
 `production` (required reviewer). Every job is skipped until the repository
 variable `DEPLOY_ENABLED` is `true` — the last provisioning step and the

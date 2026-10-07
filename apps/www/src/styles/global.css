@@ -1,0 +1,257 @@
+/* ProofQL marketing site: the product tokens (apps/dashboard/app/styles/
+ * tokens, docs/site/src/styles/theme.css) as plain custom properties.
+ *
+ * Same system: ink, cool grays, one signal green, Space Grotesk for text and
+ * IBM Plex Mono for labels and code, fully square corners, structure from
+ * hairline rules rather than shadows. Light and dark follow the docs'
+ * palettes and the visitor's `prefers-color-scheme`.
+ *
+ * Fonts are self-hosted (public/fonts, SIL OFL 1.1; latin subsets only) and
+ * the text face is preloaded in Base.astro. The fallback stacks are the
+ * dashboard's.
+ */
+
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url("/fonts/space-grotesk-latin-wght-normal.woff2")
+    format("woff2-variations");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500 600;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  color-scheme: light dark;
+
+  --font-sans: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", Menlo, monospace;
+
+  /* Light: white page, ink text. */
+  --bg: #ffffff;
+  --bg-sunken: #f7f8f7;
+  --fg: #0c0f0e;
+  --fg-secondary: #575f5b;
+  --hairline: #e3e6e4;
+  --hairline-strong: #c6cbc8;
+  --link: #007a4a;
+  --accent: #00915a;
+  --accent-soft: #d9f4e7;
+  --selection: #aee7cc;
+
+  /* Primary button: ink on light, light on dark. */
+  --btn-bg: #0c0f0e;
+  --btn-fg: #f5f7f6;
+  --btn-bg-hover: #313a37;
+  --btn-border: #0c0f0e;
+
+  /* The closing band is always inverse. */
+  --band-bg: #0c0f0e;
+  --band-fg: #f5f7f6;
+  --band-fg-secondary: #c6cbc8;
+
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --duration-fast: 100ms;
+
+  --gutter: 16px;
+  --max: 72rem;
+  --measure: 40rem;
+}
+
+@media (min-width: 40rem) {
+  :root {
+    --gutter: 32px;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c0f0e;
+    --bg-sunken: #131816;
+    --fg: #f5f7f6;
+    --fg-secondary: #a8afab;
+    --hairline: #262e2b;
+    --hairline-strong: #3d4643;
+    --link: #3fc48c;
+    --accent: #0cab6d;
+    --accent-soft: #00351f;
+    --selection: #00623c;
+
+    --btn-bg: #f5f7f6;
+    --btn-fg: #0c0f0e;
+    --btn-bg-hover: #c6cbc8;
+    --btn-border: #f5f7f6;
+
+    --band-bg: #1b211f;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-padding-top: 1rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  overflow-wrap: break-word;
+}
+
+::selection {
+  background: var(--selection);
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+p {
+  margin: 0;
+  text-wrap: pretty;
+}
+
+a {
+  color: var(--link);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+a:hover {
+  color: var(--fg);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.container {
+  width: 100%;
+  max-width: var(--max);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Mono overline labels, as in the dashboard. */
+.label {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-secondary);
+}
+
+/* Buttons: the dashboard's contract (mono, uppercase, square, outlined). */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0.875rem 1.5rem;
+  border: 1px solid var(--btn-border);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.button-primary {
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+}
+
+.button-primary:hover {
+  background: var(--btn-bg-hover);
+  border-color: var(--btn-bg-hover);
+  color: var(--btn-fg);
+}
+
+.button-secondary {
+  background: transparent;
+  color: var(--fg);
+  border-color: var(--fg);
+}
+
+.button-secondary:hover {
+  background: var(--bg-sunken);
+  color: var(--fg);
+}
+
+.button-sm {
+  min-height: 2.25rem;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.6875rem;
+}
