@@ -24,13 +24,13 @@
   },
   "dependencies": {
     "@proofql/core": "workspace:*",
-    "hono": "^4.13.12",
+    "hono": "^4.13.13",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@proofql/tsconfig": "workspace:*",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4",
-    "wrangler": "^4.145.0"
+    "wrangler": "^4.147.0"
   }
 }

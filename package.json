@@ -30,9 +30,9 @@
     "load:typecheck": "pnpm --filter @proofql/db exec tsc -p ../../load/tsconfig.json"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.3",
+    "@biomejs/biome": "2.5.15",
     "@redocly/cli": "2.57.0",
-    "turbo": "^2.5.0"
+    "turbo": "^2.11.7"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
