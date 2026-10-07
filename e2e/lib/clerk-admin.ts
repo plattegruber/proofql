@@ -44,10 +44,14 @@ async function deleteTestUser(
     throw new Error(`refusing to delete non-test user ${user.id}`);
   }
   let orgs = 0;
-  const memberships = await clerk.users.getOrganizationMembershipList({
-    userId: user.id,
-    limit: 20,
-  });
+  const memberships = await clerk.users
+    .getOrganizationMembershipList({ userId: user.id, limit: 20 })
+    .catch((error: unknown) => {
+      // An instance with Organizations switched off has no workspaces to
+      // delete; the user still goes.
+      if (isOrganizationsDisabled(error)) return { data: [] };
+      throw error;
+    });
   for (const m of memberships.data) {
     if (!m.organization.name.startsWith(TEST_WORKSPACE_PREFIX)) continue;
     await clerk.organizations.deleteOrganization(m.organization.id);
@@ -55,6 +59,14 @@ async function deleteTestUser(
   }
   await clerk.users.deleteUser(user.id);
   return { orgs };
+}
+
+function isOrganizationsDisabled(error: unknown): boolean {
+  const errors = (error as { errors?: { code?: string }[] } | null)?.errors;
+  return (
+    Array.isArray(errors) &&
+    errors.some((e) => e.code === "organization_not_enabled_in_instance")
+  );
 }
 
 /** Delete the user with this exact (test) address, if it exists. */

@@ -31,7 +31,13 @@ import {
   TARGET_MARKER,
   TARGET_QUERY,
 } from "../lib/reviews";
-import { runId, TEST_PAGE_ORIGIN, target } from "../lib/target";
+import {
+  previewEmail,
+  prodEmail,
+  runId,
+  TEST_PAGE_ORIGIN,
+  target,
+} from "../lib/target";
 
 /** Ingest → every review `indexed`, as the dashboard reports it. */
 const INDEXING_TIMEOUT_MS = 3 * 60 * 1000;
@@ -44,6 +50,7 @@ test("customer journey: sign up, set up a project, ingest, query, embed", async 
   let secretKey = "";
   let publishableKey = "";
   let stored: StoredReview[] = [];
+  let cleanupError: unknown;
   const reviews = acceptanceReviews(runId);
 
   try {
@@ -52,8 +59,10 @@ test("customer journey: sign up, set up a project, ingest, query, embed", async 
         ? "1. sign up a new user at /sign-up"
         : "1. sign in the acceptance user",
       async () => {
-        email =
-          target.auth === "sign-up" ? await signUp(page) : await signIn(page);
+        // Known before the attempt, so a half-finished sign-up is cleaned up.
+        email = target.auth === "sign-up" ? previewEmail() : prodEmail();
+        if (target.auth === "sign-up") await signUp(page);
+        else await signIn(page);
       },
     );
 
@@ -150,30 +159,53 @@ test("customer journey: sign up, set up a project, ingest, query, embed", async 
       await renderSnippetOnTestPage(page, publishableKey);
     });
   } finally {
-    await test.step("cleanup: delete the project", async () => {
-      // Every project, not just ours: a half-created one counts too.
-      try {
-        for (const leftover of await listProjectSlugs(page)) {
-          await deleteProject(page, leftover);
-        }
-      } catch (error) {
-        // A failed sign-in has nothing to clean up in the UI; the next
-        // run's step 3 (and the preview user sweep) catches the rest.
-        if (slug) throw error;
-      }
-    });
-    if (target.auth === "sign-up" && email) {
-      const testEmail = email;
-      await test.step("cleanup: delete the Clerk test user and its workspace", async () => {
-        await deleteTestUserByEmail(testEmail);
-      });
-    } else if (email) {
-      await test.step("cleanup: sign out", async () => {
-        await clerk.signOut({ page }).catch(() => undefined);
-      });
-    }
+    // Cleanup never masks the failure above: each step's error is logged
+    // and the first one fails the test only if everything else passed.
+    cleanupError = await cleanUp(page, { email, slug });
   }
+  if (cleanupError) throw cleanupError;
 });
+
+async function cleanUp(
+  page: Page,
+  { email, slug }: { email: string | undefined; slug: string | undefined },
+): Promise<unknown> {
+  const errors: unknown[] = [];
+  const attempt = async (name: string, fn: () => Promise<void>) => {
+    try {
+      await test.step(name, fn);
+    } catch (error) {
+      console.error(`[at] ${name} failed:`, error);
+      errors.push(error);
+    }
+  };
+  await attempt("cleanup: delete the project", async () => {
+    // Every project, not just ours: a half-created one counts too.
+    try {
+      for (const leftover of await listProjectSlugs(page)) {
+        await deleteProject(page, leftover);
+      }
+    } catch (error) {
+      // Before a project existed (sign-in or workspace failed) there may be
+      // no app to clean up in; the next run's step 3 catches the rest.
+      if (slug) throw error;
+    }
+  });
+  if (target.auth === "sign-up" && email) {
+    const testEmail = email;
+    await attempt(
+      "cleanup: delete the Clerk test user and its workspace",
+      async () => {
+        await deleteTestUserByEmail(testEmail);
+      },
+    );
+  } else if (email) {
+    await attempt("cleanup: sign out", async () => {
+      await clerk.signOut({ page });
+    });
+  }
+  return errors[0];
+}
 
 /**
  * Onboarding step 3 polls on its own; its heading turns to "Indexed" once

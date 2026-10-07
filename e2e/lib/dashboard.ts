@@ -46,10 +46,22 @@ export async function signUp(page: Page): Promise<string> {
   await expect(code.first()).toBeVisible({ timeout: 30_000 });
   await code.first().pressSequentially(TEST_VERIFICATION_CODE, { delay: 50 });
 
-  // Signed up: Clerk redirects to /app, which sends a user with no
-  // workspace on to /app/workspace.
-  await page.waitForURL(/\/app(\/|$)/, { timeout: 30_000 });
+  // Signed up: Clerk redirects to /app (which sends a user with no
+  // workspace on to /app/workspace), or, when the instance requires an
+  // organization, first to its choose-organization task.
+  await page.waitForURL(isPastAuth, { timeout: 30_000 });
   return email;
+}
+
+/** Signed in: inside the app, or on a Clerk session task (`…/tasks/…`). */
+function isPastAuth(u: URL): boolean {
+  return /^\/app(\/|$)/.test(u.pathname) || u.pathname.includes("/tasks/");
+}
+
+function isWorkspaceStep(u: URL): boolean {
+  return (
+    u.pathname.startsWith("/app/workspace") || u.pathname.includes("/tasks/")
+  );
 }
 
 /**
@@ -62,53 +74,69 @@ export async function signIn(page: Page): Promise<string> {
   await page.goto(url("/sign-in"));
   await clerk.signIn({ page, emailAddress: email });
   await page.goto(url("/app"));
-  await page.waitForURL(/\/app(\/|$)/);
+  await page.waitForURL(isPastAuth);
   return email;
 }
 
 /**
- * /app/workspace is where a user with no active Organization lands
- * (requireAccount). A fresh preview user creates one named `AT <run>`; the
- * prod user normally already has one and picks it. Ends on a page inside
- * the protected layout.
+ * Getting a workspace (a Clerk Organization). Two places can ask for one:
+ * the app's own /app/workspace (requireAccount sends a user with no active
+ * Organization there) and, on an instance that requires organizations,
+ * Clerk's `choose-organization` session task (`/sign-in/tasks/…` or
+ * `/sign-up/tasks/…`, rendered by <SignIn/> / <SignUp/>; a pending session
+ * counts as signed out on the server, so /app bounces there). Both show
+ * Clerk's organization list or create form. A fresh preview user creates
+ * `AT <run>`; the prod user normally has one already and picks it. Ends
+ * inside the protected layout.
  */
 export async function ensureWorkspace(page: Page): Promise<void> {
-  if (!new URL(page.url()).pathname.startsWith("/app/workspace")) return;
-  await expect(
-    page.getByRole("heading", { name: "Create your workspace" }),
-  ).toBeVisible();
+  // A pending session lands on /sign-in first; <SignIn/> moves it on to the
+  // task client-side. Stuck on /sign-in here means a user cannot get in.
+  await page.waitForURL(isPastAuth, { timeout: 30_000 });
+  for (let round = 0; round < 2; round++) {
+    if (!isWorkspaceStep(new URL(page.url()))) break;
+    await createOrPickWorkspace(page);
+    await page.waitForURL((u) => !isWorkspaceStep(u), { timeout: 30_000 });
+    // The task may hand over to /app, which may still want /app/workspace
+    // (no active organization yet) — the loop's second round.
+    await page.waitForLoadState();
+  }
+  await expect(page).toHaveURL(/\/app(\/|$)/);
+  await expect(page).not.toHaveURL(/\/app\/workspace/);
+}
 
+async function createOrPickWorkspace(page: Page): Promise<void> {
   // An existing membership (prod): Clerk lists it; pick the first one.
   // With no memberships Clerk may open straight on the create form (the
   // name field), or show a "Create organization" button that leads to it.
-  const existing = page.locator(".cl-organizationListPreviewButton").first();
-  const create = page.getByRole("button", { name: /create organization/i });
+  const existing = page
+    .locator(
+      '[class*="organizationListPreviewButton"], [class*="PreviewButton"]',
+    )
+    .first();
+  const create = page.getByRole("button", {
+    name: /create (new )?organization/i,
+  });
   const nameField = page.locator('input[name="name"]');
-  await expect(existing.or(create).or(nameField).first()).toBeVisible({
+  await expect(existing.or(create.first()).or(nameField).first()).toBeVisible({
     timeout: 20_000,
   });
 
   if (await existing.isVisible()) {
     await existing.click();
-  } else {
-    if (!(await nameField.isVisible())) await create.first().click();
-    await nameField.fill(`${TEST_WORKSPACE_PREFIX}${runId}`);
-    await page
-      .getByRole("button", { name: /create organization/i })
-      .last()
-      .click();
-    // Some Clerk versions follow creation with an "invite members" step.
-    const skip = page.getByRole("button", { name: /^skip$/i });
-    await Promise.race([
-      page.waitForURL((u) => !u.pathname.startsWith("/app/workspace"), {
-        timeout: 30_000,
-      }),
-      skip.click({ timeout: 30_000 }).catch(() => undefined),
-    ]);
+    return;
   }
-  await page.waitForURL((u) => !u.pathname.startsWith("/app/workspace"), {
-    timeout: 30_000,
-  });
+  if (!(await nameField.isVisible())) await create.first().click();
+  await nameField.fill(`${TEST_WORKSPACE_PREFIX}${runId}`);
+  // Submit the form whatever its button says ("Create organization",
+  // "Continue").
+  await nameField.press("Enter");
+  // Some Clerk versions follow creation with an "invite members" step.
+  const skip = page.getByRole("button", { name: /^skip$/i });
+  await Promise.race([
+    page.waitForURL((u) => !isWorkspaceStep(u), { timeout: 30_000 }),
+    skip.click({ timeout: 30_000 }).catch(() => undefined),
+  ]);
 }
 
 /**
