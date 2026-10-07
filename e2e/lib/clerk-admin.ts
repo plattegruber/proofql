@@ -106,12 +106,13 @@ export async function sweepStaleTestUsers(
 }
 
 /**
- * The sign-up ticket from a Clerk invitation, for instances whose sign-up
- * mode is "restricted": only invited addresses may sign up, and they do it
- * through the same <SignUp/> with `__clerk_ticket` in the URL. The
- * invitation is not mailed (test addresses never receive mail anyway).
+ * The invitation link for instances whose sign-up mode is "restricted":
+ * only invited addresses may sign up. The link is Clerk's
+ * `/v1/tickets/accept?ticket=…`, which redirects to `redirectUrl` (our
+ * /sign-up) with `__clerk_ticket`, the same click an invited customer makes.
+ * The invitation is not mailed (test addresses never receive mail anyway).
  */
-export async function invitationTicket(
+export async function invitationLink(
   email: string,
   redirectUrl: string,
 ): Promise<string> {
@@ -122,21 +123,12 @@ export async function invitationTicket(
     expiresInDays: 1,
     redirectUrl,
   });
-  // The ticket may sit directly on the link or inside an encoded redirect.
-  let link = invitation.url ?? "";
-  for (let i = 0; i < 3; i++) {
-    const match = /__clerk_ticket=([^&#]+)/.exec(link);
-    if (match?.[1]) return decodeURIComponent(match[1]);
-    link = decodeURIComponent(link);
+  if (!invitation.url) {
+    throw new Error(
+      `the Clerk invitation has no link (status ${invitation.status})`,
+    );
   }
-  // Only the link's shape, never a token.
-  const shape = invitation.url
-    ? (() => {
-        const u = new URL(invitation.url);
-        return `${u.host}${u.pathname} params=[${[...u.searchParams.keys()].join(",")}]`;
-      })()
-    : `no url (status ${invitation.status})`;
-  throw new Error(`the Clerk invitation carries no ticket: ${shape}`);
+  return invitation.url;
 }
 
 /**

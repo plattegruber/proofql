@@ -9,7 +9,7 @@ import { randomBytes } from "node:crypto";
 import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
 import { expect, type Page } from "@playwright/test";
 
-import { clerkSignUpMode, invitationTicket } from "./clerk-admin";
+import { clerkSignUpMode, invitationLink } from "./clerk-admin";
 import {
   previewEmail,
   prodEmail,
@@ -49,10 +49,8 @@ export async function signUp(page: Page): Promise<string> {
     recordWarning(
       "Clerk dev sign-up mode is restricted; tested the invitation path, not open sign-up",
     );
-    const ticket = await invitationTicket(email, url("/sign-up"));
-    await page.goto(
-      url(`/sign-up?__clerk_ticket=${encodeURIComponent(ticket)}`),
-    );
+    await page.goto(await invitationLink(email, url("/sign-up")));
+    await page.waitForURL(/\/sign-up\?.*__clerk_ticket=/);
   } else {
     throw new Error(`Clerk sign-up mode is "${mode}"; preview needs "public"`);
   }
