@@ -3,3 +3,6 @@ packages:
   - "workers/*"
   - "packages/*"
   - "docs/*"
+  # Acceptance tests against a deployed environment (e2e/README.md). Its
+  # script is `at`, not `test`, so `pnpm test` and CI never run it.
+  - "e2e"

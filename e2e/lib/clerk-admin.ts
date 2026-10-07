@@ -1,0 +1,94 @@
+/**
+ * Clerk Backend API housekeeping for the preview run's throwaway users.
+ * Never used against prod: prod signs in a long-lived dedicated user and
+ * keeps it (and its workspace) between runs.
+ *
+ * Deleting a test user's Organization first matters: Clerk sends
+ * `organization.deleted` to the dashboard's webhook, which soft-deletes the
+ * `accounts` row (and the pipeline's daily purge hard-deletes it after the
+ * grace period, #169). The dashboard has no in-app "delete workspace" flow,
+ * so this is the closest thing to a customer closing their account.
+ */
+import { createClerkClient } from "@clerk/backend";
+
+import {
+  TEST_EMAIL_PATTERN,
+  TEST_EMAIL_PREFIX,
+  TEST_WORKSPACE_PREFIX,
+} from "./target";
+
+type Clerk = ReturnType<typeof createClerkClient>;
+
+function client(): Clerk {
+  const secretKey = process.env.CLERK_SECRET_KEY;
+  if (!secretKey) throw new Error("CLERK_SECRET_KEY is not set");
+  return createClerkClient({ secretKey });
+}
+
+function primaryEmail(user: {
+  emailAddresses: { emailAddress: string }[];
+}): string {
+  return user.emailAddresses[0]?.emailAddress.toLowerCase() ?? "";
+}
+
+/**
+ * Delete one test user: its acceptance-test workspaces (only ones named
+ * `AT …`, and only test users are ever passed here), then the user.
+ * Returns what was deleted, for the log line.
+ */
+async function deleteTestUser(
+  clerk: Clerk,
+  user: { id: string; emailAddresses: { emailAddress: string }[] },
+): Promise<{ orgs: number }> {
+  if (!TEST_EMAIL_PATTERN.test(primaryEmail(user))) {
+    throw new Error(`refusing to delete non-test user ${user.id}`);
+  }
+  let orgs = 0;
+  const memberships = await clerk.users.getOrganizationMembershipList({
+    userId: user.id,
+    limit: 20,
+  });
+  for (const m of memberships.data) {
+    if (!m.organization.name.startsWith(TEST_WORKSPACE_PREFIX)) continue;
+    await clerk.organizations.deleteOrganization(m.organization.id);
+    orgs += 1;
+  }
+  await clerk.users.deleteUser(user.id);
+  return { orgs };
+}
+
+/** Delete the user with this exact (test) address, if it exists. */
+export async function deleteTestUserByEmail(email: string): Promise<boolean> {
+  const clerk = client();
+  const users = await clerk.users.getUserList({ emailAddress: [email] });
+  const user = users.data[0];
+  if (!user) return false;
+  const { orgs } = await deleteTestUser(clerk, user);
+  console.log(`[at] deleted Clerk test user and ${orgs} workspace(s)`);
+  return true;
+}
+
+/**
+ * Sweep test users left behind by runs that died before their own cleanup:
+ * every `proofql-at-*+clerk_test@example.com` user created more than
+ * `olderThanMs` ago (so a concurrent run's user is never touched).
+ */
+export async function sweepStaleTestUsers(
+  olderThanMs = 60 * 60 * 1000,
+): Promise<number> {
+  const clerk = client();
+  const cutoff = Date.now() - olderThanMs;
+  const users = await clerk.users.getUserList({
+    query: TEST_EMAIL_PREFIX,
+    limit: 100,
+  });
+  let swept = 0;
+  for (const user of users.data) {
+    if (!TEST_EMAIL_PATTERN.test(primaryEmail(user))) continue;
+    if (user.createdAt > cutoff) continue;
+    await deleteTestUser(clerk, user);
+    swept += 1;
+  }
+  console.log(`[at] swept ${swept} stale Clerk test user(s)`);
+  return swept;
+}

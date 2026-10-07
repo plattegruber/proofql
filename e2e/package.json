@@ -1,0 +1,22 @@
+{
+  "name": "@proofql/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end acceptance tests against a deployed environment (preview or prod). Not part of `pnpm test`: needs Clerk keys and a live deployment. See e2e/README.md.",
+  "scripts": {
+    "at": "playwright test",
+    "at:preview": "AT_TARGET=preview playwright test",
+    "at:prod": "AT_TARGET=prod playwright test",
+    "lint": "biome check .",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@clerk/backend": "^3.23.0",
+    "@clerk/testing": "^2.2.43",
+    "@playwright/test": "^1.63.0",
+    "@proofql/tsconfig": "workspace:*",
+    "@types/node": "^26.6.3",
+    "typescript": "^5.9.2"
+  }
+}
