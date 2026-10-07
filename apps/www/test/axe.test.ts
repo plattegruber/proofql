@@ -52,6 +52,16 @@ describe("landing page structure", () => {
     expect(skip?.getAttribute("href")).toBe("#main");
     expect(document.getElementById("main")?.tagName).toBe("MAIN");
     expect(document.documentElement.lang).toBe("en");
+    // The creature is decorative; the home link keeps its name.
+    for (const creature of document.querySelectorAll(".creature")) {
+      expect(creature.getAttribute("aria-hidden")).toBe("true");
+    }
+    expect(
+      document.querySelector('[data-creature="alive"]')?.closest(".hero"),
+    ).not.toBeNull();
+    expect(document.querySelector("a.home")?.getAttribute("aria-label")).toBe(
+      "ProofQL home",
+    );
     // Every demo panel says its reviews are examples.
     const panels = document.querySelectorAll('[role="tabpanel"]');
     expect(panels).toHaveLength(3);
