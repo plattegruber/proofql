@@ -99,6 +99,16 @@ export const TEST_EMAIL_PATTERN =
 export const TEST_VERIFICATION_CODE = "424242";
 export const TEST_WORKSPACE_PREFIX = "AT ";
 
+/**
+ * The test workspace's name. Letters only after the prefix: Clerk rejects
+ * organization names with digit runs as "contains a phone number"
+ * (`form_param_value_invalid`), so the run id's digits become letters.
+ */
+export function testWorkspaceName(): string {
+  const letters = runId.replace(/\d/g, (d) => "abcdefghij"[Number(d)] ?? "x");
+  return `${TEST_WORKSPACE_PREFIX}acceptance ${letters}`;
+}
+
 export function previewEmail(): string {
   return `${TEST_EMAIL_PREFIX}${runId}+clerk_test@example.com`;
 }

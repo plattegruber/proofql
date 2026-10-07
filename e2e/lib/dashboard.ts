@@ -13,10 +13,9 @@ import { clerkSignUpMode, invitationLink } from "./clerk-admin";
 import {
   previewEmail,
   prodEmail,
-  runId,
   TEST_VERIFICATION_CODE,
-  TEST_WORKSPACE_PREFIX,
   target,
+  testWorkspaceName,
 } from "./target";
 import { recordWarning } from "./warnings";
 
@@ -150,7 +149,7 @@ async function createOrPickWorkspace(page: Page): Promise<void> {
     return;
   }
   if (!(await nameField.isVisible())) await create.first().click();
-  await nameField.fill(`${TEST_WORKSPACE_PREFIX}${runId}`);
+  await nameField.fill(testWorkspaceName());
   // Clerk's create call, so a refusal fails here with Clerk's own reason
   // (error codes and messages only; nothing in them is a credential).
   const created = page.waitForResponse(
