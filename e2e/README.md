@@ -62,9 +62,16 @@ the artifact is too: preview keeps traces and video (the user, keys and
 project in them are deleted by the run), prod keeps screenshots only.
 
 Prerequisites on the Clerk side (owner, once per instance): Organizations
-enabled with user-created organizations (the dashboard needs a workspace);
-for prod, the user `AT_PROD_EMAIL` exists. The suite never changes Clerk
-settings, and never turns on test mode in prod.
+enabled with user-created organizations (the dashboard needs a workspace;
+when the instance *requires* one, the run handles Clerk's
+choose-organization task); for prod, the user `AT_PROD_EMAIL` exists and
+belongs to an organization. The development instance's sign-up mode should
+be **Public**, matching preview's `SIGNUP_OPEN=true`. If it is Restricted,
+`<SignUp/>` renders a blank card for an uninvited visitor; the run then
+signs up through a Backend API invitation ticket instead (same `/sign-up`
+UI, no email-code step) and reports a `::warning::` and a job-summary line,
+so the drift never passes silently. The suite never changes Clerk settings,
+and never turns on test mode in prod.
 
 ## Budget
 

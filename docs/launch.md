@@ -334,7 +334,14 @@ its timing and the last line carries the three numbers to record.
 
 ## 13. Go
 
-**Owner.** Two switches, in this order, five minutes.
+**Owner.** Two switches, in this order, five minutes. **They are a pair:
+flip both or neither.** `SIGNUP_OPEN=true` with Clerk still Restricted
+renders `/sign-up` as a **blank card** (Clerk's `<SignUp/>` shows nothing
+to an uninvited visitor, with no error), and Clerk Public with
+`SIGNUP_OPEN` unset keeps the waitlist. The same pairing holds on preview,
+whose `SIGNUP_OPEN` is `"true"`: its Clerk development instance must stay
+**Public**, or the acceptance run warns that it could only test the
+invitation path (e2e/README.md).
 
 1. [ ] Clerk → production instance → Configure → Restrictions → Sign-up mode **Public** (§6.10 set it to Restricted).
 2. [ ] Open the dashboard's `/sign-up`:
@@ -355,7 +362,8 @@ cd apps/dashboard && pnpm exec wrangler secret list --env prod | grep SIGNUP_OPE
 ```
 
 and in a private window `https://app.proofql.dev/sign-up` shows Clerk's
-card; sign up with a **non**-allowlisted address and reach `/app/onboarding`.
+card with its email and password fields (a blank card means step 1 was
+skipped); sign up with a **non**-allowlisted address and reach `/app/onboarding`.
 
 **Close again** (anything goes wrong): `echo false | pnpm exec wrangler secret put SIGNUP_OPEN --env prod` from `apps/dashboard`, and Clerk Restrictions back to Restricted. The waitlist page returns on the next request; signed-in accounts are unaffected.
 

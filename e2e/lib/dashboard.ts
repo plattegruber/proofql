@@ -9,6 +9,7 @@ import { randomBytes } from "node:crypto";
 import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
 import { expect, type Page } from "@playwright/test";
 
+import { clerkSignUpMode, invitationTicket } from "./clerk-admin";
 import {
   previewEmail,
   prodEmail,
@@ -17,6 +18,7 @@ import {
   TEST_WORKSPACE_PREFIX,
   target,
 } from "./target";
+import { recordWarning } from "./warnings";
 
 const url = (path: string) => `${target.dashboardUrl}${path}`;
 
@@ -34,17 +36,40 @@ function throwawayPassword(): string {
 export async function signUp(page: Page): Promise<string> {
   const email = previewEmail();
   await setupClerkTestingToken({ page });
-  await page.goto(url("/sign-up"));
-  await page.locator('input[name="emailAddress"]').fill(email);
+
+  // Preview is meant to have open sign-up (SIGNUP_OPEN=true, Clerk mode
+  // "public"). If the Clerk instance has drifted to "restricted", <SignUp/>
+  // renders nothing for an uninvited visitor; test the invited path instead
+  // and say so loudly (a warning annotation and the job summary).
+  const mode = await clerkSignUpMode(target.clerkPublishableKey);
+  if (mode === "public") {
+    await page.goto(url("/sign-up"));
+    await page.locator('input[name="emailAddress"]').fill(email);
+  } else if (mode === "restricted") {
+    recordWarning(
+      "Clerk dev sign-up mode is restricted; tested the invitation path, not open sign-up",
+    );
+    const ticket = await invitationTicket(email, url("/sign-up"));
+    await page.goto(
+      url(`/sign-up?__clerk_ticket=${encodeURIComponent(ticket)}`),
+    );
+  } else {
+    throw new Error(`Clerk sign-up mode is "${mode}"; preview needs "public"`);
+  }
   await page.locator('input[name="password"]').fill(throwawayPassword());
   await page.getByRole("button", { name: "Continue", exact: true }).click();
 
-  // Email verification: a one-time-code input; Clerk submits on the sixth digit.
-  const code = page.locator(
-    'input[autocomplete="one-time-code"], input[name="code"]',
-  );
-  await expect(code.first()).toBeVisible({ timeout: 30_000 });
-  await code.first().pressSequentially(TEST_VERIFICATION_CODE, { delay: 50 });
+  // Email verification (open sign-up only; an invitation ticket already
+  // proves the address): a one-time-code input, submitted on the sixth digit.
+  if (mode === "public") {
+    const code = page.locator(
+      'input[autocomplete="one-time-code"], input[name="code"]',
+    );
+    await expect(code.first()).toBeVisible({ timeout: 30_000 });
+    await code.first().pressSequentially(TEST_VERIFICATION_CODE, {
+      delay: 50,
+    });
+  }
 
   // Signed up: Clerk redirects to /app (which sends a user with no
   // workspace on to /app/workspace), or, when the instance requires an

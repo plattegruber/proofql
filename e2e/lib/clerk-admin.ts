@@ -104,3 +104,46 @@ export async function sweepStaleTestUsers(
   console.log(`[at] swept ${swept} stale Clerk test user(s)`);
   return swept;
 }
+
+/**
+ * The sign-up ticket from a Clerk invitation, for instances whose sign-up
+ * mode is "restricted": only invited addresses may sign up, and they do it
+ * through the same <SignUp/> with `__clerk_ticket` in the URL. The
+ * invitation is not mailed (test addresses never receive mail anyway).
+ */
+export async function invitationTicket(
+  email: string,
+  redirectUrl: string,
+): Promise<string> {
+  const invitation = await client().invitations.createInvitation({
+    emailAddress: email,
+    notify: false,
+    ignoreExisting: true,
+    expiresInDays: 1,
+    redirectUrl,
+  });
+  const ticket = invitation.url
+    ? new URL(invitation.url).searchParams.get("__clerk_ticket")
+    : null;
+  if (!ticket) throw new Error("the Clerk invitation carries no ticket");
+  return ticket;
+}
+
+/**
+ * The instance's sign-up mode ("public", "restricted", "waitlist") from the
+ * Frontend API's public environment document, which <SignUp/> itself reads.
+ */
+export async function clerkSignUpMode(publishableKey: string): Promise<string> {
+  const host = Buffer.from(
+    publishableKey.replace(/^pk_(test|live)_/, ""),
+    "base64",
+  )
+    .toString("utf8")
+    .replace(/\$$/, "");
+  const res = await fetch(`https://${host}/v1/environment`);
+  if (!res.ok) throw new Error(`Clerk environment: HTTP ${res.status}`);
+  const env = (await res.json()) as {
+    user_settings?: { sign_up?: { mode?: string } };
+  };
+  return env.user_settings?.sign_up?.mode ?? "public";
+}
