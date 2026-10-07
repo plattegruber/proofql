@@ -34,9 +34,6 @@ on:
         required: true
         default: preview
         options: [preview, prod]
-  # TEMPORARY (pre-merge verification only; removed before review).
-  pull_request:
-    paths: [e2e/**, .github/workflows/acceptance.yml, .github/actions/playwright/**]
   schedule:
     # Daily, off the hour (scheduled runs queue up on the hour).
     - cron: "23 7 * * *"
@@ -83,9 +80,6 @@ jobs:
               ;;
             workflow_dispatch)
               [ "$INPUT_TARGET" = "prod" ] && prod=true || preview=true
-              ;;
-            pull_request) # TEMPORARY, see `on:`
-              preview=true
               ;;
             schedule)
               preview=true
