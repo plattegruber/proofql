@@ -151,9 +151,29 @@ async function createOrPickWorkspace(page: Page): Promise<void> {
   }
   if (!(await nameField.isVisible())) await create.first().click();
   await nameField.fill(`${TEST_WORKSPACE_PREFIX}${runId}`);
+  // Clerk's create call, so a refusal fails here with Clerk's own reason
+  // (error codes and messages only; nothing in them is a credential).
+  const created = page.waitForResponse(
+    (r) =>
+      r.request().method() === "POST" &&
+      /\/v1\/organizations(\?|$)/.test(r.url()),
+    { timeout: 30_000 },
+  );
   // Submit the form whatever its button says ("Create organization",
   // "Continue").
   await nameField.press("Enter");
+  const res = await created;
+  if (!res.ok()) {
+    const body = (await res.json().catch(() => null)) as {
+      errors?: { code?: string; message?: string; long_message?: string }[];
+    } | null;
+    const reasons = (body?.errors ?? [])
+      .map((e) => `${e.code}: ${e.long_message ?? e.message}`)
+      .join("; ");
+    throw new Error(
+      `Clerk refused to create the organization (HTTP ${res.status()}): ${reasons || "no details"}`,
+    );
+  }
   // Some Clerk versions follow creation with an "invite members" step.
   const skip = page.getByRole("button", { name: /^skip$/i });
   await Promise.race([
