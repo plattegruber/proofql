@@ -79,17 +79,20 @@ export async function ensureWorkspace(page: Page): Promise<void> {
   ).toBeVisible();
 
   // An existing membership (prod): Clerk lists it; pick the first one.
+  // With no memberships Clerk may open straight on the create form (the
+  // name field), or show a "Create organization" button that leads to it.
   const existing = page.locator(".cl-organizationListPreviewButton").first();
   const create = page.getByRole("button", { name: /create organization/i });
-  await expect(existing.or(create).first()).toBeVisible({ timeout: 20_000 });
+  const nameField = page.locator('input[name="name"]');
+  await expect(existing.or(create).or(nameField).first()).toBeVisible({
+    timeout: 20_000,
+  });
 
   if (await existing.isVisible()) {
     await existing.click();
   } else {
-    await create.first().click();
-    await page
-      .locator('input[name="name"]')
-      .fill(`${TEST_WORKSPACE_PREFIX}${runId}`);
+    if (!(await nameField.isVisible())) await create.first().click();
+    await nameField.fill(`${TEST_WORKSPACE_PREFIX}${runId}`);
     await page
       .getByRole("button", { name: /create organization/i })
       .last()
