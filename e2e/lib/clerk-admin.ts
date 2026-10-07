@@ -122,11 +122,21 @@ export async function invitationTicket(
     expiresInDays: 1,
     redirectUrl,
   });
-  const ticket = invitation.url
-    ? new URL(invitation.url).searchParams.get("__clerk_ticket")
-    : null;
-  if (!ticket) throw new Error("the Clerk invitation carries no ticket");
-  return ticket;
+  // The ticket may sit directly on the link or inside an encoded redirect.
+  let link = invitation.url ?? "";
+  for (let i = 0; i < 3; i++) {
+    const match = /__clerk_ticket=([^&#]+)/.exec(link);
+    if (match?.[1]) return decodeURIComponent(match[1]);
+    link = decodeURIComponent(link);
+  }
+  // Only the link's shape, never a token.
+  const shape = invitation.url
+    ? (() => {
+        const u = new URL(invitation.url);
+        return `${u.host}${u.pathname} params=[${[...u.searchParams.keys()].join(",")}]`;
+      })()
+    : `no url (status ${invitation.status})`;
+  throw new Error(`the Clerk invitation carries no ticket: ${shape}`);
 }
 
 /**
