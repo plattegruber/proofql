@@ -72,8 +72,9 @@ Each run spends, out of the Workers free plan's daily allowances
 ([docs/launch.md §16](../docs/launch.md#16-running-on-the-free-plan)): 5
 reviews indexed (15 queue operations, a handful of KV writes and Workers AI
 calls), and a few dozen Workers requests, most of them dashboard page loads
-and the indexing page's polling. That is three runs a day at most (two
-scheduled, one per deploy). Keep it that way: no loops, no load, no retries.
+and the indexing page's polling. Preview runs once per deploy to `main` plus
+once a day; prod once per prod deploy plus once a day. Keep it that small:
+no loops, no load, no retries.
 
 ## Leftovers
 

@@ -21,7 +21,15 @@ Two levels, from cheapest to most expensive.
 | Unit | `pnpm test` — Vitest, colocated `*.test.ts` files in every workspace; excludes `*.integration.test.ts`; needs no services |
 | Integration | `pnpm test:integration` — Vitest against the real local Postgres from `pnpm run setup` (docker compose); set `DATABASE_URL=postgres://proofql:proofql@localhost:54323/proofql` (the root `.env.example` carries it); file convention `*.integration.test.ts`; harness arrives with the `db` package (#15) |
 
-The split is by file glob and nothing else:
+A third level runs outside both, against a **deployed** environment:
+
+| Level | How to run |
+|---|---|
+| Acceptance | `CLERK_SECRET_KEY=… pnpm --filter @proofql/e2e at:preview` — one Playwright customer journey (sign-up → project → keys → ingest → indexed → query → snippet → cleanup) through the real dashboard, API and cdn; [`e2e/README.md`](e2e/README.md) |
+
+It is not part of `pnpm test` or any required check (it needs Clerk keys and spends free-plan quota). [`.github/workflows/acceptance.yml`](.github/workflows/acceptance.yml) runs it after every successful Deploy, on dispatch, and daily: preview with the repository secret `CLERK_SECRET_KEY_PREVIEW`, prod inside the `acceptance-prod` environment with `CLERK_SECRET_KEY_PROD`. A red run is a broken deployment: read the failing step's name, then the uploaded Playwright report.
+
+The unit/integration split is by file glob and nothing else:
 
 - **`*.integration.test.ts`** ⇒ needs Postgres. Runs only under `pnpm test:integration` (uncached in turbo — a shared mutable database is not a cacheable input). Requires `DATABASE_URL`; the run **fails** when it is unset or the database is unreachable — integration tests never silently skip.
 - **Anything else (`*.test.ts`)** ⇒ must run with no services. `pnpm test` never needs Docker or a network.
