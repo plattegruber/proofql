@@ -119,23 +119,22 @@ importers:
         version: 4.145.0(@cloudflare/workers-types@5.20261001.1)(@types/node@26.6.3)
 
   apps/www:
-    dependencies:
+    devDependencies:
       '@proofql/core':
         specifier: workspace:*
         version: link:../../packages/core
       '@proofql/snippet':
         specifier: workspace:*
         version: link:../../packages/snippet
-      astro:
-        specifier: ^7.3.5
-        version: 7.3.5(@types/node@26.6.3)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
-    devDependencies:
       '@proofql/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
       '@types/node':
         specifier: ^26.6.3
         version: 26.6.3
+      astro:
+        specifier: ^7.3.5
+        version: 7.3.5(@types/node@26.6.3)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
       axe-core:
         specifier: ^4.13.0
         version: 4.13.0

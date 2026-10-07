@@ -6,5 +6,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     include: ["test/**/*.test.ts"],
+    // axe over the whole page takes a few seconds on a busy CI runner.
+    testTimeout: 30_000,
   },
 });

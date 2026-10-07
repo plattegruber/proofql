@@ -14,14 +14,12 @@
     "typecheck": "astro sync && tsc --noEmit",
     "deploy": "wrangler deploy"
   },
-  "dependencies": {
+  "devDependencies": {
     "@proofql/core": "workspace:*",
     "@proofql/snippet": "workspace:*",
-    "astro": "^7.3.5"
-  },
-  "devDependencies": {
     "@proofql/tsconfig": "workspace:*",
     "@types/node": "^26.6.3",
+    "astro": "^7.3.5",
     "axe-core": "^4.13.0",
     "happy-dom": "^20.14.5",
     "jsdom": "^30.1.1",
