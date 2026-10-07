@@ -77,6 +77,13 @@
   --band-fg: #f5f7f6;
   --band-fg-secondary: #c6cbc8;
 
+  /* The creature (src/components/Creature.astro): the Claude Design
+     "Paper" theme here, "Obsidian" in dark. */
+  --creature-brace: #090d16;
+  --creature-eye: #f59e0b;
+  --creature-shadow: #090d16;
+  --creature-shadow-alpha: 0.14;
+
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
   --duration-fast: 100ms;
 
@@ -110,6 +117,10 @@
     --btn-border: #f5f7f6;
 
     --band-bg: #1b211f;
+
+    --creature-brace: #faf9f6;
+    --creature-shadow: #000000;
+    --creature-shadow-alpha: 0.6;
   }
 }
 

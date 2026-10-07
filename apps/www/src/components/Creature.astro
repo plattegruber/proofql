@@ -1,0 +1,180 @@
+---
+// The ProofQL mark: two code braces and two amber bar eyes (src/lib/mark.ts
+// has the geometry, the glyph outlines and their attribution). Rendered at
+// rest in plain HTML and CSS, sized by `font-size`, so it costs no layout
+// shift and no request.
+//
+//   motion="alive"  the hero: springs, gaze, blink, bounce, startle
+//                   (src/scripts/creature.ts)
+//   motion="blink"  the nav: an occasional blink only (src/scripts/blink.ts)
+//   motion="none"   static
+//
+// Decorative everywhere (aria-hidden); the surrounding link or heading
+// carries the name. prefers-reduced-motion leaves every variant static.
+import { BRACE_LEFT, BRACE_RIGHT, BRACE_VIEWBOX } from "../lib/mark";
+
+interface Props {
+  motion?: "alive" | "blink" | "none";
+  shadow?: boolean;
+  class?: string;
+}
+
+const { motion = "none", shadow = false, class: className } = Astro.props;
+---
+
+<span
+  class:list={["creature", className]}
+  data-creature={motion}
+  aria-hidden="true"
+>
+  <span class="creature-stage">
+    <span class="creature-brace creature-brace-l">
+      <svg viewBox={BRACE_VIEWBOX} focusable="false"><path d={BRACE_LEFT}
+        ></path></svg
+      >
+    </span>
+    <span class="creature-eyes">
+      <span class="creature-eye"></span>
+      <span class="creature-eye"></span>
+    </span>
+    <span class="creature-brace creature-brace-r">
+      <svg viewBox={BRACE_VIEWBOX} focusable="false"><path d={BRACE_RIGHT}
+        ></path></svg
+      >
+    </span>
+  </span>
+  {shadow && <span class="creature-shadow" />}
+</span>
+
+<script>
+  import { blinkCreature } from "../scripts/blink";
+  import { animateCreature } from "../scripts/creature";
+
+  for (const el of document.querySelectorAll<HTMLElement>(
+    '[data-creature="alive"]',
+  )) {
+    animateCreature(el);
+  }
+  for (const el of document.querySelectorAll<HTMLElement>(
+    '[data-creature="blink"]',
+  )) {
+    blinkCreature(el);
+  }
+</script>
+
+<style>
+  /* Layout from the Claude Design source, in em of the creature's size. */
+  .creature {
+    position: relative;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 1;
+    user-select: none;
+    pointer-events: none;
+  }
+  .creature-stage {
+    display: flex;
+    align-items: center;
+    transform-origin: 50% 100%;
+  }
+  .creature-brace {
+    display: block;
+    width: 0.6em;
+    height: 1em;
+    color: var(--creature-brace);
+  }
+  .creature-brace svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    fill: currentColor;
+  }
+  .creature-brace-l {
+    transform-origin: 70% 55%;
+  }
+  .creature-brace-r {
+    transform-origin: 30% 55%;
+  }
+  .creature-eyes {
+    display: flex;
+    gap: 0.09em;
+    height: 1em;
+    align-items: flex-start;
+    padding: 0.2em 0.05em 0;
+    box-sizing: border-box;
+  }
+  .creature-eye {
+    display: block;
+    width: 0.105em;
+    height: 0.3em;
+    border-radius: 0.06em;
+    background: var(--creature-eye);
+    transform-origin: 50% 50%;
+  }
+  .creature-shadow {
+    display: block;
+    width: 62%;
+    height: calc(14em / 220);
+    margin-top: calc(10em / 220);
+  }
+  .creature-shadow::before {
+    content: "";
+    display: block;
+    height: 100%;
+    border-radius: 50%;
+    background: var(--creature-shadow);
+    opacity: var(--creature-shadow-alpha);
+    filter: blur(calc(4em / 220));
+  }
+  [data-creature="alive"] :is(.creature-stage, .creature-brace, .creature-eye),
+  [data-creature="alive"] .creature-shadow {
+    will-change: transform;
+  }
+
+  /* The nav blink: the source's curve, 1 − 0.92 · sin(πt) over 150 ms, as
+     keyframes; the double blink repeats it 230 ms later. */
+  .is-blinking .creature-eye {
+    animation: creature-blink 150ms linear;
+  }
+  .is-blinking-double .creature-eye {
+    animation: creature-blink-double 380ms linear;
+  }
+  @keyframes creature-blink {
+    0%,
+    100% {
+      transform: scaleY(1);
+    }
+    25%,
+    75% {
+      transform: scaleY(0.35);
+    }
+    50% {
+      transform: scaleY(0.08);
+    }
+  }
+  @keyframes creature-blink-double {
+    0%,
+    39.5%,
+    60.5%,
+    100% {
+      transform: scaleY(1);
+    }
+    9.9%,
+    29.6%,
+    70.4%,
+    90.1% {
+      transform: scaleY(0.35);
+    }
+    19.7%,
+    80.3% {
+      transform: scaleY(0.08);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .creature-eye {
+      animation: none;
+    }
+  }
+</style>

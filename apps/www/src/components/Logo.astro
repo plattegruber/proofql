@@ -1,26 +1,29 @@
 ---
-// The ProofQL logo. A text wordmark for now; the animated logo from Claude
-// Design replaces the contents of this one component (every use on the site
-// goes through it). When it lands, its motion must stop under
-// `prefers-reduced-motion: reduce` and the accessible name stays "ProofQL".
+// The ProofQL logo: the mark (Creature.astro) and the wordmark. Every use on
+// the site goes through this component. The nav's mark blinks now and then
+// (`blink`); there is no cursor tracking at this size. The visible
+// "ProofQL" text is the logo's name; the mark is decorative.
+import Creature from "./Creature.astro";
+
 interface Props {
   /** Visual size; the footer uses the smaller one. */
   size?: "md" | "sm";
+  blink?: boolean;
 }
 
-const { size = "md" } = Astro.props;
+const { size = "md", blink = false } = Astro.props;
 ---
 
 <span class:list={["logo", `logo-${size}`]}>
-  <span class="logo-word">ProofQL</span><span class="logo-dot" aria-hidden="true"
-  ></span>
+  <Creature motion={blink ? "blink" : "none"} class="logo-mark" />
+  <span class="logo-word">ProofQL</span>
 </span>
 
 <style>
   .logo {
     display: inline-flex;
-    align-items: baseline;
-    gap: 0.2em;
+    align-items: center;
+    gap: 0.35em;
     font-family: var(--font-sans);
     font-weight: 600;
     letter-spacing: -0.03em;
@@ -33,10 +36,10 @@ const { size = "md" } = Astro.props;
   .logo-sm {
     font-size: 1.125rem;
   }
-  /* The favicon's green square. */
-  .logo-dot {
-    width: 0.3em;
-    height: 0.3em;
-    background: var(--accent);
+  /* The braces' ink is about 0.94em of the mark's 1em box, so at 1.1em the
+     mark stands a touch taller than the capitals. */
+  .logo :global(.logo-mark) {
+    font-size: 1.1em;
+    letter-spacing: 0;
   }
 </style>

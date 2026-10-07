@@ -2,6 +2,7 @@
 // The landing page. The copy is the owner's, verbatim: change it only with
 // the owner. scripts/check-site.mjs fails the build when a heading, a button
 // label, or a CTA target drifts.
+import Creature from "../components/Creature.astro";
 import Demo from "../components/Demo.astro";
 import { SIGN_UP_URL } from "../config";
 import Base from "../layouts/Base.astro";
@@ -13,7 +14,8 @@ const description =
 
 <Base title={title} description={description}>
   <section class="hero" aria-labelledby="hero-title">
-    <div class="container">
+    <div class="container hero-grid">
+      <div class="hero-copy">
       <p class="label hero-overline">ProofQL · Social proof, in context.</p>
       <h1 id="hero-title">The right Google reviews. On the right pages.</h1>
       <p class="lede">
@@ -27,6 +29,10 @@ const description =
       <div class="actions">
         <a class="button button-primary" href={SIGN_UP_URL}>Get started free</a>
         <a class="button button-secondary" href="#demo">See it in action</a>
+      </div>
+      </div>
+      <div class="hero-creature">
+        <Creature motion="alive" shadow />
       </div>
     </div>
   </section>
@@ -224,6 +230,28 @@ const description =
 <style>
   .hero {
     padding-block: clamp(3.5rem, 10vw, 7.5rem) clamp(3.5rem, 9vw, 6.5rem);
+  }
+  /* The creature sits beside the copy on wide screens and after the
+     buttons on narrow ones, so it never pushes the copy down. */
+  .hero-grid {
+    display: grid;
+    align-items: center;
+    gap: 2.5rem 3rem;
+  }
+  .hero-creature {
+    display: flex;
+    justify-content: flex-start;
+    font-size: clamp(5.5rem, 3rem + 10vw, 8rem);
+  }
+  @media (min-width: 60rem) {
+    .hero-grid {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .hero-creature {
+      justify-content: center;
+      padding-inline: 1rem 2rem;
+      font-size: clamp(9rem, 4rem + 9vw, 13.75rem);
+    }
   }
   .hero-overline {
     color: var(--link);
