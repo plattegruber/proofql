@@ -102,6 +102,16 @@ export const projects = pgTable(
     similarityFloor: doublePrecision("similarity_floor")
       .notNull()
       .default(DEFAULT_SIMILARITY_FLOOR),
+    /**
+     * The kind of business (#151): a key of `CATEGORY_TABLE` in
+     * `@proofql/core` (`dental`, `roofing`, …), or null when unknown. It
+     * picks the generic query words the floor's partial word match ignores
+     * (`genericQueryWords`). Set from Google's primary type on a Places or
+     * Business Profile import while still null; owners change it in
+     * Settings. Plain text, validated in code, so the table grows without
+     * a migration; a value this build does not know acts like null.
+     */
+    category: text("category"),
     /** Derived from the account plan; stored so the query API reads one row. */
     showBadge: boolean("show_badge").notNull().default(true),
     /** Denormalized count of live reviews, for limits and the dashboard. */

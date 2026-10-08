@@ -33,7 +33,7 @@
  * bound to the signed, expiring state and to the signed-in account.
  */
 import { type IngestMessage, kvFaults, type Logger } from "@proofql/core";
-import { type Db, schema } from "@proofql/db";
+import { type Db, schema, setCategoryFromGoogleIfUnset } from "@proofql/db";
 import {
   applyLocationSelection,
   buildAuthorizeUrl,
@@ -403,6 +403,11 @@ export async function saveLocationSelection(
       connection: Connection;
       message: IngestMessage;
       enabled: MappedLocation[];
+      /**
+       * An enabled location's primary category filled a null
+       * `projects.category` (#151); the caller bumps the cache generation.
+       */
+      categorySet: boolean;
     }
   | undefined
 > {
@@ -424,9 +429,17 @@ export async function saveLocationSelection(
     .where(eq(connections.id, existing.id))
     .returning();
   if (!row) return undefined;
+  // The first enabled location with a category names the business (#151);
+  // an owner's choice in Settings, or an earlier import's, is kept.
+  const categorySet = await setCategoryFromGoogleIfUnset(
+    db,
+    input.projectId,
+    enabled.find((l) => l.primaryCategory)?.primaryCategory,
+  );
   return {
     connection: row,
     enabled,
+    categorySet,
     message: {
       type: "connection.sync",
       connectionId: row.id,

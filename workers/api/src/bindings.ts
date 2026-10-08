@@ -78,6 +78,11 @@ export interface ProjectPolicy {
   minRating: number;
   /** Cosine-similarity floor (`projects.similarity_floor`). */
   similarityFloor: number;
+  /**
+   * Business category (`projects.category`, #151): picks the generic
+   * query words of the floor's partial word match. Null when unknown.
+   */
+  category: string | null;
 }
 
 /** What a resolved API key grants a request (set by `requireApiKey`). */

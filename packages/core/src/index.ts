@@ -1,11 +1,13 @@
 // Domain logic shared by every deployable: API keys, the plan table and its
 // limits, the ingest
 // queue message, the review shape, sentiment, chunking, CSV import, the query-cache
-// generation counter, the KV failure guards, data retention, and the structured logger.
+// generation counter, the KV failure guards, business categories and their
+// generic query words, data retention, and the structured logger.
 // Pure functions and schemas only — no I/O beyond the logger's sink, no
 // database, no platform bindings (the KV contract is a structural type).
 export * from "./apiKeys.js";
 export * from "./cache-generation.js";
+export * from "./categories.js";
 export * from "./chunking.js";
 export * from "./contact.js";
 export * from "./csv/index.js";

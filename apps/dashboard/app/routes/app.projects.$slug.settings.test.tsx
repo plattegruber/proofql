@@ -21,6 +21,7 @@ const loaderData = {
     slug: "cedar-ridge-dental",
     minRating: 4,
     similarityFloor: 0.66,
+    category: "dental" as string | null,
     reviewCount: 80,
   },
 };
@@ -73,6 +74,15 @@ describe("settings tab", () => {
     // The helper text quotes the measured default (#138), not a stale one.
     expect(container.textContent).toContain("The default of 0.66");
     expect(container.textContent).toContain("passes 0.13 lower");
+    // The business category (#151) picks the generic query words.
+    const category = screen.getByLabelText(
+      "Business category",
+    ) as unknown as HTMLSelectElement;
+    expect(category.value).toBe("dental");
+    const labels = [...category.options].map((o) => o.textContent);
+    expect(labels[0]).toBe("Not set");
+    expect(labels).toContain("Roofing");
+    expect(labels).toContain("Remodeling and contracting");
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe(
       "Cedar Ridge Dental",
     );

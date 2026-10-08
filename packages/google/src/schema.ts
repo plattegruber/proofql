@@ -98,7 +98,7 @@ export const gbpPostalAddressSchema = z.looseObject({
 
 /**
  * Business Information v1 `Location`, under the discovery `readMask`
- * (`name,title,storefrontAddress,metadata`). `name` is `locations/{id}` —
+ * (`name,title,storefrontAddress,metadata,categories`). `name` is `locations/{id}` —
  * NOT account-scoped; the v4 reviews path needs the account from the
  * listing call. Verified status: `metadata.hasVoiceOfMerchant` — the fake
  * models it; confirm against the real API (docs/google.md).
@@ -107,6 +107,17 @@ export const gbpLocationSchema = z.looseObject({
   name: z.string().min(1),
   title: z.string().optional(),
   storefrontAddress: gbpPostalAddressSchema.optional(),
+  /** `primaryCategory.name` is `categories/gcid:<id>` (#151). */
+  categories: z
+    .looseObject({
+      primaryCategory: z
+        .looseObject({
+          name: z.string().optional(),
+          displayName: z.string().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   metadata: z
     .looseObject({
       hasVoiceOfMerchant: z.boolean().optional(),

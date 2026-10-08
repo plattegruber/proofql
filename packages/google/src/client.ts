@@ -33,9 +33,13 @@ import {
   gbpReviewsPageSchema,
 } from "./schema.js";
 
-/** `locations.list` readMask: identity, display fields, verified flag + place id. */
+/**
+ * `locations.list` readMask: identity, display fields, verified flag +
+ * place id, and the categories (the primary one sets `projects.category`,
+ * #151).
+ */
 export const GOOGLE_LOCATIONS_READ_MASK =
-  "name,title,storefrontAddress,metadata";
+  "name,title,storefrontAddress,metadata,categories";
 export const ACCOUNTS_PAGE_SIZE = 20;
 export const LOCATIONS_PAGE_SIZE = 100;
 export const REVIEWS_PAGE_SIZE = 50;

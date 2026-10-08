@@ -420,6 +420,15 @@ describe("location mapping and disconnect", () => {
     expect(h.queue.sent).toEqual([
       { type: "connection.sync", connectionId: row?.id, projectId: p.id },
     ]);
+    // The enabled location's primary category names the business (#151).
+    expect(metadata.locations[0]?.primaryCategory).toBe(
+      "categories/gcid:dentist",
+    );
+    const [named] = await t.db
+      .select({ category: schema.projects.category })
+      .from(schema.projects)
+      .where(eq(schema.projects.id, p.id));
+    expect(named?.category).toBe("dental");
 
     // Deselecting everything: saved, no sync message.
     await saveLocations(h, "map", []);

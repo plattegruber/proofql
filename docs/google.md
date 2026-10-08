@@ -44,9 +44,10 @@ The flow (`apps/dashboard/app/lib/google.server.ts`, pure parts in
    reconnecting replaces the credentials and keeps the cursor and the
    enabled locations).
 3. Discovery: `accounts.list` (pages of 20) then `locations.list` per
-   account with `readMask=name,title,storefrontAddress,metadata` (pages of
-   100), stored as `metadata.locations[] = { id, account, title, address,
-   verified, enabled, placeId? }` plus `metadata.accounts` and
+   account with `readMask=name,title,storefrontAddress,metadata,categories`
+   (pages of 100), stored as `metadata.locations[] = { id, account, title,
+   address, verified, enabled, placeId?, primaryCategory? }` plus
+   `metadata.accounts` and
    `discovered_at`. `verified` is `metadata.hasVoiceOfMerchant === true`
    (the fake models that field; **confirm against the real API when #44
    lands** — the alternative is the Verifications API's
@@ -55,7 +56,11 @@ The flow (`apps/dashboard/app/lib/google.server.ts`, pure parts in
 4. **Save locations** sets `enabled` on the ticked verified locations,
    `metadata.initial_sync_pending = true`, and enqueues
    `connection.sync { connectionId, projectId }` on `proofql-ingest`; the
-   pipeline polls that connection within seconds. **Disconnect** (inline
+   pipeline polls that connection within seconds. When the project has no
+   business category yet, the first enabled location's
+   `categories.primaryCategory` (`categories/gcid:dentist`) sets it
+   (#151; `categoryFromGoogleType` in `@proofql/core`), which picks the
+   query's generic words. **Disconnect** (inline
    confirm) clears `credentials` and sets `status = disconnected`; the
    mapping and the reviews stay. **Reconnect** is the same connect flow;
    it is the fix for `needs_reauth`.

@@ -40,8 +40,9 @@ card: q ──► POST /app/projects/:slug/places  intent=search
                                                                         places.formattedAddress,places.rating,places.userRatingCount
 card: pick ─► POST ... intent=import place_id=<id> [environment] [onboarding=1]
              └─ KV places:p:<id>  (24 h)  ──miss──► GET /v1/places/<id>
-                                                    X-Goog-FieldMask: id,displayName,formattedAddress,rating,userRatingCount,reviews
+                                                    X-Goog-FieldMask: id,displayName,formattedAddress,rating,userRatingCount,primaryType,reviews
              └─ mapPlaceReviews → reviewInputSchema → upsertReviews(onLimit: "truncate")
+             └─ projects.category ← categoryFromGoogleType(primaryType), only while null (#151)
              └─ ingest_runs { kind: places, artifact_key: "places:<id>", received, created, updated, skipped, failed }
              └─ INGEST_QUEUE ← one message per inserted / re-indexed review
              └─ 302 → onboarding step 3 ?run=<id>   or   /app/projects/:slug/import/<run id>
@@ -142,7 +143,7 @@ before launch):
 | Call | Fields | SKU | Free per month | Then, per 1,000 |
 | --- | --- | --- | --- | --- |
 | `places:searchText` | `id, displayName, formattedAddress, rating, userRatingCount` | Text Search **Enterprise** (`rating` and `userRatingCount` lift it from Pro) | 1,000 | ~$35 |
-| `GET /v1/places/{id}` | `… , reviews` | Place Details **Enterprise + Atmosphere** (`reviews`) | 1,000 | ~$25 |
+| `GET /v1/places/{id}` | `… , primaryType, reviews` | Place Details **Enterprise + Atmosphere** (`reviews`; `primaryType` is a Pro field, so it adds nothing) | 1,000 | ~$25 |
 
 Per onboarding: typically **one or two searches and one place fetch**, so
 about 1.5 search calls and 1 fetch. Both are cached in the `CACHE` KV

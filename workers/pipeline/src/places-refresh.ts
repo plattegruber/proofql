@@ -55,7 +55,12 @@ import {
   type Logger,
   safeBumpProjectGeneration,
 } from "@proofql/core";
-import { type Db, schema, upsertReviews } from "@proofql/db";
+import {
+  type Db,
+  schema,
+  setCategoryFromGoogleIfUnset,
+  upsertReviews,
+} from "@proofql/db";
 import {
   createPlacesClient,
   describePlacesError,
@@ -511,6 +516,14 @@ async function refreshOne(
       onLimit: "truncate",
     });
 
+    // Backfills the business category (#151) for projects bootstrapped
+    // before it existed; never overrides one already set.
+    const categorySet = await setCategoryFromGoogleIfUnset(
+      db,
+      projectId,
+      details.primaryType,
+    );
+
     const deleted = await deleteStaleBootstrapRows(db, {
       projectId,
       environment,
@@ -541,7 +554,9 @@ async function refreshOne(
 
     let generation: number | null = null;
     if (
-      // Re-indexed text changes results whether or not the send went out.
+      // Re-indexed text changes results whether or not the send went out;
+      // so does a new category's generic word list (#151).
+      categorySet ||
       refreshChanged({
         created: upserted.created,
         deleted,
@@ -572,6 +587,7 @@ async function refreshOne(
       deleted,
       enqueued,
       indexing_deferred: indexingDeferred,
+      category_set: categorySet,
       generation,
     });
     return {

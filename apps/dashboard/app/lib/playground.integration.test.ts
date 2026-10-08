@@ -40,7 +40,7 @@ describe("runPlayground", () => {
     );
     const outcome = await runPlayground(t.db, new FakeEmbeddingProvider(), {
       projectId: p.id,
-      project: { minRating: 4, similarityFloor: 0.55 },
+      project: { minRating: 4, similarityFloor: 0.55, category: "dental" },
       request,
     });
     if (!outcome.ok) throw new Error(outcome.error);
@@ -50,7 +50,11 @@ describe("runPlayground", () => {
     expect(above.map((r) => r.reviewId)).toEqual([hit.id]);
     expect(below.map((r) => r.reviewId)).toEqual([near.id, expect.any(String)]);
     expect(below[0]?.similarity).toBeLessThan(0.55);
-    expect(outcome.policy).toEqual({ minRating: 4, similarityFloor: 0.55 });
+    expect(outcome.policy).toEqual({
+      minRating: 4,
+      similarityFloor: 0.55,
+      category: "dental",
+    });
     expect(outcome.tookMs).toBeGreaterThanOrEqual(0);
     expect(outcome.searchMs).toBeGreaterThanOrEqual(0);
 
@@ -61,7 +65,7 @@ describe("runPlayground", () => {
       queryEmbedding: fakeEmbed(["painless implant"])[0],
       queryText: "painless implant",
       limit: 5,
-      policy: { minRating: 4, similarityFloor: 0.55 },
+      policy: { minRating: 4, similarityFloor: 0.55, category: "dental" },
       mode: "excerpts",
     });
     expect(above).toEqual(plain.map(toPlaygroundResult));
@@ -165,7 +169,7 @@ describe("runPlayground", () => {
     expect(outcome).toEqual({
       ok: false,
       error: "embedding_unavailable",
-      policy: { minRating: 4, similarityFloor: 0.55 },
+      policy: { minRating: 4, similarityFloor: 0.55, category: null },
     });
   });
 });

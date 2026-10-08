@@ -64,6 +64,13 @@
       "when": 1791158951799,
       "tag": "0009_similarity_floor_default",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791433965610,
+      "tag": "0010_projects_category",
+      "breakpoints": true
     }
   ]
 }

@@ -45,7 +45,12 @@ const fakeAuth: AuthContext = {
   environment: "live",
   kind: "publishable",
   plan: "free",
-  project: { allowedOrigins: [], minRating: 4, similarityFloor: 0.55 },
+  project: {
+    allowedOrigins: [],
+    minRating: 4,
+    similarityFloor: 0.55,
+    category: null,
+  },
 };
 
 /**

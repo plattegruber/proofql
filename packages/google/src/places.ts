@@ -44,9 +44,13 @@ export const PLACES_CACHE_TTL_S = 24 * 60 * 60;
 /** `X-Goog-FieldMask` for `places:searchText` — fields nest under `places.`. */
 export const PLACES_SEARCH_FIELD_MASK =
   "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount";
-/** `X-Goog-FieldMask` for `GET /v1/places/{id}`. */
+/**
+ * `X-Goog-FieldMask` for `GET /v1/places/{id}`. `primaryType` sets the
+ * project's business category (#151); it is a Pro-tier field and `reviews`
+ * already bills the call at Enterprise + Atmosphere, so it costs nothing.
+ */
 export const PLACES_PLACE_FIELD_MASK =
-  "id,displayName,formattedAddress,rating,userRatingCount,reviews";
+  "id,displayName,formattedAddress,rating,userRatingCount,primaryType,reviews";
 /** `author_name` when Google sends a review with no attribution name. */
 export const PLACES_ANONYMOUS_AUTHOR = "A Google user";
 /**
@@ -89,6 +93,12 @@ export const placeReviewSchema = z.looseObject({
 });
 
 export const placeDetailsSchema = placeSummarySchema.extend({
+  /**
+   * The place's primary type (`roofing_contractor`, `dentist`, …); maps to
+   * `projects.category` through `categoryFromGoogleType` (#151). Absent
+   * for places Google has not typed.
+   */
+  primaryType: z.string().optional(),
   /** Absent when the place has no reviews. */
   reviews: z.array(placeReviewSchema).optional(),
 });

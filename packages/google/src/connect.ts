@@ -239,6 +239,8 @@ export async function discoverLocations(
       };
       if (location.metadata?.placeId)
         mapped.placeId = location.metadata.placeId;
+      const category = location.categories?.primaryCategory?.name;
+      if (category) mapped.primaryCategory = category;
       out.locations.push(mapped);
     }
   }
