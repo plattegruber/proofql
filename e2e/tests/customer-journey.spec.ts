@@ -2,12 +2,12 @@
  * The customer journey, end to end, against a deployed environment:
  *
  *   account → workspace → project → keys → ingest → indexed → query →
- *   snippet on a real page → cleanup
+ *   snippet on a real page → Google Takeout import → cleanup
  *
  * One serial test with named steps, so a failure says which stage broke
  * ("7. indexing") and later stages, which depend on it, do not run. The
  * cleanup steps always run. Budget per run (Workers free plan,
- * docs/launch.md §16): 5 reviews, a few dozen requests.
+ * docs/launch.md §16): 6 reviews, a few dozen requests.
  */
 import { clerk } from "@clerk/testing/playwright";
 import { expect, type Page, test } from "@playwright/test";
@@ -179,6 +179,13 @@ test("customer journey: sign up, set up a project, ingest, query, embed", async 
         await renderSnippetOnTestPage(page, publishableKey);
       },
     );
+
+    await step(
+      "11. Google Takeout: a tiny reviews.json into the test environment",
+      async () => {
+        await importTinyTakeout(page, projectSlug);
+      },
+    );
   } catch (error) {
     await describeFailure(page, currentStep, error);
     throw error;
@@ -189,6 +196,54 @@ test("customer journey: sign up, set up a project, ingest, query, embed", async 
   }
   if (cleanupError) throw cleanupError;
 });
+
+/**
+ * The Takeout import through the real page: one `reviews.json` page (a
+ * review with text and a star-only one, invented), read in the browser,
+ * posted, run. Into the **test** environment, so the live queries above
+ * are untouched; the project is deleted at cleanup. Costs one indexed
+ * review.
+ */
+async function importTinyTakeout(page: Page, projectSlug: string) {
+  const location = `at${runId.replace(/[^A-Za-z0-9]/g, "")}`;
+  const reviews = {
+    reviews: [
+      {
+        reviewer: { displayName: "Acceptance Reviewer" },
+        starRating: "FIVE",
+        comment: `Takeout acceptance review ${runId}: the bread was fresh.`,
+        createTime: "2026-01-02T10:00:00.000000Z",
+        updateTime: "2026-01-02T10:00:00.000000Z",
+        name: `accounts/1/locations/${location}/reviews/text`,
+        reviewReply: { comment: "Thanks!", updateTime: "2026-01-03T10:00:00Z" },
+      },
+      {
+        reviewer: { displayName: "Stars Only" },
+        starRating: "FOUR",
+        createTime: "2026-01-04T10:00:00.000000Z",
+        updateTime: "2026-01-04T10:00:00.000000Z",
+        name: `accounts/1/locations/${location}/reviews/stars`,
+      },
+    ],
+  };
+  await page.goto(dashboardUrl(`/app/projects/${projectSlug}/import/takeout`));
+  await page.getByLabel("Takeout export").setInputFiles({
+    name: "reviews.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(reviews)),
+  });
+  await page.getByRole("radio", { name: /^Test/ }).check();
+  await page.getByRole("button", { name: "Import 1 review" }).click();
+  await page.waitForURL(
+    new RegExp(`/app/projects/${projectSlug}/import/[0-9a-f-]{36}$`),
+  );
+  await expect(
+    page.getByRole("heading", { name: "Import finished" }),
+  ).toBeVisible({ timeout: 60_000 });
+  const result = page.getByRole("region", { name: "What happened" });
+  await expect(result).toContainText("1 review created");
+  await expect(result).toContainText("1 star-only skipped");
+}
 
 /** Anything shaped like an API key or a Clerk token, for log lines. */
 function redact(text: string): string {

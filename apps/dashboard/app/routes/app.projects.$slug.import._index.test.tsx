@@ -32,6 +32,7 @@ function renderUpload(
             project: { slug: "cedar-ridge-dental", name: "Cedar Ridge Dental" },
             onboarding: false,
             maxBytes: 10 * 1024 * 1024,
+            takeoutHref: "/app/projects/cedar-ridge-dental/import/takeout",
             places,
           }}
           actionData={actionData}
@@ -89,6 +90,24 @@ describe("import step 1", () => {
     expect(screen.getByRole("button", { name: /continue/i })).toBeTruthy();
   });
 
+  it("offers Google Takeout first, with the export steps and a link", async () => {
+    renderUpload();
+    const card = (
+      await screen.findByRole("heading", {
+        name: "Google reviews from Takeout",
+      })
+    ).closest("section");
+    expect(card?.textContent).toContain(
+      "Deselect all → Google Business Profile → Next step → Create export",
+    );
+    expect(
+      screen
+        .getByRole("link", { name: "Import from Takeout" })
+        .getAttribute("href"),
+    ).toBe("/app/projects/cedar-ridge-dental/import/takeout");
+    expect(screen.getByText(/For Google, use Takeout above/)).toBeTruthy();
+  });
+
   it("offers the Places bootstrap below the form, with the live/test choice", async () => {
     renderUpload();
     const card = (
@@ -104,7 +123,7 @@ describe("import step 1", () => {
       "/app/projects/cedar-ridge-dental/places",
     );
     expect(card?.textContent).toContain(
-      "connect your Google Business Profile later for all of them",
+      "import a Takeout export for all of them",
     );
   });
 

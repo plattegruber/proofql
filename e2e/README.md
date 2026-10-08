@@ -15,6 +15,7 @@ environment, through the real dashboard, API and snippet:
 | 8 | `POST /v1/query` returns the right review, `match: "query"`, its matching sentence as the excerpt, and `review.text.slice(highlight) === excerpt` |
 | 9 | onboarding step 4: the tag points at the target's cdn, the live preview iframe renders reviews, Finish lands on the playground |
 | 10 | a page served from an allowed origin with the two-line snippet integration renders the review, with the match in `<mark class="pq-mark">` |
+| 11 | Import → Google Takeout: a two-review `reviews.json` (one star-only) read in the browser and imported into the **test** environment; the run page reports 1 created, 1 star-only skipped |
 | cleanup | deletes the project (Settings → Danger). preview: deletes the Clerk test user and its workspace through the Backend API. prod: signs out |
 
 Failures name the step (`7. dashboard shows the reviews and finishes indexing`),

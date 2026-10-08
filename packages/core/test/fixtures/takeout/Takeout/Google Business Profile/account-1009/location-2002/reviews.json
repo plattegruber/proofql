@@ -1,0 +1,44 @@
+{
+  "reviews": [
+    {
+      "reviewer": {
+        "displayName": "Casey Brooks"
+      },
+      "starRating": "FIVE",
+      "createTime": "2025-08-05T10:15:30.123456Z",
+      "updateTime": "2025-08-05T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2002/reviews/PlStRv000Qz",
+      "comment": "Smaller than the main shop but the same great bread."
+    },
+    {
+      "reviewer": {
+        "displayName": "Taylor Reyes"
+      },
+      "starRating": "FOUR",
+      "createTime": "2025-08-12T10:15:30.123456Z",
+      "updateTime": "2025-08-12T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2002/reviews/PlStRv001Qz",
+      "comment": "Quick in and out, good for a weekday coffee."
+    },
+    {
+      "reviewer": {
+        "displayName": "Quinn A."
+      },
+      "starRating": "FIVE",
+      "createTime": "2025-08-19T10:15:30.123456Z",
+      "updateTime": "2025-08-19T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2002/reviews/PlStRv002Qz",
+      "comment": "The staff remembered my order on the second visit."
+    },
+    {
+      "reviewer": {
+        "displayName": "Devon Hart"
+      },
+      "starRating": "ONE",
+      "createTime": "2025-08-26T10:15:30.123456Z",
+      "updateTime": "2025-08-26T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2002/reviews/PlStRv003Qz",
+      "comment": "Waited twenty minutes and the order was wrong."
+    }
+  ]
+}

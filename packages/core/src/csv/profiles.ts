@@ -50,8 +50,12 @@ export function normalizeHeaderKey(header: string): string {
 
 export const CSV_PROFILES: readonly CsvProfile[] = [
   {
+    // One Takeout `reviews.json` page uploaded on its own. The whole
+    // export has its own importer (Import → Google Takeout, src/takeout),
+    // which merges pages, picks locations and keeps replies; this profile
+    // stays for a single file mapped by hand.
     id: "google-takeout",
-    label: "Google Takeout (Reviews.json)",
+    label: "Google Takeout reviews.json (one page)",
     source: "google",
     fields: {
       name: "external_id",
@@ -66,8 +70,10 @@ export const CSV_PROFILES: readonly CsvProfile[] = [
     kinds: ["json", "csv"],
   },
   {
+    // Google has no review CSV export of its own; this matches the
+    // review spreadsheets third-party Business Profile tools produce.
     id: "google-business-profile",
-    label: "Google Business Profile export",
+    label: "Google reviews spreadsheet (Review ID, Reviewer Name, …)",
     source: "google",
     fields: {
       "review id": "external_id",

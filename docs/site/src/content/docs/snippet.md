@@ -56,7 +56,7 @@ Nothing else is sent. The API rejects unknown parameters, and the snippet adds n
     <blockquote class="pq-excerpt">…</blockquote>
     <footer class="pq-meta">
       <span class="pq-author">Maria G.</span>
-      <a class="pq-source" href="…" rel="noopener" target="_blank">Google</a>
+      <a class="pq-source" href="…" rel="noopener" target="_blank">Google review</a>
       <time class="pq-date" datetime="2026-01-15T10:30:00.000Z">Jan 15, 2026</time>
     </footer>
   </li>
@@ -65,7 +65,7 @@ Nothing else is sent. The API rejects unknown parameters, and the snippet adds n
 ```
 
 - Everything from the API is inserted as text, never parsed as HTML.
-- Parts a review lacks are omitted: no stars without a rating; no author, date, or `.pq-meta` without data. `.pq-source` is a link only when the review has an `http(s)` URL, a `<span>` otherwise, and absent for `source: custom`.
+- Parts a review lacks are omitted: no stars without a rating; no author, date, or `.pq-meta` without data. `.pq-source` reads "Google review" (or "Yelp review", …): a link only when the review has an `http(s)` URL, a `<span>` otherwise (a Google Takeout import has no link), and absent for `source: custom`. There is no reviewer photo in the default rendering. The stars lead the item and the attribution sits in the footer, so stars never appear beside Google's name, as Google's guidance for businesses asks.
 - A native list with an explicit `role="list"` (Safari drops list semantics under `list-style: none`).
 - The badge appears when the API says `badge: true` (free tier). It sits after the list, not inside it.
 - `data-proofql-rendered` marks an element that has been (or is being) rendered; a rendering never runs twice for the same element.

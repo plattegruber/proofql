@@ -23,6 +23,7 @@ import { FormNotice } from "~/components/ui/field";
 import { requireAccount } from "~/lib/account.server";
 import { findProjectBySlug } from "~/lib/accounts";
 import { runImportInBackground } from "~/lib/background.server";
+import { getCloudflare } from "~/lib/context";
 import {
   errorReportExpired,
   findProjectRun,
@@ -37,6 +38,12 @@ import {
   importPath,
 } from "~/lib/import-paths";
 import { INDEXING_DEFERRED, INDEXING_PARAM } from "~/lib/indexing";
+import { takeoutPath } from "~/lib/takeout";
+import {
+  isTakeoutRun,
+  loadTakeoutDetails,
+  type TakeoutRunDetails,
+} from "~/lib/takeout.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/app.projects.$slug.import.$runId";
 
@@ -82,23 +89,34 @@ export async function loader(args: Route.LoaderArgs) {
     project: { slug: project.slug, name: project.name },
     run: {
       id: run.id,
-      // `places` runs (#47) phrase the result differently and have no report.
-      kind: run.kind,
+      // `places` runs (#47) phrase the result differently and have no
+      // report; Takeout imports (csv runs with a `.takeout.json` artifact)
+      // have their own result line.
+      kind: isTakeoutRun(run) ? ("takeout" as const) : run.kind,
       environment: run.environment,
       startedAt: run.startedAt.toISOString(),
       finishedAt: run.finishedAt?.toISOString() ?? null,
       // Upload objects expire after UPLOAD_RETENTION_DAYS (#169).
       reportExpired: errorReportExpired(run),
+      // Takeout runs: removed / replaced / star-only / stale (takeout.server.ts).
+      takeout: await loadTakeoutDetails(
+        getCloudflare(args.context).env.UPLOADS,
+        run,
+      ),
     },
     progress: view,
   };
 }
 
-/** `intent=resume`: pick a stalled run back up (uploads only; a Places run has no file). */
+/** `intent=resume`: pick a stalled run back up (uploads and Takeout; a Places run has no file). */
 export async function action(args: Route.ActionArgs) {
   const { project, run } = await loadRun(args);
   if (run.kind === "csv" && run.status === "running" && isStarted(run)) {
-    runImportInBackground(args.context, run.id);
+    runImportInBackground(
+      args.context,
+      run.id,
+      isTakeoutRun(run) ? "takeout" : "csv",
+    );
   }
   return redirect(`${importPath(project.slug)}/${run.id}`);
 }
@@ -166,7 +184,9 @@ export default function ImportRun({ loaderData }: Route.ComponentProps) {
                 : "What happened"}
             </h2>
             <p className="mt-2 mb-0 text-small text-gray-600">
-              {run.kind === "places" ? (
+              {run.kind === "takeout" ? (
+                <TakeoutResult progress={progress} details={run.takeout} />
+              ) : run.kind === "places" ? (
                 <>
                   {progress.created.toLocaleString("en-US")} reviews created,{" "}
                   {progress.updated.toLocaleString("en-US")} updated,{" "}
@@ -198,7 +218,7 @@ export default function ImportRun({ loaderData }: Route.ComponentProps) {
                 Open reviews
               </Link>
               {progress.failed > 0 &&
-                run.kind === "csv" &&
+                (run.kind === "csv" || run.kind === "takeout") &&
                 (run.reportExpired ? (
                   <span className="text-small text-gray-600">
                     The error report has expired (kept {UPLOAD_RETENTION_DAYS}{" "}
@@ -217,7 +237,11 @@ export default function ImportRun({ loaderData }: Route.ComponentProps) {
                   </a>
                 ))}
               <Link
-                to={importPath(project.slug)}
+                to={
+                  run.kind === "takeout"
+                    ? takeoutPath(project.slug)
+                    : importPath(project.slug)
+                }
                 className={cn(
                   buttonVariants({ variant: "ghost", size: "md" }),
                   "no-underline",
@@ -225,7 +249,9 @@ export default function ImportRun({ loaderData }: Route.ComponentProps) {
               >
                 {run.kind === "places"
                   ? "Back to Import"
-                  : "Import another file"}
+                  : run.kind === "takeout"
+                    ? "Import a newer export"
+                    : "Import another file"}
               </Link>
             </div>
           </section>
@@ -254,4 +280,58 @@ function useStallDetector(running: boolean, processed: number): boolean {
     return () => clearInterval(id);
   }, [running, processed]);
   return stalled;
+}
+
+/** What a Takeout import did, in a sentence per outcome. */
+function TakeoutResult({
+  progress,
+  details,
+}: {
+  progress: ImportProgressData;
+  details: TakeoutRunDetails | null;
+}) {
+  const n = (value: number) => value.toLocaleString("en-US");
+  const starOnly = details?.star_only ?? 0;
+  const stale = details?.stale ?? Math.max(0, progress.skipped - starOnly);
+  const parts = [
+    `${n(progress.created)} ${progress.created === 1 ? "review" : "reviews"} created`,
+    `${n(progress.updated)} updated`,
+    ...(starOnly > 0
+      ? [`${n(starOnly)} star-only skipped (no text to search)`]
+      : []),
+    ...(stale > 0
+      ? [`${n(stale)} left alone because this project already has a newer edit`]
+      : []),
+  ];
+  return (
+    <>
+      {parts.join(", ")}
+      {progress.failed > 0
+        ? `, and ${n(progress.failed)} not imported — the report says why. It is available for ${UPLOAD_RETENTION_DAYS} days.`
+        : "."}
+      {details && (details.removed ?? 0) > 0 && (
+        <>
+          {" "}
+          {n(details.removed ?? 0)}{" "}
+          {details.removed === 1 ? "review was" : "reviews were"} removed
+          because Google no longer has {details.removed === 1 ? "it" : "them"}.
+        </>
+      )}
+      {details && (details.places_removed ?? 0) > 0 && (
+        <>
+          {" "}
+          The {n(details.places_removed ?? 0)} Google Places{" "}
+          {details.places_removed === 1 ? "review was" : "reviews were"}{" "}
+          replaced and will no longer refresh.
+        </>
+      )}
+      {details && !details.complete && (
+        <>
+          {" "}
+          Nothing was removed: loose files may be a subset, so import the whole
+          .zip to also remove reviews deleted on Google.
+        </>
+      )}
+    </>
+  );
 }

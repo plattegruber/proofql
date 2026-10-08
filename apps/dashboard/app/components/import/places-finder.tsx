@@ -14,7 +14,7 @@ import { ONBOARDING_FLAG } from "~/lib/onboarding";
 import type { PlacesActionData } from "~/routes/app.projects.$slug.places";
 
 export const PLACES_CARD_TITLE = "Find your business on Google";
-export const PLACES_CARD_BODY = `Google shares a business's ${PLACES_REVIEWS_PER_PLACE === 5 ? "five" : PLACES_REVIEWS_PER_PLACE} most relevant public reviews through its Places API; connect your Google Business Profile later for all of them.`;
+export const PLACES_CARD_BODY = `Google shares a business's ${PLACES_REVIEWS_PER_PLACE === 5 ? "five" : PLACES_REVIEWS_PER_PLACE} most relevant public reviews through its Places API, in seconds; import a Takeout export for all of them.`;
 export const PLACES_ATTRIBUTION_NOTE =
   "Imported reviews keep their author and the Google badge, as Google's terms require.";
 export const PLACES_NOT_CONFIGURED_COPY =

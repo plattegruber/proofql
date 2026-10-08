@@ -39,6 +39,7 @@ import {
 import { eq } from "drizzle-orm";
 
 import type { Environment, IndexQueue, IngestRun } from "./csv.server";
+import { hasTakeoutImport } from "./takeout.server";
 
 // --- Configuration -----------------------------------------------------------
 
@@ -127,6 +128,15 @@ export async function importPlaceReviews(
   input: ImportPlaceInput,
 ): Promise<ImportPlaceResult> {
   const { db, queue } = deps;
+  // A Takeout export already brought in every Google review (and replaced
+  // the bootstrap); Places' five would come back as duplicates under
+  // other ids. Checked before calling Google, so it costs no quota.
+  if (await hasTakeoutImport(db, input.projectId, input.environment)) {
+    throw new PlacesImportError(
+      `This project's ${input.environment} Google reviews come from a Takeout export, which has all of them; Places would add duplicates. Import a newer Takeout export to update them.`,
+      409,
+    );
+  }
   const { place: details, cached } = await deps.places.place(input.placeId);
   const mapped: MappedPlace = mapPlaceReviews(details);
   if ((details.reviews ?? []).length === 0) {

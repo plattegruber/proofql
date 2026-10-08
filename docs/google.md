@@ -120,6 +120,22 @@ delete and bump nothing. Other Google reviews — a push-API review with an
 `accounts/…` id, say — are never touched. The 25-day Places refresh of
 #116 item 1 is a separate follow-up.
 
+## Takeout imports
+
+A project can also hold its Business Profile reviews from a Google Takeout
+export (dashboard → Import → Google Takeout; `docs/site/src/content/docs/imports.md`
+"Google Takeout", `apps/dashboard/app/lib/takeout.server.ts`). Those rows use
+the same `external_id`, the review's full resource name, and the same
+`metadata.location` / `metadata.location_title` keys, and carry
+`metadata.google_update_time` and the owner's reply
+(`metadata.owner_reply`, never indexed). The Takeout import matches stored
+rows on the `locations/<l>/reviews/<r>` suffix, so it updates connector rows
+rather than duplicating them. The poller still upserts on the exact name:
+if the account in a Takeout export's names differs from the account the
+connection lists, the first sync would add the same reviews again under the
+other name. Matching the poller on the suffix too is a follow-up for when
+the connector lights up (#44).
+
 ## Quota math
 
 All of ProofQL shares one Google Cloud project, and every Business Profile
