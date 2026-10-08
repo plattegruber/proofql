@@ -95,8 +95,8 @@ put_signup_open() {
 # Poll until /sign-up shows `want` (open | waitlist); the secret is read per
 # request but a new value can take a few seconds to reach every isolate.
 wait_for_page() {
-  local want="$1" i state=""
-  for i in $(seq 1 20); do
+  local want="$1" state=""
+  for _ in $(seq 1 20); do
     state="$(page_state || true)"
     [ "$state" = "$want" ] && return 0
     sleep 3
