@@ -12,12 +12,13 @@
 import {
   deletePrefix,
   type Logger,
+  normalizePlan,
   type PrefixBucket,
   planFor,
   projectUploadsPrefix,
 } from "@proofql/core";
 import { type Db, schema } from "@proofql/db";
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, isNull, ne } from "drizzle-orm";
 
 import type { Project } from "./accounts";
 
@@ -49,19 +50,74 @@ export async function countProjectsForAccount(
 }
 
 export interface ProjectQuota {
+  /** Projects in this account. */
   used: number;
   limit: number;
+  /**
+   * Free accounts only: projects in the *other* free, live workspaces the
+   * same person created. They count against this account's allowance, so
+   * creating more Clerk organizations does not multiply the free tier.
+   * 0 for paid accounts and for accounts with no recorded creator.
+   */
+  elsewhere: number;
   atLimit: boolean;
 }
 
-/** How many projects the account has against its plan's allowance. */
+/** The account fields the quota reads; `createdByUserId` is optional for callers that predate it. */
+export interface QuotaAccount {
+  id: string;
+  plan: string;
+  createdByUserId?: string | null;
+}
+
+/**
+ * Projects in the other free, not-deleted accounts created by `userId`.
+ * Paid accounts are not counted (their allowance is their own), and a
+ * soft-deleted workspace stops counting the moment Clerk's
+ * `organization.deleted` marks it.
+ */
+export async function countFreeProjectsElsewhere(
+  db: Db,
+  input: { accountId: string; createdByUserId: string },
+): Promise<number> {
+  const [row] = await db
+    .select({ n: count() })
+    .from(schema.projects)
+    .innerJoin(
+      schema.accounts,
+      eq(schema.accounts.id, schema.projects.accountId),
+    )
+    .where(
+      and(
+        eq(schema.accounts.createdByUserId, input.createdByUserId),
+        eq(schema.accounts.plan, "free"),
+        isNull(schema.accounts.deletedAt),
+        ne(schema.accounts.id, input.accountId),
+      ),
+    );
+  return row?.n ?? 0;
+}
+
+/**
+ * How many projects the account has against its plan's allowance. On the
+ * free plan the allowance is per person: projects in the creator's other
+ * free workspaces count too (`elsewhere`).
+ */
 export async function projectQuota(
   db: Db,
-  account: { id: string; plan: string },
+  account: QuotaAccount,
 ): Promise<ProjectQuota> {
   const used = await countProjectsForAccount(db, account.id);
   const limit = planFor(account.plan).projects;
-  return { used, limit, atLimit: used >= limit };
+  const creator = account.createdByUserId?.trim();
+  const elsewhere =
+    normalizePlan(account.plan) === "free" && creator
+      ? await countFreeProjectsElsewhere(db, {
+          accountId: account.id,
+          createdByUserId: creator,
+        })
+      : 0;
+  return { used, limit, elsewhere, atLimit: used + elsewhere >= limit };
 }
 
 export type CreateProjectResult =
@@ -77,7 +133,7 @@ export type CreateProjectResult =
 export async function createProject(
   db: Db,
   input: {
-    account: { id: string; plan: string };
+    account: QuotaAccount;
     name: string;
     slug: string;
   },

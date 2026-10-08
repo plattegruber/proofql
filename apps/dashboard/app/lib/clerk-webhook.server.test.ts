@@ -153,6 +153,23 @@ describe("handleClerkWebhook — dispatch", () => {
     expect(accounts.upsertAccountByClerkOrgId).toHaveBeenCalledWith(db, {
       clerkOrgId: "org_2",
       name: "Acme, renamed",
+      createdByUserId: null,
+    });
+  });
+
+  it("records the organization's creator for the per-person free allowance", async () => {
+    const body = clerkEvent("organization.created", {
+      id: "org_3",
+      name: "Acme",
+      slug: "acme",
+      created_by: "user_creator",
+    });
+    const res = await post(body, await signClerkWebhook(body));
+    expect(res.status).toBe(200);
+    expect(accounts.upsertAccountByClerkOrgId).toHaveBeenCalledWith(db, {
+      clerkOrgId: "org_3",
+      name: "Acme",
+      createdByUserId: "user_creator",
     });
   });
 
