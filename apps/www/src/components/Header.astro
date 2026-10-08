@@ -12,40 +12,94 @@ import Logo from "./Logo.astro";
   <div class="container header-inner">
     <a class="home" href="/" aria-label="ProofQL home"><Logo blink /></a>
     <nav class="nav" aria-label="Main">
-      <ul role="list">
+      <button
+        type="button"
+        class="menu-toggle"
+        aria-expanded="false"
+        aria-controls="nav-links"
+      >
+        <svg
+          aria-hidden="true"
+          focusable="false"
+          width="18"
+          height="18"
+          viewBox="0 0 18 18"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.75"
+          ><path d="M2 4.5h14M2 9h14M2 13.5h14"></path></svg
+        >
+        <span class="visually-hidden">Menu</span>
+      </button>
+      <ul id="nav-links" role="list">
         <li><a href={DOCS_URL}>Docs</a></li>
         <li><a href={PRICING_PAGE_URL}>Pricing</a></li>
         <li><a href={SIGN_IN_URL}>Sign in</a></li>
       </ul>
     </nav>
     <a class="button button-primary button-sm cta" href={SIGN_UP_URL}
-      >Get started free</a
+      >Get started<span class="cta-free"> free</span></a
     >
   </div>
 </header>
 
+<script>
+  import { initMenu } from "../scripts/menu";
+
+  const toggle = document.querySelector<HTMLElement>(".menu-toggle");
+  if (toggle) initMenu(toggle);
+</script>
+
 <style>
+  /* Phones: one row (logo, menu toggle, CTA) down to 320px. Docs, Pricing
+     and Sign in open from the toggle as a panel under the header, over the
+     page, so nothing below moves. Below 23rem the CTA drops " free" and
+     a little padding (the hero's CTA, just below, keeps the full label). Without JavaScript (no
+     `js` class) the toggle stays hidden and the links take their own row.
+     From 40rem up everything sits inline. */
   .site-header {
+    position: relative;
     border-bottom: 1px solid var(--hairline);
   }
   .header-inner {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.75rem 1.5rem;
+    gap: 0.75rem 0.5rem;
     padding-block: 0.875rem;
   }
   .home {
     display: inline-flex;
+    margin-inline-end: auto;
     padding-block: 0.25rem;
     text-decoration: none;
   }
   .cta {
-    margin-inline-start: auto;
+    padding-inline: 0.75rem;
+    white-space: nowrap;
+  }
+  .cta-free {
+    display: none;
   }
   .nav {
     order: 3;
     flex-basis: 100%;
+  }
+  .menu-toggle {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    border: 1px solid var(--hairline-strong);
+    background: transparent;
+    color: var(--fg);
+    cursor: pointer;
+  }
+  .menu-toggle:hover,
+  .menu-toggle[aria-expanded="true"] {
+    background: var(--bg-sunken);
   }
   .nav ul {
     display: flex;
@@ -66,14 +120,76 @@ import Logo from "./Logo.astro";
     color: var(--fg);
     text-decoration: underline;
   }
+
+  :global(.js) .nav {
+    order: 0;
+    flex-basis: auto;
+  }
+  :global(.js) .menu-toggle {
+    display: inline-flex;
+  }
+  :global(.js) .nav ul {
+    position: absolute;
+    inset-inline: 0;
+    top: 100%;
+    z-index: 10;
+    display: none;
+    flex-direction: column;
+    gap: 0;
+    padding: 0.25rem var(--gutter) 0.75rem;
+    background: var(--bg);
+    border-block: 1px solid var(--hairline);
+  }
+  :global(.js) .menu-toggle[aria-expanded="true"] + ul {
+    display: flex;
+  }
+  :global(.js) .nav ul a {
+    display: block;
+    padding-block: 0.75rem;
+    font-size: 1rem;
+  }
+
+  @media (min-width: 23rem) {
+    .cta {
+      padding-inline: 0.875rem;
+    }
+    .cta-free {
+      display: inline;
+    }
+  }
+
   @media (min-width: 40rem) {
-    .nav {
+    .header-inner {
+      gap: 0.75rem 1.5rem;
+    }
+    .home {
+      margin-inline-end: 0;
+    }
+    .nav,
+    :global(.js) .nav {
       order: 0;
       flex-basis: auto;
       margin-inline-start: auto;
     }
-    .cta {
-      margin-inline-start: 0;
+    .menu-toggle,
+    :global(.js) .menu-toggle {
+      display: none;
+    }
+    .nav ul,
+    :global(.js) .nav ul,
+    :global(.js) .menu-toggle[aria-expanded="true"] + ul {
+      position: static;
+      display: flex;
+      flex-direction: row;
+      gap: 0.25rem 1.25rem;
+      padding: 0;
+      background: none;
+      border: 0;
+    }
+    :global(.js) .nav ul a {
+      display: inline-block;
+      padding-block: 0.375rem;
+      font-size: 0.9375rem;
     }
   }
 </style>
