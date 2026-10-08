@@ -161,9 +161,13 @@ cd apps/dashboard && for env in preview prod; do echo $env; pnpm exec wrangler s
 
 ## 4. Google
 
-**Owner.** Four separate tracks; only the fourth gates the launch.
+**Owner.** Four separate tracks; only the fourth gates the launch. Tracks 1
+and 2 are written out step by step, with draft answers for the application
+form, the scope justification and the demo video script, in
+[`google-access.md`](google-access.md); read its "Risks to settle before
+applying" first.
 
-1. [ ] **Business Profile API access (#44).** File it **now**; lead time 1–6 weeks and nothing else on this page waits for it. Steps and the exact wording are in the issue. Verify: Cloud Console → APIs & Services → Business Profile APIs → Quotas shows 300 QPM (was 0); record the case number in #44.
+1. [ ] **Business Profile API access (#44).** File it **now**; lead time 1–6 weeks and nothing else on this page waits for it. Steps and the exact wording: [`google-access.md`](google-access.md) §1–3 (eligibility through a partner business's profile, since ProofQL has none of its own). Verify: Cloud Console → APIs & Services → Business Profile APIs → Quotas shows 300 QPM (was 0); record the case number in #44.
 2. [ ] **OAuth verification (scope §7.2).** Needed before the public can connect Google accounts through the connector (#45) — not before launch, because the connector ships behind #44 anyway. Prerequisites it will ask for, all produced here: the homepage (`https://proofql.dev`, §2), the privacy policy and terms URLs (§5), a demo video of the connect flow (record once #45 is on preview), and the sensitive scope `https://www.googleapis.com/auth/business.manage` with its justification ("read the business's own reviews, with its consent, to display them on its own website"). The connector's OAuth client (infra/provisioning.md "Track 2") lists exactly two authorised redirect URIs: the preview `workers.dev` one and, for prod, **`https://app.proofql.dev/app/integrations/google/callback`**; add `proofql.dev` under the consent screen's **Authorised domains**. Click path: Cloud Console → APIs & Services → OAuth consent screen → Publishing status → **Publish app** → **Prepare for verification**. Verify: the consent screen status reads *In production* with no "unverified app" warning on the connect flow.
 3. [ ] **Places API key (#47).** Provisioning step 14; §3 sets it. Verify: the prod dashboard → a project → Import → "Find your business on Google" shows a search box, not "Not configured"; a search logs `places.searched`.
 4. [ ] **Places retention decision (#116).** Decide before Go, record the decision in `docs/places.md` "Terms and attribution" and close #116. Recommendation (from the issue): option 2 — expire bootstrap-only rows after 30 days unless the connector has re-imported them; that is a small pipeline sweep, filed as its own task when you decide. If you choose option 1, paste the source (Google support reply or the terms text) into the doc. Verify: #116 closed; `docs/places.md` no longer says "Open point for the owner".
