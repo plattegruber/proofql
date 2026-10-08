@@ -5,7 +5,12 @@
  *
  * Form data arrives as strings; these schemas own the coercion.
  */
-import { DEFAULT_SIMILARITY_FLOOR } from "@proofql/core";
+import {
+  BUSINESS_CATEGORIES,
+  type BusinessCategory,
+  CATEGORY_TABLE,
+  DEFAULT_SIMILARITY_FLOOR,
+} from "@proofql/core";
 import { z } from "zod";
 
 // --- Slugs -----------------------------------------------------------------
@@ -66,6 +71,27 @@ export const SIMILARITY_FLOOR_MIN = 0.3;
 export const SIMILARITY_FLOOR_MAX = 0.9;
 export const SIMILARITY_FLOOR_STEP = 0.01;
 
+/**
+ * The Settings picker's business categories (#151): the core table's keys
+ * and labels, alphabetical by label, after "Not set" (stored as null).
+ */
+export const CATEGORY_OPTIONS: readonly { value: string; label: string }[] = [
+  { value: "", label: "Not set" },
+  ...[...BUSINESS_CATEGORIES]
+    .sort((a, b) =>
+      CATEGORY_TABLE[a].label.localeCompare(CATEGORY_TABLE[b].label, "en"),
+    )
+    .map((category) => ({
+      value: category,
+      label: CATEGORY_TABLE[category].label,
+    })),
+];
+
+const categoryValues = BUSINESS_CATEGORIES as [
+  BusinessCategory,
+  ...BusinessCategory[],
+];
+
 export const projectSettingsSchema = z.object({
   name: projectNameSchema,
   slug: projectSlugSchema,
@@ -86,6 +112,13 @@ export const projectSettingsSchema = z.object({
     )
     // Two decimals is the input's step; stored as double precision.
     .transform((value) => Math.round(value * 100) / 100),
+  // "" (Not set) is null; anything else must be a key of the core table.
+  category: z
+    .union([z.literal(""), z.enum(categoryValues)], {
+      message: "Pick a category from the list.",
+    })
+    .default("")
+    .transform((value): BusinessCategory | null => value || null),
 });
 
 export type ProjectSettingsInput = z.infer<typeof projectSettingsSchema>;

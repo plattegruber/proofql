@@ -117,6 +117,7 @@ describe("updateProjectSettings", () => {
       slug: "after",
       minRating: p.minRating,
       similarityFloor: p.similarityFloor,
+      category: p.category,
     });
     expect(renamed.ok && renamed.policyChanged).toBe(false);
     expect(renamed.ok && renamed.project.slug).toBe("after");
@@ -126,12 +127,34 @@ describe("updateProjectSettings", () => {
       slug: "after",
       minRating: 3,
       similarityFloor: 0.6,
+      category: null,
     });
     expect(policy.ok && policy.policyChanged).toBe(true);
     expect(policy.ok && policy.project).toMatchObject({
       minRating: 3,
       similarityFloor: 0.6,
     });
+
+    // The category picks the generic query words (#151): a policy change.
+    const category = await updateProjectSettings(t.db, ids, {
+      name: "Renamed",
+      slug: "after",
+      minRating: 3,
+      similarityFloor: 0.6,
+      category: "roofing",
+    });
+    expect(category.ok && category.policyChanged).toBe(true);
+    expect(category.ok && category.project.category).toBe("roofing");
+
+    const cleared = await updateProjectSettings(t.db, ids, {
+      name: "Renamed",
+      slug: "after",
+      minRating: 3,
+      similarityFloor: 0.6,
+      category: null,
+    });
+    expect(cleared.ok && cleared.policyChanged).toBe(true);
+    expect(cleared.ok && cleared.project.category).toBeNull();
   });
 
   it("reports a taken slug and refuses another account's project", async () => {
@@ -142,6 +165,7 @@ describe("updateProjectSettings", () => {
       name: "One",
       minRating: 4,
       similarityFloor: 0.55,
+      category: null,
     };
     expect(
       await updateProjectSettings(

@@ -24,6 +24,8 @@ export interface FakeLocation {
   /** `metadata.hasVoiceOfMerchant` — the verified signal the fake models. */
   verified: boolean;
   placeId: string;
+  /** Business Profile category id (`gcid:dentist`), under `categories` (#151). */
+  primaryCategory?: string;
 }
 
 export interface FakeReviewReply {

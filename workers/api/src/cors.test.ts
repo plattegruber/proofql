@@ -20,6 +20,7 @@ function auth(
       allowedOrigins,
       minRating: 4,
       similarityFloor: 0.55,
+      category: null,
     },
   };
 }

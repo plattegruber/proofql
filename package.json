@@ -17,6 +17,7 @@
     "db:purge-accounts": "pnpm --filter @proofql/db db:purge-accounts",
     "db:reindex": "pnpm --filter @proofql/db db:reindex",
     "db:tune-floor": "pnpm --filter @proofql/db db:tune-floor",
+    "db:floor-local": "pnpm --filter @proofql/db db:floor-local",
     "seed": "pnpm --filter @proofql/db seed",
     "demo": "bash scripts/demo.sh",
     "lint": "turbo run lint && pnpm openapi:lint && pnpm lint:sh",

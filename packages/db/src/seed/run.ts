@@ -48,6 +48,7 @@ import {
   DEMO_ACCOUNT_ID,
   DEMO_ACCOUNT_NAME,
   DEMO_ALLOWED_ORIGINS,
+  DEMO_PROJECT_CATEGORY,
   DEMO_PROJECT_ID,
   DEMO_PROJECT_NAME,
   DEMO_PROJECT_SLUG,
@@ -138,6 +139,7 @@ export async function runSeed(
       accountId: DEMO_ACCOUNT_ID,
       name: DEMO_PROJECT_NAME,
       slug: DEMO_PROJECT_SLUG,
+      category: DEMO_PROJECT_CATEGORY,
       allowedOrigins: [...DEMO_ALLOWED_ORIGINS],
       reviewCount: liveCount,
     });

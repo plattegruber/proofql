@@ -40,6 +40,7 @@ const auth: AuthContext = {
     allowedOrigins: ["https://shop.example"],
     minRating: 4,
     similarityFloor: 0.55,
+    category: null,
   },
 };
 
@@ -172,6 +173,12 @@ describe("isAuthCacheEntry", () => {
   it("accepts a complete entry, and one whose generation was unknown (-1)", () => {
     expect(isAuthCacheEntry(good)).toBe(true);
     expect(isAuthCacheEntry({ ...good, generation: -1 })).toBe(true);
+    expect(
+      isAuthCacheEntry({
+        ...good,
+        auth: { ...auth, project: { ...auth.project, category: "roofing" } },
+      }),
+    ).toBe(true);
   });
 
   it.each([
@@ -194,6 +201,29 @@ describe("isAuthCacheEntry", () => {
       {
         ...good,
         auth: { ...auth, project: { ...auth.project, minRating: "4" } },
+      },
+    ],
+    [
+      "category",
+      {
+        ...good,
+        auth: { ...auth, project: { ...auth.project, category: 3 } },
+      },
+    ],
+    [
+      // Cached before #151: read the key again rather than search without
+      // the project's generic words.
+      "missing category",
+      {
+        ...good,
+        auth: {
+          ...auth,
+          project: {
+            allowedOrigins: auth.project.allowedOrigins,
+            minRating: auth.project.minRating,
+            similarityFloor: auth.project.similarityFloor,
+          },
+        },
       },
     ],
     ["project", { ...good, auth: { ...auth, project: null } }],

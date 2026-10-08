@@ -45,7 +45,7 @@ CLOUDFLARE_ENV=preview pnpm --filter @proofql/dashboard build && pnpm --filter @
 | `app/routes/app.projects.$slug.integrations.google.connect.ts`, `app/routes/app.integrations.google.callback.ts` | The OAuth flow (#45): `connect` mints PKCE + a single-use KV nonce and 302s to Google; `callback` (one URI per environment) verifies the signed state, exchanges the code, stores AES-GCM credentials, discovers locations. |
 | `app/lib/google.server.ts` | `beginConnect` / `completeConnect` / location save / disconnect over `@proofql/google` — [`docs/google.md`](../../docs/google.md) "Connecting". |
 | `test/fake-google-server.ts` | The fake Google server on an ephemeral port for the integration tests (a Node adapter over the Hono app). |
-| `app/routes/app.projects.$slug.settings.tsx` | Settings tab (#41): `min_rating`, `similarity_floor`, name, slug; saving bumps the project's cache generation (`CACHE` KV). Danger: delete with typed-slug confirm. |
+| `app/routes/app.projects.$slug.settings.tsx` | Settings tab (#41): `min_rating`, `similarity_floor`, business `category` (#151; picks the generic query words), name, slug; saving bumps the project's cache generation (`CACHE` KV). Danger: delete with typed-slug confirm. |
 | `app/components/` | Shell (top bar, left nav, page header), `ui/` primitives (button, badge, card, skeleton, link tabs, input, select, toaster, copy button), `form/` (field, submit button, inline confirm). |
 
 ## Where limits live

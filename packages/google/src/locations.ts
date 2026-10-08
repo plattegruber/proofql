@@ -30,6 +30,12 @@ export const mappedLocationSchema = z.object({
   enabled: z.boolean(),
   /** Google Maps place id when discovery saw one; derives the review URL. */
   placeId: z.string().optional(),
+  /**
+   * The location's primary Business Profile category
+   * (`categories/gcid:dentist`) when discovery saw one; sets
+   * `projects.category` while it is null (#151).
+   */
+  primaryCategory: z.string().optional(),
 });
 export type MappedLocation = z.infer<typeof mappedLocationSchema>;
 

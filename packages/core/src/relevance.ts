@@ -16,8 +16,8 @@ export const DEFAULT_SIMILARITY_FLOOR = 0.66;
 /**
  * The lexical tier of the floor (#138 follow-up). A chunk that also
  * matches the query's words — at least half of its content words that are
- * not in `GENERIC_QUERY_WORDS`, or every term (#147; `lexicalMatchSql` in
- * `@proofql/db`) — passes at the project floor minus this offset;
+ * not generic for the project's category (`genericQueryWords`, #151), or
+ * every term (#147; `lexicalMatchSql` in `@proofql/db`) — passes at the project floor minus this offset;
  * everything else needs the floor itself.
  *
  * Why: bge-m3 scores a bare keyword low against a sentence ("veneers"
@@ -40,17 +40,6 @@ export function lexicalFloorFor(similarityFloor: number): number {
 }
 
 /**
- * Words too generic to count as evidence on their own in a dental
- * corpus (#147): a query sharing only these with a review has not
- * matched it. The lexical tier's partial-match rule ignores them when it
- * counts how many of the query's words a chunk contains
- * (`lexicalMatchSql` in `@proofql/db`). Space-separated, stemmed by
- * Postgres with the corpus's English config. Per-project lists are a
- * later step.
- */
-export const GENERIC_QUERY_WORDS = "dental dentist teeth review office";
-
-/**
  * Which word-match rule decides the lexical tier (#147); the SQL for each
  * is `lexicalMatchSql` in `@proofql/db`, and `pnpm db:tune-floor
  * --annotate --lexical-rule <rule>` measures any of them offline.
@@ -60,7 +49,8 @@ export type LexicalRule = (typeof LEXICAL_RULES)[number];
 
 /**
  * The rule the search applies: at least half of the query's content words
- * outside {@link GENERIC_QUERY_WORDS}, or every term. Chosen on the
+ * that are not generic for the project's category (`genericQueryWords` in
+ * `./categories.ts`, #151), or every term. Chosen on the
  * relevance fixtures in #147 (`docs/performance.md` §5): 30/35 answerable
  * queries answered at 0.66 / 0.53, against 27/35 for `all`.
  */

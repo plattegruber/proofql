@@ -1,9 +1,11 @@
 // Pure project rules: slug derivation, origin normalization, and the form
 // schemas the actions parse with. No DB — the constraints those rules feed
 // are exercised in projects.server.integration.test.ts.
+import { BUSINESS_CATEGORIES } from "@proofql/core";
 import { describe, expect, it } from "vitest";
 
 import {
+  CATEGORY_OPTIONS,
   createProjectSchema,
   normalizeOrigin,
   originSchema,
@@ -97,6 +99,44 @@ describe("projectSettingsSchema", () => {
       similarity_floor: "high",
     });
     expect(parsed.success).toBe(false);
+  });
+
+  it("reads the business category: a table key, or empty for none (#151)", () => {
+    const policy = { ...base, min_rating: "4", similarity_floor: "0.66" };
+    const roofing = projectSettingsSchema.safeParse({
+      ...policy,
+      category: "roofing",
+    });
+    expect(roofing.success && roofing.data.category).toBe("roofing");
+    const unset = projectSettingsSchema.safeParse({ ...policy, category: "" });
+    expect(unset.success && unset.data.category).toBeNull();
+    // An older form without the field leaves it unset.
+    const missing = projectSettingsSchema.safeParse(policy);
+    expect(missing.success && missing.data.category).toBeNull();
+    const bogus = projectSettingsSchema.safeParse({
+      ...policy,
+      category: "roofing_contractor",
+    });
+    expect(bogus.success).toBe(false);
+    if (!bogus.success) {
+      expect(bogus.error.issues[0]?.message).toBe(
+        "Pick a category from the list.",
+      );
+    }
+  });
+});
+
+describe("CATEGORY_OPTIONS", () => {
+  it("offers Not set first, then every category by label", () => {
+    expect(CATEGORY_OPTIONS[0]).toEqual({ value: "", label: "Not set" });
+    const rest = CATEGORY_OPTIONS.slice(1);
+    expect(rest.map((o) => o.value).sort()).toEqual(
+      [...BUSINESS_CATEGORIES].sort(),
+    );
+    const labels = rest.map((o) => o.label);
+    expect(labels).toEqual(
+      [...labels].sort((a, b) => a.localeCompare(b, "en")),
+    );
   });
 });
 

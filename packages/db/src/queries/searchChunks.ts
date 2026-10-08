@@ -56,7 +56,9 @@
  *   lower *lexical floor* (`lexicalFloorFor(similarityFloor)` from
  *   `@proofql/core`, the floor minus 0.13) **and** it matches the query's
  *   words: at least half of the query's content words that are not
- *   generic (`GENERIC_QUERY_WORDS`) are in the chunk, or the text branch
+ *   generic for the project's category (`policy.category`,
+ *   `genericQueryWords` in `@proofql/core`, #151) are in the chunk, or the
+ *   text branch
  *   matched it outright (`./lexicalMatch.ts`, rule `half-specific`, #147).
  *   So "dental implants" passes on an implant review that never says
  *   "dental". Everything else is dropped before the collapse, so a chunk that
@@ -120,7 +122,7 @@
  */
 
 import {
-  GENERIC_QUERY_WORDS,
+  genericQueryWords,
   LEXICAL_RULE,
   lexicalFloorFor,
 } from "@proofql/core";
@@ -147,6 +149,13 @@ export interface SearchPolicy {
    * (module doc). Ignored in no-query mode.
    */
   similarityFloor: number;
+  /**
+   * The project's business category (`projects.category`, #151): picks the
+   * generic words the partial word match ignores (`genericQueryWords`).
+   * Null, absent, or a key this build does not know: the universal words
+   * only.
+   */
+  category?: string | null | undefined;
 }
 
 export interface SearchFilters {
@@ -406,7 +415,12 @@ function hybridStatement(
   // ranking branch's every-term match. Only rows already in `vec` (at or
   // above the lexical floor by default) pay for it.
   const lexical = queryText
-    ? lexicalMatchSql(sql`v.tsv`, queryText, LEXICAL_RULE, GENERIC_QUERY_WORDS)
+    ? lexicalMatchSql(
+        sql`v.tsv`,
+        queryText,
+        LEXICAL_RULE,
+        genericQueryWords(params.policy.category),
+      )
     : sql`false`;
 
   const textBranch = queryText

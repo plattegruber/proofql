@@ -61,6 +61,15 @@
  *   --lexical-rule <r> with --annotate: which word-match rule to apply
  *                      (`all`, `any`, `half`, `half-specific`; default the
  *                      one `searchChunks` uses, `LEXICAL_RULE` in @proofql/core)
+ *   --category <c>     with --annotate: the business category whose generic
+ *                      words `half-specific` ignores (#151; a key of
+ *                      `CATEGORY_TABLE`, or `none` for the universal words
+ *                      only; default the demo project's, `dental`). The
+ *                      words used are recorded as `source.generic_words`.
+ *   --generic-words <w> with --annotate: an explicit space-separated list
+ *                      instead of a category's (e.g. the pre-#151 constant
+ *                      "dental dentist teeth review office"), to measure a
+ *                      candidate list before it goes in the table
  *   --two-tier         with --replay: grid-search a two-tier floor (a chunk
  *                      passes at `high`, or at `low` when it is lexical) over
  *                      high 0.62–0.70 × low 0.50–0.60 and rank the pairs
@@ -88,14 +97,19 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 import {
-  GENERIC_QUERY_WORDS,
+  BUSINESS_CATEGORIES,
+  DEFAULT_SIMILARITY_FLOOR,
+  genericQueryWords,
+  isBusinessCategory,
   LEXICAL_RULE,
   LEXICAL_RULES,
   type LexicalRule,
+  lexicalFloorFor,
 } from "@proofql/core";
 import { sql as drizzleSql } from "drizzle-orm";
 
 import { lexicalMatchSql } from "../src/queries/lexicalMatch.js";
+import { DEMO_PROJECT_CATEGORY } from "../src/seed/constants.js";
 import {
   RELEVANCE_QUERIES,
   type RelevanceQuery,
@@ -141,6 +155,8 @@ export interface SavedRun {
     readonly project_floor?: number;
     /** The project's lexical floor during the run, when two-tier is live. */
     readonly project_lexical_floor?: number;
+    /** The generic words the last `--annotate` applied (#151). */
+    readonly generic_words?: string;
   };
   readonly queries: readonly (ObservedQuery & {
     readonly rows: readonly SavedRow[];
@@ -481,7 +497,11 @@ function optionalFloor(name: string, value: string | undefined) {
  * search's full-text branch uses. Exact as long as the corpus was not
  * re-indexed since the run (the script refuses rows whose chunk is gone).
  */
-async function annotate(path: string, rule: LexicalRule): Promise<void> {
+async function annotate(
+  path: string,
+  rule: LexicalRule,
+  genericWords: string,
+): Promise<void> {
   const url = process.env.DATABASE_URL;
   if (!url) usage("--annotate needs DATABASE_URL (the database the api reads)");
   const run = JSON.parse(readFileSync(path, "utf8")) as SavedRun;
@@ -499,7 +519,7 @@ async function annotate(path: string, rule: LexicalRule): Promise<void> {
       }
       const found = await db.execute<{ id: string; lexical: boolean }>(
         drizzleSql`
-          SELECT id, ${lexicalMatchSql(drizzleSql`tsv`, query.q, rule, GENERIC_QUERY_WORDS)} AS lexical
+          SELECT id, ${lexicalMatchSql(drizzleSql`tsv`, query.q, rule, genericWords)} AS lexical
           FROM review_chunks
           WHERE id IN (${drizzleSql.join(
             (ids as string[]).map((id) => drizzleSql`${id}::uuid`),
@@ -520,10 +540,15 @@ async function annotate(path: string, rule: LexicalRule): Promise<void> {
       });
       queries.push({ ...query, rows });
     }
-    const next: SavedRun = { ...run, queries, summary: computeCurve(queries) };
+    const next: SavedRun = {
+      ...run,
+      source: { ...run.source, generic_words: genericWords },
+      queries,
+      summary: computeCurve(queries),
+    };
     writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
     console.log(
-      `db:tune-floor: annotated ${marked} rows (${lexical} lexical, rule ${rule}) in ${path}`,
+      `db:tune-floor: annotated ${marked} rows (${lexical} lexical, rule ${rule}, generic "${genericWords}") in ${path}`,
     );
   } finally {
     await sql.end();
@@ -556,6 +581,25 @@ function reportTwoTier(run: SavedRun): void {
   );
   console.log(header);
   for (const p of grid.ranked.slice(0, 5)) console.log(line(p));
+  // The pair the search ships (#151: compare runs at the same setting).
+  const high = DEFAULT_SIMILARITY_FLOOR;
+  const low = lexicalFloorFor(high);
+  const shipped = grid.points.find(
+    (p) => Math.abs(p.high - high) < 1e-9 && Math.abs(p.low - low) < 1e-9,
+  );
+  if (shipped) {
+    console.log("\nShipped pair (DEFAULT_SIMILARITY_FLOOR / lexicalFloorFor):");
+    console.log(header);
+    console.log(line(shipped));
+    console.log(
+      `\nFailing fixtures at ${high.toFixed(2)} / ${low.toFixed(2)}:`,
+    );
+    for (const v of verdictsWith(run.queries, twoTier(high, low)).filter(
+      (x) => !isClean(x),
+    )) {
+      console.log(describe(v));
+    }
+  }
   if (flatPoint) {
     console.log("\nFlat baseline (the lowest safe flat floor):");
     console.log(header);
@@ -697,6 +741,8 @@ async function main(): Promise<void> {
       annotate: { type: "string" },
       "two-tier": { type: "boolean", default: false },
       "lexical-rule": { type: "string", default: LEXICAL_RULE },
+      category: { type: "string" },
+      "generic-words": { type: "string" },
       rerank: { type: "boolean", default: false },
     },
   });
@@ -709,7 +755,21 @@ async function main(): Promise<void> {
     if (!LEXICAL_RULES.includes(rule)) {
       usage(`--lexical-rule must be one of ${LEXICAL_RULES.join(", ")}`);
     }
-    await annotate(resolve(INVOKED_FROM, values.annotate), rule);
+    const explicit = values["generic-words"]?.trim();
+    if (explicit !== undefined && values.category !== undefined) {
+      usage("pass --category or --generic-words, not both");
+    }
+    const category = values.category ?? DEMO_PROJECT_CATEGORY;
+    if (category !== "none" && !isBusinessCategory(category)) {
+      usage(
+        `--category must be none or one of ${BUSINESS_CATEGORIES.join(", ")}`,
+      );
+    }
+    await annotate(
+      resolve(INVOKED_FROM, values.annotate),
+      rule,
+      explicit ?? genericQueryWords(category === "none" ? null : category),
+    );
     return;
   }
 
