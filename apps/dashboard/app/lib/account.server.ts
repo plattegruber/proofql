@@ -12,8 +12,8 @@
  *     `redirect_url` back). No active Organization ⇒ redirect to
  *     /app/workspace, which shows Clerk's create/select UI. Otherwise the
  *     `accounts` row for `clerk_org_id` is loaded, or created on the first
- *     authenticated load with the organization's name from Clerk's Backend
- *     API (the webhook keeps it fresh afterwards).
+ *     authenticated load with the organization's name and creator from
+ *     Clerk's Backend API (the webhook keeps the name fresh afterwards).
  *   - stub (no key, ENVIRONMENT "local"): the seeded demo account
  *     (`org_demo_proofql`, `pnpm seed`) with a fixed fake user id. Deliberately
  *     DB-backed rather than a constant so every query scopes to a real row.
@@ -59,8 +59,17 @@ export interface SessionAuth {
 export interface RequireAccountDeps {
   getAuth: (args: RequireAccountArgs) => Promise<SessionAuth>;
   withDb: WithDb;
-  /** Organization display name from Clerk; null when unavailable. */
-  fetchOrganizationName: (env: Env, orgId: string) => Promise<string | null>;
+  /** Organization name and creator from Clerk; null when unavailable. */
+  fetchOrganization: (
+    env: Env,
+    orgId: string,
+  ) => Promise<OrganizationInfo | null>;
+}
+
+export interface OrganizationInfo {
+  name: string;
+  /** The Clerk user id that created the Organization, when Clerk says. */
+  createdBy: string | null;
 }
 
 export type RequireAccountArgs = Pick<LoaderFunctionArgs, "request"> & {
@@ -75,13 +84,13 @@ const defaultDeps: RequireAccountDeps = {
     return { userId: auth.userId, orgId: auth.orgId, orgSlug: auth.orgSlug };
   },
   withDb: withRequestDb,
-  fetchOrganizationName: async (env, orgId) => {
+  fetchOrganization: async (env, orgId) => {
     try {
       const clerk = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
       const org = await clerk.organizations.getOrganization({
         organizationId: orgId,
       });
-      return org.name;
+      return { name: org.name, createdBy: org.createdBy ?? null };
     } catch {
       return null;
     }
@@ -143,11 +152,17 @@ export async function requireAccount(
     // 30-day grace: the upsert clears the mark. Once the pipeline's daily
     // purge has hard-deleted it (#169) there is no row, and the upsert
     // creates a new, empty account for the organization — by design.
-    const name =
-      (await deps.fetchOrganizationName(env, orgId)) ??
-      auth.orgSlug ??
-      "Workspace";
-    return upsertAccountByClerkOrgId(db, { clerkOrgId: orgId, name });
+    const org = await deps.fetchOrganization(env, orgId);
+    const name = org?.name ?? auth.orgSlug ?? "Workspace";
+    // The creator, for the per-person free allowance (projects.server.ts).
+    // Without Clerk's answer, the first signed-in loader of a new workspace
+    // is its creator: Clerk's create flow lands them here.
+    const createdByUserId = org?.createdBy ?? auth.userId;
+    return upsertAccountByClerkOrgId(db, {
+      clerkOrgId: orgId,
+      name,
+      createdByUserId,
+    });
   });
 
   return { account, orgId, userId: auth.userId, mode };

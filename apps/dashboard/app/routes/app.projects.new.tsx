@@ -18,7 +18,11 @@ import { getCloudflare } from "~/lib/context";
 import { withRequestDb } from "~/lib/db.server";
 import { setFlash } from "~/lib/flash.server";
 import { type FieldErrors, parseForm } from "~/lib/forms.server";
-import { createProjectSchema, slugify } from "~/lib/projects";
+import {
+  createProjectSchema,
+  elsewhereLimitMessage,
+  slugify,
+} from "~/lib/projects";
 import { createProject, projectQuota } from "~/lib/projects.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/app.projects.new";
@@ -53,7 +57,8 @@ export async function action(args: Route.ActionArgs) {
         ? { slug: ["Another project in this account already uses this slug."] }
         : {
             "": [
-              `Your ${planLabel(account.plan)} plan allows ${pluralProjects(result.quota?.limit ?? 1)}. Upgrade at ${PRICING_URL} to add more.`,
+              (result.quota && elsewhereLimitMessage(result.quota)) ??
+                `Your ${planLabel(account.plan)} plan allows ${pluralProjects(result.quota?.limit ?? 1)}. Upgrade at ${PRICING_URL} to add more.`,
             ],
           };
     return data({ fieldErrors }, { status: 422 });
@@ -105,6 +110,9 @@ export default function NewProject({
                 {pluralProjects(quota.limit)} included; you have {quota.used}.
               </span>
             </p>
+            {elsewhereLimitMessage(quota) && (
+              <p className="m-0">{elsewhereLimitMessage(quota)}</p>
+            )}
             <p className="m-0">
               {plan === "free"
                 ? "The paid plan adds more projects, raises the review and query limits, and removes the snippet badge. Until billing opens, delete a project to make room."

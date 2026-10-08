@@ -108,18 +108,17 @@ describe("import step 1", () => {
     );
   });
 
-  it("marks the Places bootstrap not configured without a key", async () => {
-    renderUpload(undefined, {
+  it("does not offer the Places bootstrap without a key", async () => {
+    const { container } = renderUpload(undefined, {
       enabled: false,
       actionPath: "/app/projects/cedar-ridge-dental/places",
     });
-    const card = (
-      await screen.findByRole("heading", {
-        name: "Find your business on Google",
-      })
-    ).closest("section");
-    expect(card?.getAttribute("aria-disabled")).toBe("true");
-    expect(card?.textContent).toContain("Not configured in this environment.");
+    await screen.findByRole("heading", { name: "Import reviews" });
+    expect(
+      screen.queryByRole("heading", { name: "Find your business on Google" }),
+    ).toBeNull();
+    expect(container.textContent).not.toContain("Not configured");
+    expect(container.textContent).not.toContain("Google reviews below");
   });
 
   it("shows the action's error in the voice", async () => {

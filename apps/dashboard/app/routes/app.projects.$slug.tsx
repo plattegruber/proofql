@@ -9,7 +9,9 @@ import { PageHeader } from "~/components/shell/page-header";
 import { LinkTabs } from "~/components/ui/link-tabs";
 import { requireAccount } from "~/lib/account.server";
 import { findProjectBySlug } from "~/lib/accounts";
+import { getCloudflare } from "~/lib/context";
 import { withRequestDb } from "~/lib/db.server";
+import { connectorEnabled } from "~/lib/google.server";
 import type { Route } from "./+types/app.projects.$slug";
 
 export async function loader(args: Route.LoaderArgs) {
@@ -24,6 +26,10 @@ export async function loader(args: Route.LoaderArgs) {
       slug: project.slug,
       reviewCount: project.reviewCount,
     },
+    // The Integrations tab offers only the Google connector, which stays
+    // dark until Google approves API access (#44). Until then the tab is a
+    // dead end, so it is not shown; the route itself still answers.
+    showIntegrations: connectorEnabled(getCloudflare(args.context).env),
   };
 }
 
@@ -32,7 +38,7 @@ export const meta: Route.MetaFunction = ({ data }) => [
 ];
 
 export default function ProjectShell({ loaderData }: Route.ComponentProps) {
-  const { project } = loaderData;
+  const { project, showIntegrations } = loaderData;
   const base = `/app/projects/${project.slug}`;
   return (
     <>
@@ -54,7 +60,9 @@ export default function ProjectShell({ loaderData }: Route.ComponentProps) {
           { to: `${base}/import`, label: "Import" },
           { to: `${base}/playground`, label: "Playground" },
           { to: `${base}/keys`, label: "Keys" },
-          { to: `${base}/integrations`, label: "Integrations" },
+          ...(showIntegrations
+            ? [{ to: `${base}/integrations`, label: "Integrations" }]
+            : []),
           { to: `${base}/settings`, label: "Settings" },
         ]}
       />

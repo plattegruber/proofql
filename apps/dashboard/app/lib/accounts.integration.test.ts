@@ -57,6 +57,41 @@ describe("upsertAccountByClerkOrgId", () => {
   });
 });
 
+describe("upsertAccountByClerkOrgId — the creator", () => {
+  it("records the creator once and never moves it", async () => {
+    const created = await upsertAccountByClerkOrgId(t.db, {
+      clerkOrgId: "org_creator",
+      name: "Acme",
+      createdByUserId: "user_a",
+    });
+    expect(created.createdByUserId).toBe("user_a");
+    const renamed = await upsertAccountByClerkOrgId(t.db, {
+      clerkOrgId: "org_creator",
+      name: "Acme 2",
+      createdByUserId: "user_b",
+    });
+    expect(renamed.createdByUserId).toBe("user_a");
+    const noCreator = await upsertAccountByClerkOrgId(t.db, {
+      clerkOrgId: "org_creator",
+      name: "Acme 3",
+    });
+    expect(noCreator.createdByUserId).toBe("user_a");
+  });
+
+  it("fills a missing creator on a later upsert", async () => {
+    await upsertAccountByClerkOrgId(t.db, {
+      clerkOrgId: "org_late",
+      name: "Late",
+    });
+    const filled = await upsertAccountByClerkOrgId(t.db, {
+      clerkOrgId: "org_late",
+      name: "Late",
+      createdByUserId: "user_late",
+    });
+    expect(filled.createdByUserId).toBe("user_late");
+  });
+});
+
 describe("markAccountDeleted", () => {
   it("sets deleted_at once, and an upsert clears it again", async () => {
     await account(t.db, { clerkOrgId: "org_gone" });

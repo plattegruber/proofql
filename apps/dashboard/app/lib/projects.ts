@@ -154,3 +154,20 @@ export const originSchema = z.object({
     return result.origin;
   }),
 });
+
+/**
+ * The free plan's project allowance is per person (projects.server.ts
+ * `projectQuota`): projects in the other free workspaces the same person
+ * created count too. When those are what fills the allowance, say so —
+ * "1 project included; you have 0" would read as a bug. Null otherwise.
+ */
+export function elsewhereLimitMessage(quota: {
+  limit: number;
+  elsewhere: number;
+}): string | null {
+  if (quota.elsewhere <= 0) return null;
+  const allowance =
+    quota.limit === 1 ? "one project" : `${quota.limit} projects`;
+  const have = quota.elsewhere === 1 ? "one" : String(quota.elsewhere);
+  return `The Free plan includes ${allowance} per person, and you already have ${have} in another workspace you created. Delete it there to start one here, or ask us about the paid plan.`;
+}

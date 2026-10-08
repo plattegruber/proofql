@@ -27,6 +27,7 @@ import { requireAccount } from "~/lib/account.server";
 import { findProjectBySlug } from "~/lib/accounts";
 import { getCloudflare } from "~/lib/context";
 import { withRequestDb } from "~/lib/db.server";
+import { importPath } from "~/lib/import-paths";
 import {
   type Environment,
   HIDDEN_FILTERS,
@@ -49,10 +50,7 @@ import { cn } from "~/lib/utils";
 import type { Route } from "./+types/app.projects.$slug.reviews";
 
 /** The CSV upload (#38) lands as its own tab; until then the issue is the link. */
-export const CSV_IMPORT_HREF =
-  "https://github.com/plattegruber/proofql/issues/38";
-export const API_DOCS_HREF =
-  "https://github.com/plattegruber/proofql/blob/main/docs/api/README.md";
+export const API_DOCS_HREF = "https://docs.proofql.dev/api";
 
 export function toTableRow(row: ReviewListRow): ReviewTableRow {
   return {
@@ -277,9 +275,10 @@ export default function ProjectReviews({ loaderData }: Route.ComponentProps) {
             title="No reviews yet"
             body={
               <>
-                Reviews arrive by CSV upload, the push API, or a connected
-                Google account. Upload a CSV from the{" "}
-                <a href={CSV_IMPORT_HREF}>import tab</a> or send a batch to{" "}
+                Reviews arrive by file import or the push API. Upload a CSV or
+                JSON export from the{" "}
+                <a href={importPath(project.slug)}>Import tab</a> or send a
+                batch to{" "}
                 <code className="font-mono text-data">POST /v1/reviews</code>{" "}
                 with a {environment} secret key — see the{" "}
                 <a href={API_DOCS_HREF}>API docs</a>.
