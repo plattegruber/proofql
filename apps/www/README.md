@@ -1,6 +1,6 @@
 # @proofql/www
 
-The marketing site at `proofql.dev`: one static page built with Astro and deployed as an assets-only Cloudflare Worker (`proofql-www-<env>`, `wrangler.jsonc`), the same setup as the docs (`docs/site`). There is no client framework. The only script is the demo's tab switcher (about 1 KB, inlined).
+The marketing site at `proofql.dev`: one static page built with Astro and deployed as an assets-only Cloudflare Worker (`proofql-www-<env>`, `wrangler.jsonc`), the same setup as the docs (`docs/site`). There is no client framework. The scripts are small and inlined: the demo's tab switcher, the header's phone menu, and the logo's motion.
 
 ```sh
 pnpm --filter @proofql/www dev        # Astro dev server, http://localhost:4322
@@ -23,6 +23,7 @@ pnpm --filter @proofql/www exec wrangler deploy --dry-run --env preview
 | `src/components/Demo.astro` | "See it in action": an accessible tab switcher over the three example pages from the table. Each tab shows a mock service page on a reserved `.example` host, with the reviews block the snippet renders, the snippet tag, and the `/v1/query` request it sends. |
 | `src/lib/demo.ts` | The demo's example reviews. They were **written for the demo**, are labelled "Example reviews" on the page, and must never be presented as real customers. Authors are first name plus initial. |
 | `src/lib/reviews.ts` | Renders each reviews block **at build time with the snippet's own code** (`renderInto`, `readElementQuery`, `buildQueryUrl` from `packages/snippet/src`) against a happy-dom document. The page therefore carries the snippet's exact markup, including `<mark class="pq-mark">` on the matching sentence. `Demo.astro` imports the snippet's `styles.css`. Nothing calls the API. |
+| `src/components/Header.astro`, `src/scripts/menu.ts` | The header. Below 40rem it is one row down to 320px: the logo, a menu toggle (the WAI-ARIA disclosure pattern: `aria-expanded`, Escape closes and refocuses, a click outside closes), and the CTA, which drops " free" below 23rem. Docs, Pricing and Sign in open as a panel over the page, so nothing shifts. Without JavaScript the toggle is hidden and the links take their own row. |
 | `src/scripts/tabs.ts` | The WAI-ARIA tabs pattern: arrow keys, Home/End, roving tabindex. All panels share one grid cell, so switching tabs never changes the page height. Without JavaScript every panel shows and the tab list is hidden. |
 | `src/styles/global.css` | The product tokens (ink, one green, Space Grotesk and IBM Plex Mono, square corners) in light and dark, following `prefers-color-scheme`. |
 | `src/config.ts` | URLs (sign-up, sign-in, docs, legal) and the support address (`SUPPORT_EMAIL` at build time, else `DEFAULT_SUPPORT_EMAIL` from `@proofql/core`). |
@@ -30,7 +31,7 @@ pnpm --filter @proofql/www exec wrangler deploy --dry-run --env preview
 | `public/_headers`, `public/_redirects` | Security and cache headers for Workers Static Assets. `/pricing` redirects to the docs' Limits page, because `PRICING_URL` in `@proofql/core` is `https://proofql.dev/pricing`. |
 | `public/og.png`, `public/favicon.svg` | The 1200×630 social card and the favicon. Both show the static mark. The favicon is generated from `src/lib/mark.ts` (`markSvg`), and `test/creature.test.ts` checks that its outlines match. |
 | `scripts/check-site.mjs` | The site check, run after the build. It fails on: broken internal links or anchors, any third-party script, style or font, copy drift, CTAs pointing at the wrong targets, and demo panels without the "Example reviews" label or a highlighted match. |
-| `test/` | axe-core over the built pages in jsdom. WCAG AA contrast is computed for every token pair in both themes, since jsdom has no layout. Also unit tests for the tab switcher and for the creature's bounce curve, springs and blink. |
+| `test/` | axe-core over the built pages in jsdom. WCAG AA contrast is computed for every token pair in both themes, since jsdom has no layout. Also unit tests for the tab switcher, the header menu, and for the creature's bounce curve, springs and blink. |
 
 ## Deploy
 
