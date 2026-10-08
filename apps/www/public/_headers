@@ -1,9 +1,11 @@
 # Workers Static Assets headers (https://developers.cloudflare.com/workers/static-assets/headers/).
 # Hashed build output and the fonts never change under the same URL; pages
 # revalidate. The CSP allows only same-origin assets plus Astro's inlined
-# styles and module script (the demo's tab switcher).
+# styles and module script (the demo's tab switcher). HSTS without
+# includeSubDomains or preload, so no other host's HTTPS posture is decided here.
 
 /*
+  Strict-Transport-Security: max-age=31536000
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: DENY
