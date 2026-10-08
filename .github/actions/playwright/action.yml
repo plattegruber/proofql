@@ -1,0 +1,30 @@
+name: Playwright browsers (cached)
+description: >-
+  Chromium for the acceptance tests (e2e/), cached per Playwright version.
+  Run after ./.github/actions/setup (needs the installed @playwright/test).
+  On a cache hit only the system libraries are installed (apt, not cached).
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the Playwright version
+      id: version
+      shell: bash
+      run: echo "version=$(pnpm --filter @proofql/e2e exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Playwright browsers
+      id: cache
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ steps.version.outputs.version }}-chromium
+
+    - name: Install Chromium and its system dependencies
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: pnpm --filter @proofql/e2e exec playwright install --with-deps chromium
+
+    - name: Install Chromium's system dependencies
+      if: steps.cache.outputs.cache-hit == 'true'
+      shell: bash
+      run: pnpm --filter @proofql/e2e exec playwright install-deps chromium

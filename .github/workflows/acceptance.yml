@@ -1,0 +1,194 @@
+# Acceptance tests: the Playwright customer journey in e2e/ against a
+# deployed environment (e2e/README.md). Not a PR check — it needs Clerk keys
+# and a live deployment, and it spends real free-plan quota (5 reviews and a
+# few dozen requests per run, docs/launch.md §16).
+#
+#   Deploy succeeded on main  → the environment that run deployed
+#   workflow_dispatch         → the `target` input
+#   daily schedule            → both
+#
+# preview: signs up a throwaway Clerk test user (+clerk_test, code 424242)
+#          and deletes it afterwards. Secret: CLERK_SECRET_KEY_PREVIEW
+#          (repository secret; the Clerk development instance).
+# prod:    signs in the dedicated user (variable AT_PROD_EMAIL, default
+#          acceptance@proofql.dev); never signs up. Runs in the GitHub
+#          environment `acceptance-prod` (main only), whose secret
+#          CLERK_SECRET_KEY_PROD is the Clerk production instance's key; the
+#          job skips with a notice while that secret is empty.
+#
+# Artifacts are uploaded on failure, for preview only. The repository is
+# public, so its artifacts are too: preview's traces hold only what the
+# run's cleanup deletes; prod captures and uploads nothing, and its failures
+# are debugged from the log (playwright.config.ts).
+name: Acceptance
+
+on:
+  workflow_run:
+    workflows: [Deploy]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Environment to test
+        type: choice
+        required: true
+        default: preview
+        options: [preview, prod]
+  schedule:
+    # Daily, off the hour (scheduled runs queue up on the hour).
+    - cron: "23 7 * * *"
+
+permissions:
+  contents: read
+  # The gate reads the triggering Deploy run's jobs.
+  actions: read
+
+jobs:
+  # Which environments this event should test. For a Deploy run, whichever
+  # of deploy-preview / deploy-prod actually succeeded in it: a manual
+  # Deploy dispatch can target either, and workflow_run carries no inputs.
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      preview: ${{ steps.decide.outputs.preview }}
+      prod: ${{ steps.decide.outputs.prod }}
+      ref: ${{ steps.decide.outputs.ref }}
+    steps:
+      - name: Decide targets
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          INPUT_TARGET: ${{ inputs.target }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          preview=false
+          prod=false
+          ref="$GITHUB_SHA"
+          case "$EVENT" in
+            workflow_run)
+              ref="$RUN_SHA"
+              if [ "$RUN_CONCLUSION" = "success" ]; then
+                jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs" \
+                  --jq '.jobs[] | select(.conclusion == "success") | .name')"
+                if printf '%s\n' "$jobs" | grep -qx 'deploy-preview'; then preview=true; fi
+                if printf '%s\n' "$jobs" | grep -qx 'deploy-prod'; then prod=true; fi
+              fi
+              ;;
+            workflow_dispatch)
+              [ "$INPUT_TARGET" = "prod" ] && prod=true || preview=true
+              ;;
+            schedule)
+              preview=true
+              prod=true
+              ;;
+          esac
+          echo "preview=$preview prod=$prod ref=$ref"
+          {
+            echo "preview=$preview"
+            echo "prod=$prod"
+            echo "ref=$ref"
+          } >> "$GITHUB_OUTPUT"
+
+  preview:
+    needs: gate
+    if: needs.gate.outputs.preview == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # One run per environment at a time: two runs would race each other's
+    # cleanup. Never cancelled midway (that would skip the cleanup); the next
+    # run's start-of-run sweep catches anything a dead run left.
+    concurrency:
+      group: acceptance-preview
+      cancel-in-progress: false
+    env:
+      AT_TARGET: preview
+      WORKERS_SUBDOMAIN: ${{ vars.WORKERS_SUBDOMAIN }}
+      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY_PREVIEW }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.gate.outputs.ref }}
+      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/playwright
+      - name: Run the customer journey against preview
+        run: pnpm --filter @proofql/e2e at
+      # Drift the run worked around (e2e/lib/warnings.ts) must not pass
+      # silently: one warning annotation and one job-summary line each.
+      - name: Report acceptance warnings
+        if: always()
+        run: |
+          f=e2e/test-results/at-warnings.txt
+          [ -s "$f" ] || exit 0
+          sort -u "$f" | while IFS= read -r line; do
+            echo "::warning title=Acceptance (preview)::$line"
+            echo "- :warning: **preview:** $line" >> "$GITHUB_STEP_SUMMARY"
+          done
+      - name: Upload Playwright report and traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: acceptance-preview-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+          retention-days: 7
+
+  prod:
+    needs: gate
+    if: needs.gate.outputs.prod == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: acceptance-prod
+    concurrency:
+      group: acceptance-prod
+      cancel-in-progress: false
+    env:
+      AT_TARGET: prod
+      AT_PROD_EMAIL: ${{ vars.AT_PROD_EMAIL }}
+      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY_PROD }}
+    steps:
+      # Secrets cannot be read in `if:`; this step turns "empty" into an
+      # output the rest of the job keys off, so the job is green-but-skipped
+      # until the owner sets the secret.
+      - name: Check the prod Clerk secret is set
+        id: secret
+        run: |
+          if [ -z "$CLERK_SECRET_KEY" ]; then
+            echo "::notice title=Acceptance (prod) skipped::CLERK_SECRET_KEY_PROD is not set in the acceptance-prod environment (e2e/README.md)."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v7
+        if: steps.secret.outputs.present == 'true'
+        with:
+          ref: ${{ needs.gate.outputs.ref }}
+      - uses: ./.github/actions/setup
+        if: steps.secret.outputs.present == 'true'
+      - uses: ./.github/actions/playwright
+        if: steps.secret.outputs.present == 'true'
+      - name: Run the customer journey against prod
+        if: steps.secret.outputs.present == 'true'
+        run: pnpm --filter @proofql/e2e at
+      # Drift the run worked around (e2e/lib/warnings.ts) must not pass
+      # silently: one warning annotation and one job-summary line each.
+      - name: Report acceptance warnings
+        if: always() && steps.secret.outputs.present == 'true'
+        run: |
+          f=e2e/test-results/at-warnings.txt
+          [ -s "$f" ] || exit 0
+          sort -u "$f" | while IFS= read -r line; do
+            echo "::warning title=Acceptance (prod)::$line"
+            echo "- :warning: **prod:** $line" >> "$GITHUB_STEP_SUMMARY"
+          done
+      # No artifact for prod, on purpose: screenshots, traces, the HTML
+      # report and error-context snapshots could show a live pq_sk_live key
+      # or a Clerk session, and this public repository's artifacts are
+      # downloadable by anyone signed in to GitHub. Prod captures none of
+      # them (playwright.config.ts); the log names the failing step, the URL
+      # and the visible error text, with keys redacted.
