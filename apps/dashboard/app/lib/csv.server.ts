@@ -747,11 +747,14 @@ export async function findRun(db: Db, runId: string): Promise<IngestRun> {
   return run;
 }
 
-/** The run kinds the import pages show: uploads, Places bootstraps (#47) and Takeout imports. */
+/**
+ * The run kinds the import pages show: uploads (CSV/JSON, and Google
+ * Takeout imports, whose artifact ends in `.takeout.json`) and Places
+ * bootstraps (#47).
+ */
 export const DASHBOARD_RUN_KINDS: readonly IngestRun["kind"][] = [
   "csv",
   "places",
-  "takeout",
 ];
 
 /** A project's run of a dashboard kind, or 404 — never another tenant's. */

@@ -23,6 +23,7 @@ import { FormNotice } from "~/components/ui/field";
 import { requireAccount } from "~/lib/account.server";
 import { findProjectBySlug } from "~/lib/accounts";
 import { runImportInBackground } from "~/lib/background.server";
+import { getCloudflare } from "~/lib/context";
 import {
   errorReportExpired,
   findProjectRun,
@@ -38,7 +39,11 @@ import {
 } from "~/lib/import-paths";
 import { INDEXING_DEFERRED, INDEXING_PARAM } from "~/lib/indexing";
 import { takeoutPath } from "~/lib/takeout";
-import { type TakeoutRunDetails, takeoutDetails } from "~/lib/takeout.server";
+import {
+  isTakeoutRun,
+  loadTakeoutDetails,
+  type TakeoutRunDetails,
+} from "~/lib/takeout.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/app.projects.$slug.import.$runId";
 
@@ -84,15 +89,20 @@ export async function loader(args: Route.LoaderArgs) {
     project: { slug: project.slug, name: project.name },
     run: {
       id: run.id,
-      // `places` runs (#47) phrase the result differently and have no report.
-      kind: run.kind,
+      // `places` runs (#47) phrase the result differently and have no
+      // report; Takeout imports (csv runs with a `.takeout.json` artifact)
+      // have their own result line.
+      kind: isTakeoutRun(run) ? ("takeout" as const) : run.kind,
       environment: run.environment,
       startedAt: run.startedAt.toISOString(),
       finishedAt: run.finishedAt?.toISOString() ?? null,
       // Upload objects expire after UPLOAD_RETENTION_DAYS (#169).
       reportExpired: errorReportExpired(run),
       // Takeout runs: removed / replaced / star-only / stale (takeout.server.ts).
-      takeout: run.kind === "takeout" ? takeoutDetails(run) : null,
+      takeout: await loadTakeoutDetails(
+        getCloudflare(args.context).env.UPLOADS,
+        run,
+      ),
     },
     progress: view,
   };
@@ -101,12 +111,12 @@ export async function loader(args: Route.LoaderArgs) {
 /** `intent=resume`: pick a stalled run back up (uploads and Takeout; a Places run has no file). */
 export async function action(args: Route.ActionArgs) {
   const { project, run } = await loadRun(args);
-  if (
-    (run.kind === "csv" || run.kind === "takeout") &&
-    run.status === "running" &&
-    isStarted(run)
-  ) {
-    runImportInBackground(args.context, run.id, run.kind);
+  if (run.kind === "csv" && run.status === "running" && isStarted(run)) {
+    runImportInBackground(
+      args.context,
+      run.id,
+      isTakeoutRun(run) ? "takeout" : "csv",
+    );
   }
   return redirect(`${importPath(project.slug)}/${run.id}`);
 }

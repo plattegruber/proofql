@@ -26,10 +26,11 @@ import { errorReport, findProjectRun, ImportError } from "./csv.server";
 import {
   createTakeoutImport,
   hasTakeoutImport,
+  isTakeoutRun,
+  loadTakeoutDetails,
   MAX_TAKEOUT_PAYLOAD_BYTES,
   placesBootstrapSummary,
   runTakeoutImport,
-  takeoutDetails,
 } from "./takeout.server";
 
 const t = setupTestDb();
@@ -100,6 +101,7 @@ async function importPayload(
   return {
     outcome,
     run: outcome.run,
+    details: await loadTakeoutDetails(store, outcome.run),
     store,
     queue: recorder,
     kv,
@@ -123,12 +125,12 @@ async function googleRows(projectId: string, environment = "live") {
 describe("a first Takeout import", () => {
   it("imports every review with text, skips star-only ones, keeps replies out of text", async () => {
     const p = await project(t.db);
-    const { run, queue } = await importPayload(
+    const { run, queue, details } = await importPayload(
       p.id,
       buildTakeoutPayload(fixtureLocations(), true),
     );
     expect(run).toMatchObject({
-      kind: "takeout",
+      kind: "csv",
       status: "succeeded",
       received: 27,
       created: 25,
@@ -136,7 +138,7 @@ describe("a first Takeout import", () => {
       skipped: 2,
       failed: 0,
     });
-    expect(takeoutDetails(run)).toMatchObject({
+    expect(details).toMatchObject({
       complete: true,
       star_only: 2,
       stale: 0,
@@ -175,8 +177,12 @@ describe("a first Takeout import", () => {
       .from(schema.projects)
       .where(eq(schema.projects.id, p.id));
     expect(counted?.n).toBe(25);
-    expect(await findProjectRun(t.db, p.id, run.id).then((r) => r.kind)).toBe(
-      "takeout",
+    // An uploaded export (kind csv) marked as Takeout by its artifact.
+    const listed = await findProjectRun(t.db, p.id, run.id);
+    expect(listed.artifactKey).toMatch(/\.takeout\.json$/);
+    expect(isTakeoutRun(listed)).toBe(true);
+    expect(isTakeoutRun({ kind: "csv", artifactKey: "uploads/p/r.csv" })).toBe(
+      false,
     );
   });
 
@@ -237,7 +243,7 @@ describe("re-importing", () => {
       skipped: 2,
       failed: 0,
     });
-    expect(takeoutDetails(again.run)).toMatchObject({ removed: 0, stale: 0 });
+    expect(again.details).toMatchObject({ removed: 0, stale: 0 });
     // Nothing changed, so nothing is re-indexed.
     expect(again.queue.messages).toHaveLength(0);
     expect(await googleRows(p.id)).toHaveLength(25);
@@ -269,13 +275,13 @@ describe("re-importing", () => {
     });
 
     const kv = new MemoryKv();
-    const { run, queue } = await importPayload(
+    const { run, queue, details } = await importPayload(
       p.id,
       buildTakeoutPayload(newer, true),
       { kv },
     );
     expect(run).toMatchObject({ created: 1, updated: 24, skipped: 2 });
-    expect(takeoutDetails(run)?.removed).toBe(1);
+    expect(details?.removed).toBe(1);
     // The new review and the edited one are (re-)indexed.
     expect(queue.messages).toHaveLength(2);
     // Deleting rows invalidates the query cache once.
@@ -300,11 +306,11 @@ describe("re-importing", () => {
     edited.updateTime = "2025-09-01T09:00:00.000000Z";
     await importPayload(p.id, buildTakeoutPayload(newer, true));
 
-    const { run } = await importPayload(
+    const { run, details } = await importPayload(
       p.id,
       buildTakeoutPayload(locations, true),
     );
-    expect(takeoutDetails(run)?.stale).toBe(1);
+    expect(details?.stale).toBe(1);
     expect(run.skipped).toBe(3);
     const rows = await googleRows(p.id);
     expect(rows.find((r) => r.externalId.endsWith("/AbFvOq002Tk"))?.text).toBe(
@@ -320,11 +326,11 @@ describe("re-importing", () => {
     (subset[0] as TakeoutLocation).reviews = (
       subset[0] as TakeoutLocation
     ).reviews.slice(0, 3);
-    const { run } = await importPayload(
+    const { details } = await importPayload(
       p.id,
       buildTakeoutPayload(subset, false),
     );
-    expect(takeoutDetails(run)).toMatchObject({ complete: false, removed: 0 });
+    expect(details).toMatchObject({ complete: false, removed: 0 });
     expect(await googleRows(p.id)).toHaveLength(25);
   });
 });
@@ -375,11 +381,11 @@ describe("matching stored Google reviews", () => {
       externalId: "accounts/1009/locations/3003/reviews/OtherBranch",
       occurredAt: new Date("2025-03-01T00:00:00Z"),
     });
-    const { run } = await importPayload(
+    const { details } = await importPayload(
       p.id,
       buildTakeoutPayload(fixtureLocations(), true),
     );
-    expect(takeoutDetails(run)?.removed).toBe(1);
+    expect(details?.removed).toBe(1);
     const ids = (await googleRows(p.id)).map((r) => r.externalId);
     expect(ids).toContain("accounts/1009/locations/2001/reviews/AfterExport");
     expect(ids).toContain("accounts/1009/locations/3003/reviews/OtherBranch");
@@ -410,12 +416,12 @@ describe("superseding the Places bootstrap", () => {
     );
     expect(await hasTakeoutImport(t.db, p.id, "live")).toBe(false);
 
-    const { run } = await importPayload(
+    const { details } = await importPayload(
       p.id,
       buildTakeoutPayload(fixtureLocations(), true),
       { supersedePlaces: true },
     );
-    expect(takeoutDetails(run)?.places_removed).toBe(2);
+    expect(details?.places_removed).toBe(2);
     const places = await t.db
       .select({ environment: schema.reviews.environment })
       .from(schema.reviews)
@@ -441,11 +447,11 @@ describe("superseding the Places bootstrap", () => {
       projectId: p.id,
       externalId: "places/ChIJharbor/reviews/r0",
     });
-    const { run } = await importPayload(
+    const { details } = await importPayload(
       p.id,
       buildTakeoutPayload(fixtureLocations(), true),
     );
-    expect(takeoutDetails(run)?.places_removed).toBe(0);
+    expect(details?.places_removed).toBe(0);
     expect(
       (await googleRows(p.id)).some((r) => r.externalId.startsWith("places/")),
     ).toBe(true);
@@ -512,6 +518,22 @@ describe("refusals and failures", () => {
     expect(report.state === "ready" && report.csv).toContain(
       "accounts/1009/locations/2002/reviews/PlStRv000Qz",
     );
+  });
+
+  it("shows the counts alone once the details object has expired", async () => {
+    const p = await project(t.db);
+    const { run, store } = await importPayload(
+      p.id,
+      buildTakeoutPayload(fixtureLocations(), true),
+    );
+    expect(await loadTakeoutDetails(store, run)).not.toBeNull();
+    await store.delete(
+      (run.artifactKey as string).replace(
+        ".takeout.json",
+        ".takeout.details.json",
+      ),
+    );
+    expect(await loadTakeoutDetails(store, run)).toBeNull();
   });
 
   it("fails cleanly when the stored export has gone", async () => {

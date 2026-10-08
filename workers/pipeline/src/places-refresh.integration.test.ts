@@ -445,9 +445,20 @@ describe("refreshPlacesBootstraps", () => {
     await t.db.insert(ingestRuns).values({
       projectId: superseded.projectId,
       environment: "live",
-      kind: "takeout",
+      kind: "csv",
       status: "succeeded",
       received: 10,
+      artifactKey: `uploads/${superseded.projectId}/run-1.takeout.json`,
+      finishedAt: daysAgo(1),
+    });
+    // An ordinary CSV upload supersedes nothing.
+    await t.db.insert(ingestRuns).values({
+      projectId: superseded.projectId,
+      environment: "test",
+      kind: "csv",
+      status: "succeeded",
+      received: 10,
+      artifactKey: `uploads/${superseded.projectId}/run-2.csv`,
       finishedAt: daysAgo(1),
     });
     // The same project's test environment had no Takeout import: refreshed.
@@ -461,9 +472,10 @@ describe("refreshPlacesBootstraps", () => {
     await t.db.insert(ingestRuns).values({
       projectId: failed.projectId,
       environment: "live",
-      kind: "takeout",
+      kind: "csv",
       status: "failed",
       received: 10,
+      artifactKey: `uploads/${failed.projectId}/run-3.takeout.json`,
       finishedAt: daysAgo(1),
     });
 

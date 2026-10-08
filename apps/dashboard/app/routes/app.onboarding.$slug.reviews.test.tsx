@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
-// Step 2: five equal cards; Google Takeout first, with the export steps; "Find your business on Google" is enabled only
-// with a Places key (#47); "Connect Google" is disabled with the
-// waiting-on-Google line; the API card carries the curl with the real
-// secret key and polls the status resource when asked.
+// Step 2 offers only what works in the environment: Google Takeout first,
+// with the export steps; the file upload; "Find your business on Google"
+// only with a Places key (#47); "Connect Google" only once the connector is
+// switched on (#44, #45); the API card, with the curl carrying the real
+// secret key, polling the status resource when asked.
 import {
   act,
   cleanup,
@@ -28,6 +29,7 @@ type LoaderData = {
   importHref: string;
   takeoutHref: string;
   places: { enabled: boolean; actionPath: string };
+  connector: { enabled: boolean; href: string };
   keysHref: string;
   indexingHref: string;
   statusHref: string;
@@ -41,6 +43,7 @@ const base: LoaderData = {
   importHref: "/app/projects/cedar/import?onboarding=1",
   takeoutHref: "/app/projects/cedar/import/takeout?onboarding=1",
   places: { enabled: true, actionPath: "/app/projects/cedar/places" },
+  connector: { enabled: false, href: "/app/projects/cedar/integrations" },
   keysHref: "/app/projects/cedar/keys",
   indexingHref: "/app/onboarding/cedar/indexing",
   statusHref: "/app/onboarding/cedar/status",
@@ -82,7 +85,7 @@ function renderStep(
 describe("onboarding step 2", () => {
   afterEach(cleanup);
 
-  it("shows the five options with Connect Google disabled", async () => {
+  it("shows Takeout, upload, Places and the API; no Connect Google while the connector is off", async () => {
     const { container } = renderStep(base);
     expect(
       await screen.findByRole("heading", { name: "Add your reviews" }),
@@ -93,7 +96,6 @@ describe("onboarding step 2", () => {
       "Import your Google reviews",
       "Upload a CSV or JSON export",
       "Find your business on Google",
-      "Connect Google",
       "Use the API",
     ]);
     expect(
@@ -114,18 +116,8 @@ describe("onboarding step 2", () => {
     ]) {
       expect(takeout?.textContent).toContain(step);
     }
-    const google = screen
-      .getByRole("heading", { name: "Connect Google" })
-      .closest("section");
-    expect(google?.getAttribute("aria-disabled")).toBe("true");
-    expect(google?.textContent).toContain("Coming soon");
-    expect(google?.textContent).toContain(
-      "We are waiting on Google's API approval.",
-    );
-    expect(google?.textContent).not.toContain("#44");
-    expect(
-      screen.getByRole("link", { name: "Follow along" }).getAttribute("href"),
-    ).toContain("/issues/44");
+    expect(container.textContent).not.toContain("Coming soon");
+    expect(container.textContent).not.toContain("Connect Google");
     expect(container.textContent).toContain("pq_sk_live_SECRET123");
     expect(container.textContent).not.toContain("!");
   });
@@ -155,18 +147,36 @@ describe("onboarding step 2", () => {
     expect(screen.getByRole("button", { name: "Search" })).toBeTruthy();
   });
 
-  it("says Places is not configured when there is no key", async () => {
-    renderStep({ ...base, places: { ...base.places, enabled: false } });
-    const card = (
-      await screen.findByRole("heading", {
-        name: "Find your business on Google",
-      })
-    ).closest("section");
-    expect(card?.getAttribute("aria-disabled")).toBe("true");
-    expect(card?.textContent).toContain("Not configured in this environment.");
+  it("leaves the Places card out when there is no key (prod as configured today)", async () => {
+    const { container } = renderStep({
+      ...base,
+      places: { ...base.places, enabled: false },
+    });
+    expect(
+      await screen.findByRole("heading", { name: "Add your reviews" }),
+    ).toBeTruthy();
+    expect(
+      screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
+    ).toEqual([
+      "Import your Google reviews",
+      "Upload a CSV or JSON export",
+      "Use the API",
+    ]);
+    expect(container.textContent).not.toContain("Not configured");
     expect(
       screen.queryByRole("form", { name: "Search Google for your business" }),
     ).toBeNull();
+  });
+
+  it("offers Connect Google, linking to Integrations, once the connector is on", async () => {
+    renderStep({ ...base, connector: { ...base.connector, enabled: true } });
+    const card = (
+      await screen.findByRole("heading", { name: "Connect Google" })
+    ).closest("section");
+    expect(card?.getAttribute("aria-disabled")).toBeNull();
+    expect(
+      screen.getByRole("link", { name: "Connect Google" }).getAttribute("href"),
+    ).toBe("/app/projects/cedar/integrations");
   });
 
   it("checks for reviews and announces what arrived", async () => {

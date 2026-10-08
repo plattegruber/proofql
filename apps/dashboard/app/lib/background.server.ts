@@ -15,14 +15,15 @@ import { type IndexQueue, runImport } from "./csv.server";
 import { runTakeoutImport } from "./takeout.server";
 
 /**
- * `kind` picks the runner: a CSV/JSON upload (`csv`) or a Google Takeout
- * export (`takeout`, takeout.server.ts). Both pause inside the budget and
- * resume from their counts.
+ * `runner` picks the code: a CSV/JSON upload (`csv`) or a Google Takeout
+ * export (`takeout`, takeout.server.ts; both are `csv`-kind runs, told
+ * apart by `isTakeoutRun`). Both pause inside the budget and resume from
+ * their counts.
  */
 export function runImportInBackground(
   context: Readonly<RouterContextProvider>,
   runId: string,
-  kind: "csv" | "takeout" = "csv",
+  runner: "csv" | "takeout" = "csv",
 ): void {
   const { env, ctx, log } = getCloudflare(context);
   const { db, sql } = createDb(env.HYPERDRIVE.connectionString);
@@ -33,7 +34,7 @@ export function runImportInBackground(
   };
   const deps = { db, store: env.UPLOADS, queue, log };
   const task = (
-    kind === "takeout"
+    runner === "takeout"
       ? runTakeoutImport({ ...deps, kv: env.CACHE }, runId)
       : runImport(deps, runId)
   )

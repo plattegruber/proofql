@@ -1,11 +1,12 @@
-// Onboarding step 2 (#53): add your reviews. Five equal cards — import the
-// Google Business Profile's reviews from a Takeout export (the Takeout
-// page, which returns to step 3 afterwards), upload an export (the import
-// wizard, which returns here afterwards), find the
-// business on Google and pull its five public reviews (#47; enabled where
-// GOOGLE_PLACES_API_KEY is set), connect Google (not yet; waiting on
-// Google's API approval), or push through the API with a ready-to-run curl
-// carrying the live secret key from step 1. "Check for reviews" polls the
+// Onboarding step 2 (#53): add your reviews. Only options that work in
+// this environment are offered: import the Google Business Profile's
+// reviews from a Takeout export (the Takeout page, which returns to step 3
+// afterwards), upload an export (the import wizard, which returns here
+// afterwards), find the business on Google and pull its five public
+// reviews (#47; only where GOOGLE_PLACES_API_KEY is set), connect Google
+// (#45; only once GOOGLE_CONNECTOR_ENABLED is on, after Google's approval,
+// #44), or push through the API with a ready-to-run curl carrying the live
+// secret key from step 1. "Check for reviews" polls the
 // project's count until something arrives, then moves on to the indexing
 // step. It polls on the shared schedule (app/lib/indexing.ts: every 2 s)
 // for one minute per click, so a forgotten tab costs nothing (#162).
@@ -21,10 +22,10 @@ import { TakeoutSteps } from "~/components/import/takeout-import";
 import { useBackoffPolling } from "~/components/import-progress";
 import { OnboardingSteps } from "~/components/onboarding/steps";
 import { PageHeader } from "~/components/shell/page-header";
-import { Badge } from "~/components/ui/badge";
 import { Button, buttonVariants } from "~/components/ui/button";
 import { CopyButton } from "~/components/ui/copy-button";
 import { withRequestDb } from "~/lib/db.server";
+import { connectorEnabled } from "~/lib/google.server";
 import { importPath } from "~/lib/import-paths";
 import { scheduleUntil } from "~/lib/indexing";
 import {
@@ -47,10 +48,6 @@ import { secretKeyPlaceholder } from "~/lib/playground";
 import { takeoutPath } from "~/lib/takeout";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/app.onboarding.$slug.reviews";
-
-/** Google Business Profile API access (#44). Linked, not named, on the card. */
-const GOOGLE_CONNECTOR_ISSUE_URL =
-  "https://github.com/plattegruber/proofql/issues/44";
 
 /** How long "Check for reviews" keeps polling before it gives up quietly. */
 export const CHECK_TIMEOUT_MS = 60_000;
@@ -82,6 +79,11 @@ export async function loader(args: Route.LoaderArgs) {
       enabled: placesConfigured(env),
       actionPath: placesActionPath(project.slug),
     },
+    // The connector's card appears only once it is switched on (#44, #45).
+    connector: {
+      enabled: connectorEnabled(env),
+      href: `/app/projects/${project.slug}/integrations`,
+    },
     keysHref: `/app/projects/${project.slug}/keys`,
     indexingHref: onboardingPath("indexing", project.slug),
     statusHref: onboardingResourcePath("status", project.slug),
@@ -105,6 +107,7 @@ export default function OnboardingReviews({
     importHref,
     takeoutHref,
     places,
+    connector,
     keysHref,
   } = loaderData;
   return (
@@ -175,43 +178,35 @@ export default function OnboardingReviews({
           }
         />
 
-        <OptionCard
-          disabled={!places.enabled}
-          icon={<MapPin size={18} strokeWidth={1.75} aria-hidden />}
-          title={PLACES_CARD_TITLE}
-          body={PLACES_CARD_BODY}
-          action={
-            <PlacesFinder
-              actionPath={places.actionPath}
-              enabled={places.enabled}
-              onboarding
-            />
-          }
-        />
+        {places.enabled && (
+          <OptionCard
+            icon={<MapPin size={18} strokeWidth={1.75} aria-hidden />}
+            title={PLACES_CARD_TITLE}
+            body={PLACES_CARD_BODY}
+            action={
+              <PlacesFinder actionPath={places.actionPath} enabled onboarding />
+            }
+          />
+        )}
 
-        <OptionCard
-          disabled
-          icon={<GoogleMark />}
-          title="Connect Google"
-          body="Reviews from your Google Business Profile, kept in sync automatically."
-          action={
-            <>
-              <Badge tone="caution">Coming soon</Badge>
-              <p className="m-0 mt-2 text-small text-gray-600">
-                We are waiting on Google's API approval.{" "}
-                <a
-                  href={GOOGLE_CONNECTOR_ISSUE_URL}
-                  className="text-link"
-                  rel="noopener"
-                  target="_blank"
-                >
-                  Follow along
-                </a>
-                .
-              </p>
-            </>
-          }
-        />
+        {connector.enabled && (
+          <OptionCard
+            icon={<GoogleMark />}
+            title="Connect Google"
+            body="Reviews from your Google Business Profile, kept in sync automatically: sign in with Google, pick your locations."
+            action={
+              <Link
+                to={connector.href}
+                className={cn(
+                  buttonVariants({ size: "md" }),
+                  "text-on-dark! no-underline! hover:text-on-dark!",
+                )}
+              >
+                Connect Google
+              </Link>
+            }
+          />
+        )}
 
         <OptionCard
           icon={<Code2 size={18} strokeWidth={1.75} aria-hidden />}
@@ -238,37 +233,23 @@ function OptionCard({
   title,
   body,
   action,
-  disabled = false,
 }: {
   icon: React.ReactNode;
   title: string;
   body: string;
   action: React.ReactNode;
-  disabled?: boolean;
 }) {
   return (
     <section
       aria-labelledby={`option-${title}`}
-      aria-disabled={disabled || undefined}
-      className={cn(
-        "flex flex-col border border-hairline bg-surface-card p-5",
-        disabled && "bg-surface-sunken",
-      )}
+      className="flex flex-col border border-hairline bg-surface-card p-5"
     >
-      <div
-        className={cn(
-          "flex size-9 items-center justify-center border border-hairline",
-          disabled ? "text-gray-400" : "text-ink-900",
-        )}
-      >
+      <div className="flex size-9 items-center justify-center border border-hairline text-ink-900">
         {icon}
       </div>
       <h2
         id={`option-${title}`}
-        className={cn(
-          "mt-4 mb-0 text-title font-semibold",
-          disabled ? "text-gray-500" : "text-ink-900",
-        )}
+        className="mt-4 mb-0 text-title font-semibold text-ink-900"
       >
         {title}
       </h2>

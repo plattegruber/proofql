@@ -263,9 +263,10 @@ describe("importPlaceReviews", () => {
     await t.db.insert(schema.ingestRuns).values({
       projectId: p.id,
       environment: "live",
-      kind: "takeout",
+      kind: "csv",
       status: "succeeded",
       received: 3,
+      artifactKey: `uploads/${p.id}/run.takeout.json`,
       finishedAt: new Date(),
     });
     const { api, queue, places } = harness();

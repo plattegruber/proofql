@@ -10,9 +10,11 @@
  *   1. `createTakeoutImport` validates the payload again, normalizes it
  *      (each review once, under the location its name says), stores it in
  *      R2 as `uploads/<projectId>/<runId>.takeout.json` (the same 7-day
- *      lifecycle as every upload, #169) and opens an `ingest_runs` row of
- *      kind `takeout` with `received` = the reviews in it. There is no
- *      mapping step: the format is known.
+ *      lifecycle as every upload, #169) and opens an `ingest_runs` row with
+ *      `received` = the reviews in it. The row's kind is `csv` — an
+ *      uploaded export — and the artifact's `.takeout.json` suffix is what
+ *      marks it as a Takeout run (`isTakeoutRun`), so no schema change was
+ *      needed. There is no mapping step: the format is known.
  *   2. `runTakeoutImport` walks the reviews in a fixed order, in batches of
  *      `IMPORT_BATCH_SIZE`, through `commitBatch` (csv.server.ts) — so the
  *      same `upsertReviews`, cap policy, deferred-indexing handling and
@@ -32,11 +34,15 @@
  *      - when the user confirmed it: deletes the environment's Places
  *        bootstrap rows (`places/…`), which the export replaces. The Places
  *        refresh skips a project/environment with a succeeded Takeout run
- *        (workers/pipeline/src/places-refresh.ts), and the Places card
- *        refuses to import into one (places.server.ts);
+ *        (workers/pipeline/src/places-refresh.ts, by the same artifact
+ *        suffix), and the Places card refuses to import into one
+ *        (places.server.ts);
  *      - bumps the project's cache generation once if anything was deleted
  *        (indexing bumps it for the rest, as for every import);
- *      - records the breakdown in `ingest_runs.details` (`TakeoutRunDetails`).
+ *      - records the breakdown the counts cannot carry (`TakeoutRunDetails`:
+ *        removed, Places rows replaced, star-only, stale) beside the artifact
+ *        as `<runId>.takeout.details.json`. It expires with the upload
+ *        (7 days); after that the run page shows the counts alone.
  */
 import {
   createLogger,
@@ -49,6 +55,7 @@ import {
   reviewSuffix,
   safeBumpProjectGeneration,
   silentSink,
+  TAKEOUT_ARTIFACT_SUFFIX,
   TAKEOUT_METADATA,
   takeoutPayloadSchema,
 } from "@proofql/core";
@@ -80,10 +87,24 @@ import { formatBytes } from "./import-labels";
 export const MAX_TAKEOUT_PAYLOAD_BYTES = 10 * 1024 * 1024;
 
 export function takeoutArtifactKey(projectId: string, runId: string): string {
-  return `uploads/${projectId}/${runId}.takeout.json`;
+  return `uploads/${projectId}/${runId}${TAKEOUT_ARTIFACT_SUFFIX}`;
 }
 
-/** The outcome beyond the counts, stored in `ingest_runs.details`. */
+export function isTakeoutRun(
+  run: Pick<IngestRun, "kind" | "artifactKey">,
+): boolean {
+  return (
+    run.kind === "csv" &&
+    run.artifactKey !== null &&
+    run.artifactKey.endsWith(TAKEOUT_ARTIFACT_SUFFIX)
+  );
+}
+
+export function takeoutDetailsKey(artifactKey: string): string {
+  return artifactKey.replace(/\.takeout\.json$/, ".takeout.details.json");
+}
+
+/** The outcome beyond the counts, stored beside the artifact. */
 export const takeoutRunDetailsSchema = z.object({
   complete: z.boolean(),
   supersede_places: z.boolean(),
@@ -108,9 +129,22 @@ export const takeoutRunDetailsSchema = z.object({
 
 export type TakeoutRunDetails = z.output<typeof takeoutRunDetailsSchema>;
 
-export function takeoutDetails(run: IngestRun): TakeoutRunDetails | null {
-  const parsed = takeoutRunDetailsSchema.safeParse(run.details);
-  return parsed.success ? parsed.data : null;
+/** A Takeout run's details, or null when the object has expired (or never existed). */
+export async function loadTakeoutDetails(
+  store: UploadStore,
+  run: Pick<IngestRun, "kind" | "artifactKey">,
+): Promise<TakeoutRunDetails | null> {
+  if (!isTakeoutRun(run)) return null;
+  const object = await store.get(takeoutDetailsKey(run.artifactKey as string));
+  if (object === null) return null;
+  try {
+    const parsed = takeoutRunDetailsSchema.safeParse(
+      JSON.parse(await object.text()),
+    );
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -194,15 +228,15 @@ export async function createTakeoutImport(
     duplicates: normalized.duplicates + normalized.misfiled,
     star_only: normalized.locations.reduce((n, l) => n + l.starOnly, 0),
   };
+  await store.put(takeoutDetailsKey(artifactKey), JSON.stringify(details));
   await db.insert(schema.ingestRuns).values({
     id: runId,
     projectId: input.projectId,
     environment: input.environment,
-    kind: "takeout",
+    kind: "csv",
     status: "running",
     received: total,
     artifactKey,
-    details,
   });
   return { runId, artifactKey, reviews: total };
 }
@@ -246,7 +280,7 @@ export async function runTakeoutImport(
 
   const run = await findRun(db, runId);
   if (run.status !== "running") return { state: "finished", run };
-  if (run.kind !== "takeout" || run.artifactKey === null) {
+  if (!isTakeoutRun(run) || run.artifactKey === null) {
     return fail(db, run, "This run has no Takeout export.", log);
   }
   const object = await store.get(run.artifactKey);
@@ -355,14 +389,19 @@ export async function runTakeoutImport(
     return { state: "paused", run: current, processed };
   }
 
-  const finished = await finishTakeoutImport(deps, runId, takeout, log);
+  const { run: finished, details } = await finishTakeoutImport(
+    deps,
+    runId,
+    takeout,
+    log,
+  );
   log?.log("takeout.finished", {
     created: finished.created,
     updated: finished.updated,
     skipped: finished.skipped,
     failed: finished.failed,
-    removed: takeoutDetails(finished)?.removed ?? 0,
-    places_removed: takeoutDetails(finished)?.places_removed ?? 0,
+    removed: details.removed ?? 0,
+    places_removed: details.places_removed ?? 0,
     indexing_deferred: ctx.deferred,
     duration_ms: now() - startedAt,
   });
@@ -431,10 +470,21 @@ async function finishTakeoutImport(
   runId: string,
   takeout: StoredTakeout,
   log: Logger | undefined,
-): Promise<IngestRun> {
-  const { db } = deps;
+): Promise<{ run: IngestRun; details: TakeoutRunDetails }> {
+  const { db, store } = deps;
   const run = await findRun(db, runId);
-  const details = takeoutDetails(run);
+  const starOnly = takeout.locations.reduce((n, l) => n + l.starOnly, 0);
+  const details: TakeoutRunDetails = (await loadTakeoutDetails(store, run)) ?? {
+    complete: takeout.complete,
+    supersede_places: takeout.supersede_places,
+    locations: takeout.locations.map((l) => ({
+      id: l.locationId,
+      title: l.title,
+      reviews: l.reviews.length,
+    })),
+    duplicates: 0,
+    star_only: starOnly,
+  };
 
   const { removed, placesRemoved } = await db.transaction(async (tx) => {
     let removed = 0;
@@ -472,23 +522,23 @@ async function finishTakeoutImport(
   }
 
   // `skipped` is star-only + stale (the payload has no repeats left).
-  const stale = Math.max(0, run.skipped - (details?.star_only ?? 0));
+  const final: TakeoutRunDetails = {
+    ...details,
+    stale: Math.max(0, run.skipped - starOnly),
+    removed,
+    places_removed: placesRemoved,
+  };
+  await store.put(
+    takeoutDetailsKey(run.artifactKey as string),
+    JSON.stringify(final),
+  );
   const [finished] = await db
     .update(schema.ingestRuns)
-    .set({
-      status: "succeeded",
-      finishedAt: new Date(),
-      details: {
-        ...(details ?? {}),
-        stale,
-        removed,
-        places_removed: placesRemoved,
-      },
-    })
+    .set({ status: "succeeded", finishedAt: new Date() })
     .where(eq(schema.ingestRuns.id, runId))
     .returning();
   if (finished === undefined) throw new Error(`ingest run ${runId} vanished`);
-  return finished;
+  return { run: finished, details: final };
 }
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -617,8 +667,9 @@ export async function hasTakeoutImport(
     where: and(
       eq(schema.ingestRuns.projectId, projectId),
       eq(schema.ingestRuns.environment, environment),
-      eq(schema.ingestRuns.kind, "takeout"),
+      eq(schema.ingestRuns.kind, "csv"),
       eq(schema.ingestRuns.status, "succeeded"),
+      like(schema.ingestRuns.artifactKey, `%${TAKEOUT_ARTIFACT_SUFFIX}`),
     ),
   });
   return row !== undefined;

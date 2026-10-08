@@ -38,6 +38,13 @@ import { z } from "zod";
 
 import { type ReviewInput, reviewInputSchema } from "../review.js";
 
+/**
+ * The R2 artifact suffix that marks an `ingest_runs` row (kind `csv`, an
+ * uploaded export) as a Google Takeout import. The dashboard writes it;
+ * the Places refresh reads it to leave a superseded bootstrap alone.
+ */
+export const TAKEOUT_ARTIFACT_SUFFIX = ".takeout.json";
+
 /** A `reviews.json` / `reviews-<token>.json` page inside the export. */
 export const TAKEOUT_REVIEWS_FILE =
   /(?:^|\/)Google Business Profile\/account-([^/]+)\/location-([^/]+)\/reviews(?:-[^/]+)?\.json$/;

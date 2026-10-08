@@ -80,7 +80,8 @@ the next day, since candidates are age-based):
 every (project, environment, place) whose latest `places` run
   finished more than 25 days ago                 (a failed one: more than a day ago)
   and whose project has no `active` google connection
-  and whose project has no succeeded `takeout` run in that environment
+  and whose project has no succeeded Takeout import in that environment
+    (a `csv` run whose artifact ends in `.takeout.json`)
   and that still has at least one bootstrap row for the place
 oldest first, 200 per tick
   └─ GET /v1/places/<id>  (past the KV cache; the fresh copy is written back)
@@ -118,8 +119,9 @@ replace and, once confirmed, the import deletes that environment's
 in the same step that records the run. The refresh then leaves the project
 and environment alone twice over: no bootstrap row survives, and the
 candidate query skips any `(project, environment)` with a **succeeded
-`takeout` run**, the same way it skips a project with an active
-connection. That run row is the record of the supersession, so nothing
+Takeout import** (an `ingest_runs` row of kind `csv` whose `artifact_key`
+ends in `.takeout.json`, `TAKEOUT_ARTIFACT_SUFFIX` in `@proofql/core`),
+the same way it skips a project with an active connection. That run row is the record of the supersession, so nothing
 else needs to be stored. The Places card refuses to import into such an
 environment (`409`, before any Google call), since Places' five would come
 back as duplicates under other ids; a newer Takeout export is the way to

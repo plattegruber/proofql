@@ -56,6 +56,7 @@ import {
   type IngestMessage,
   type Logger,
   safeBumpProjectGeneration,
+  TAKEOUT_ARTIFACT_SUFFIX,
 } from "@proofql/core";
 import { type Db, schema, upsertReviews } from "@proofql/db";
 import {
@@ -315,7 +316,9 @@ export async function selectRefreshCandidates(
         ),
         // A succeeded Google Takeout import in the same environment has
         // superseded the bootstrap (it deletes the rows too; this keeps a
-        // refresh from ever racing it). The dashboard's Takeout import.
+        // refresh from ever racing it). Takeout runs are `csv` runs whose
+        // artifact ends in TAKEOUT_ARTIFACT_SUFFIX (the dashboard's
+        // takeout.server.ts).
         notExists(
           db
             .select({ one: sql`1` })
@@ -324,8 +327,9 @@ export async function selectRefreshCandidates(
               and(
                 eq(ingestRuns.projectId, latest.projectId),
                 eq(ingestRuns.environment, latest.environment),
-                eq(ingestRuns.kind, "takeout"),
+                eq(ingestRuns.kind, "csv"),
                 eq(ingestRuns.status, "succeeded"),
+                like(ingestRuns.artifactKey, `%${TAKEOUT_ARTIFACT_SUFFIX}`),
               ),
             ),
         ),
