@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// Step 2: four equal cards; "Find your business on Google" is enabled only
+// Step 2: five equal cards; Google Takeout first, with the export steps; "Find your business on Google" is enabled only
 // with a Places key (#47); "Connect Google" is disabled with the
 // waiting-on-Google line; the API card carries the curl with the real
 // secret key and polls the status resource when asked.
@@ -26,6 +26,7 @@ type LoaderData = {
   hasSecret: boolean;
   curl: string;
   importHref: string;
+  takeoutHref: string;
   places: { enabled: boolean; actionPath: string };
   keysHref: string;
   indexingHref: string;
@@ -38,6 +39,7 @@ const base: LoaderData = {
   hasSecret: true,
   curl: "curl -s -X POST 'http://localhost:8797/v1/reviews' \\\n  -H 'Authorization: Bearer pq_sk_live_SECRET123' …",
   importHref: "/app/projects/cedar/import?onboarding=1",
+  takeoutHref: "/app/projects/cedar/import/takeout?onboarding=1",
   places: { enabled: true, actionPath: "/app/projects/cedar/places" },
   keysHref: "/app/projects/cedar/keys",
   indexingHref: "/app/onboarding/cedar/indexing",
@@ -80,7 +82,7 @@ function renderStep(
 describe("onboarding step 2", () => {
   afterEach(cleanup);
 
-  it("shows the four options with Connect Google disabled", async () => {
+  it("shows the five options with Connect Google disabled", async () => {
     const { container } = renderStep(base);
     expect(
       await screen.findByRole("heading", { name: "Add your reviews" }),
@@ -88,6 +90,7 @@ describe("onboarding step 2", () => {
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
     ).toEqual([
+      "Import your Google reviews",
       "Upload a CSV or JSON export",
       "Find your business on Google",
       "Connect Google",
@@ -96,6 +99,21 @@ describe("onboarding step 2", () => {
     expect(
       screen.getByRole("link", { name: "Upload a file" }).getAttribute("href"),
     ).toBe("/app/projects/cedar/import?onboarding=1");
+    expect(
+      screen
+        .getByRole("link", { name: "Import from Takeout" })
+        .getAttribute("href"),
+    ).toBe("/app/projects/cedar/import/takeout?onboarding=1");
+    const takeout = screen
+      .getByRole("heading", { name: "Import your Google reviews" })
+      .closest("section");
+    for (const step of [
+      "takeout.google.com",
+      "Select Deselect all",
+      "Select Next step, then Create export",
+    ]) {
+      expect(takeout?.textContent).toContain(step);
+    }
     const google = screen
       .getByRole("heading", { name: "Connect Google" })
       .closest("section");

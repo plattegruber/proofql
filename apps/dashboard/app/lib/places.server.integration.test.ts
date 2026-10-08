@@ -258,6 +258,33 @@ describe("importPlaceReviews", () => {
     expect(reviews.map((r) => r.environment)).toEqual(["test"]);
   });
 
+  it("refuses, before calling Google, where a Takeout import already brought every review in", async () => {
+    const p = await project(t.db);
+    await t.db.insert(schema.ingestRuns).values({
+      projectId: p.id,
+      environment: "live",
+      kind: "takeout",
+      status: "succeeded",
+      received: 3,
+      finishedAt: new Date(),
+    });
+    const { api, queue, places } = harness();
+    const error = await importPlaceReviews(
+      { db: t.db, places, queue },
+      { projectId: p.id, environment: "live", placeId: CEDAR_RIDGE_ID },
+    ).catch((e) => e);
+    expect(error).toBeInstanceOf(PlacesImportError);
+    expect(error.status).toBe(409);
+    expect(error.message).toContain("come from a Takeout export");
+    expect(api.calls).toHaveLength(0);
+    // The test environment had no Takeout import.
+    const test = await importPlaceReviews(
+      { db: t.db, places, queue },
+      { projectId: p.id, environment: "test", placeId: CEDAR_RIDGE_ID },
+    );
+    expect(test.created).toBe(5);
+  });
+
   it("leaves no run for a place Google shares no reviews for", async () => {
     const p = await project(t.db);
     const { queue, places } = harness();

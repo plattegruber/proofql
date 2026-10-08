@@ -438,6 +438,52 @@ describe("refreshPlacesBootstraps", () => {
     expect(await runsFor(reauth.projectId)).toHaveLength(2);
   });
 
+  it("skips a project and environment a Google Takeout import superseded", async () => {
+    // The dashboard's Takeout import deletes the bootstrap rows too; a row
+    // left behind (a run that raced it) must still not be refreshed.
+    const superseded = await bootstrapped({ ranDaysAgo: 26 });
+    await t.db.insert(ingestRuns).values({
+      projectId: superseded.projectId,
+      environment: "live",
+      kind: "takeout",
+      status: "succeeded",
+      received: 10,
+      finishedAt: daysAgo(1),
+    });
+    // The same project's test environment had no Takeout import: refreshed.
+    const testEnv = await bootstrapped({
+      ranDaysAgo: 26,
+      environment: "test",
+      projectId: superseded.projectId,
+    });
+    // A Takeout import that failed supersedes nothing.
+    const failed = await bootstrapped({ ranDaysAgo: 26 });
+    await t.db.insert(ingestRuns).values({
+      projectId: failed.projectId,
+      environment: "live",
+      kind: "takeout",
+      status: "failed",
+      received: 10,
+      finishedAt: daysAgo(1),
+    });
+
+    const { ctx } = harness();
+    const result = await refreshPlacesBootstraps(ctx);
+    expect(result).toMatchObject({ candidates: 2, refreshed: 2 });
+    const runs = await runsFor(superseded.projectId);
+    expect(
+      runs.filter((r) => r.kind === "places" && r.environment === "live"),
+    ).toHaveLength(1);
+    expect(
+      runs.filter(
+        (r) => r.kind === "places" && r.environment === testEnv.environment,
+      ),
+    ).toHaveLength(2);
+    expect(
+      (await runsFor(failed.projectId)).filter((r) => r.kind === "places"),
+    ).toHaveLength(2);
+  });
+
   it("does nothing without GOOGLE_PLACES_API_KEY and says so once", async () => {
     await bootstrapped({ ranDaysAgo: 26 });
     for (const apiKey of [undefined, "", "   ", "TBD-provision-in-m3"]) {

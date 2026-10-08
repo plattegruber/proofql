@@ -4,8 +4,8 @@
 // bootstrap (#47) — find the business on Google, import its five public
 // reviews — for projects that did not take it during onboarding.
 import { REVIEW_SOURCES } from "@proofql/core";
-import { MapPin, Upload } from "lucide-react";
-import { data, Form, redirect, useNavigation } from "react-router";
+import { FileArchive, MapPin, Upload } from "lucide-react";
+import { data, Form, Link, redirect, useNavigation } from "react-router";
 
 import {
   PLACES_CARD_BODY,
@@ -14,7 +14,7 @@ import {
 } from "~/components/import/places-finder";
 import { PageHeader } from "~/components/shell/page-header";
 import { Badge } from "~/components/ui/badge";
-import { Button } from "~/components/ui/button";
+import { Button, buttonVariants } from "~/components/ui/button";
 import { Field, FormNotice, Help, Input, Select } from "~/components/ui/field";
 import { requireAccount } from "~/lib/account.server";
 import { findProjectBySlug } from "~/lib/accounts";
@@ -35,6 +35,8 @@ import { importMapPath } from "~/lib/import-paths";
 import { ONBOARDING_FLAG } from "~/lib/onboarding";
 import { placesActionPath } from "~/lib/places";
 import { placesConfigured } from "~/lib/places.server";
+import { takeoutPath } from "~/lib/takeout";
+import { cn } from "~/lib/utils";
 import type { Route } from "./+types/app.projects.$slug.import._index";
 
 export async function loader(args: Route.LoaderArgs) {
@@ -47,6 +49,7 @@ export async function loader(args: Route.LoaderArgs) {
   return {
     project: { slug: project.slug, name: project.name },
     maxBytes: MAX_UPLOAD_BYTES,
+    takeoutHref: takeoutPath(project.slug),
     places: {
       enabled: placesConfigured(env),
       actionPath: placesActionPath(project.slug),
@@ -145,8 +148,43 @@ export default function ImportUpload({
       <PageHeader
         overline="Step 1 of 3"
         title="Import reviews"
-        description="Upload an export from your review platform and map its columns on the next screen, or pull your public Google reviews below."
+        description="Bring in your Google reviews from a Takeout export, upload an export from another review platform and map its columns, or pull your public Google reviews below."
       />
+      <section
+        aria-labelledby="takeout-heading"
+        className="mb-6 max-w-2xl border border-hairline bg-surface-card p-5"
+      >
+        <div className="flex items-start gap-3">
+          <span className="flex size-9 shrink-0 items-center justify-center border border-hairline text-ink-900">
+            <FileArchive size={18} strokeWidth={1.75} aria-hidden />
+          </span>
+          <div className="flex-1">
+            <h2
+              id="takeout-heading"
+              className="m-0 text-title font-semibold text-ink-900"
+            >
+              Google reviews from Takeout
+            </h2>
+            <p className="mt-1 mb-0 text-small text-gray-600">
+              Every review of your Google Business Profile. Export it at
+              takeout.google.com (Deselect all → Google Business Profile → Next
+              step → Create export) and choose the .zip here; it is read in your
+              browser and only the reviews are sent.
+            </p>
+          </div>
+        </div>
+        <div className="mt-4 flex justify-end border-t border-hairline pt-4">
+          <Link
+            to={`${loaderData.takeoutHref}${loaderData.onboarding ? `?${ONBOARDING_FLAG}=1` : ""}`}
+            className={cn(
+              buttonVariants({ size: "md" }),
+              "text-on-dark! no-underline! hover:text-on-dark!",
+            )}
+          >
+            Import from Takeout
+          </Link>
+        </div>
+      </section>
       <Form
         method="post"
         encType="multipart/form-data"
@@ -159,7 +197,7 @@ export default function ImportUpload({
         <Field
           label="File"
           htmlFor="file"
-          help={`.csv or .json, up to ${formatBytes(loaderData.maxBytes)}. Google Takeout's Reviews.json works as is.`}
+          help={`.csv or .json, up to ${formatBytes(loaderData.maxBytes)}, from Yelp, Trustpilot, Birdeye, Podium or any spreadsheet. For Google, use Takeout above.`}
         >
           <Input
             id="file"

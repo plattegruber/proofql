@@ -23,6 +23,7 @@ import {
 import {
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -64,6 +65,14 @@ export const ingestRuns = pgTable(
     failed: integer("failed").notNull().default(0),
     /** The one human-readable failure message; null unless `status = failed`. */
     error: text("error"),
+    /**
+     * Kind-specific outcome beyond the counts, for the dashboard's result
+     * view. Takeout runs (`TakeoutRunDetails` in the dashboard): the
+     * locations imported, star-only and stale reviews skipped, reviews
+     * removed because Google no longer has them, Places bootstrap rows
+     * replaced. Null for every other kind.
+     */
+    details: jsonb("details").$type<Record<string, unknown>>(),
     /** R2 key of the uploaded artifact (CSV); null for API and connector runs. */
     artifactKey: text("artifact_key"),
     startedAt: timestamp("started_at", { withTimezone: true })

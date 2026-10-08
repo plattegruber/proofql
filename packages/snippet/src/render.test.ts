@@ -5,6 +5,7 @@ import {
   formatDate,
   renderInto,
   safeHref,
+  sourceLabel,
   sourceName,
   starCount,
   textNodes,
@@ -50,7 +51,7 @@ describe("renderInto", () => {
     const source = first.querySelector<HTMLAnchorElement>(
       ".pq-meta .pq-source",
     );
-    expect(source?.textContent).toBe("Google");
+    expect(source?.textContent).toBe("Google review");
     expect(source?.tagName).toBe("A");
     expect(source?.href).toBe("https://maps.google.com/?cid=123");
     expect(source?.rel).toBe("noopener");
@@ -94,7 +95,48 @@ describe("renderInto", () => {
     expect(third.querySelector(".pq-stars")).toBeNull();
     const source = third.querySelector(".pq-source");
     expect(source?.tagName).toBe("SPAN");
-    expect(source?.textContent).toBe("Yelp");
+    expect(source?.textContent).toBe("Yelp review");
+  });
+
+  it("renders a Google review with no avatar and no link (a Takeout import)", () => {
+    const el = host();
+    renderInto(
+      el,
+      {
+        results: [
+          {
+            score: 0.81,
+            matched: true,
+            excerpt: "The sourdough has a crackly crust.",
+            excerpt_id: "c1",
+            highlight: null,
+            review: {
+              id: "r1",
+              source: "google",
+              rating: 5,
+              author_name: "Avery Lin",
+              author_avatar_url: null,
+              occurred_at: "2025-01-01T10:15:30.123Z",
+              url: null,
+            },
+          },
+        ],
+        match: "query",
+        took_ms: 3,
+        cached: false,
+        badge: false,
+      } as never,
+      { mode: "excerpts" },
+    );
+    const item = el.querySelector(".pq-item") as HTMLElement;
+    const source = item.querySelector(".pq-source");
+    expect(source?.tagName).toBe("SPAN");
+    expect(source?.textContent).toBe("Google review");
+    expect(item.querySelector("a, img")).toBeNull();
+    // Google: no stars beside its name. The stars lead the item; the
+    // attribution sits in the footer after the author.
+    expect(item.firstElementChild?.className).toBe("pq-stars");
+    expect(source?.previousElementSibling?.className).toBe("pq-author");
   });
 
   it("appends the badge when badge is true, after the list", () => {
@@ -137,6 +179,11 @@ describe("renderInto", () => {
 });
 
 describe("helpers", () => {
+  it("labels the attribution as a review on the platform", () => {
+    expect(sourceLabel("google")).toBe("Google review");
+    expect(sourceLabel("custom")).toBeNull();
+  });
+
   it("maps sources to display names; custom renders none", () => {
     expect(sourceName("google")).toBe("Google");
     expect(sourceName("Yelp")).toBe("Yelp");

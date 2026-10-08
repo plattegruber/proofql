@@ -1,5 +1,7 @@
-// Onboarding step 2 (#53): add your reviews. Four equal cards — upload an
-// export (the import wizard, which returns here afterwards), find the
+// Onboarding step 2 (#53): add your reviews. Five equal cards — import the
+// Google Business Profile's reviews from a Takeout export (the Takeout
+// page, which returns to step 3 afterwards), upload an export (the import
+// wizard, which returns here afterwards), find the
 // business on Google and pull its five public reviews (#47; enabled where
 // GOOGLE_PLACES_API_KEY is set), connect Google (not yet; waiting on
 // Google's API approval), or push through the API with a ready-to-run curl
@@ -7,7 +9,7 @@
 // project's count until something arrives, then moves on to the indexing
 // step. It polls on the shared schedule (app/lib/indexing.ts: every 2 s)
 // for one minute per click, so a forgotten tab costs nothing (#162).
-import { Code2, MapPin, Upload } from "lucide-react";
+import { Code2, FileArchive, MapPin, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useFetcher, useNavigate } from "react-router";
 import {
@@ -15,6 +17,7 @@ import {
   PLACES_CARD_TITLE,
   PlacesFinder,
 } from "~/components/import/places-finder";
+import { TakeoutSteps } from "~/components/import/takeout-import";
 import { useBackoffPolling } from "~/components/import-progress";
 import { OnboardingSteps } from "~/components/onboarding/steps";
 import { PageHeader } from "~/components/shell/page-header";
@@ -41,6 +44,7 @@ import {
 import { placesActionPath } from "~/lib/places";
 import { placesConfigured } from "~/lib/places.server";
 import { secretKeyPlaceholder } from "~/lib/playground";
+import { takeoutPath } from "~/lib/takeout";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/app.onboarding.$slug.reviews";
 
@@ -73,6 +77,7 @@ export async function loader(args: Route.LoaderArgs) {
       secretKey: secret ?? secretKeyPlaceholder("live"),
     }),
     importHref: `${importPath(project.slug)}?${ONBOARDING_FLAG}=1`,
+    takeoutHref: `${takeoutPath(project.slug)}?${ONBOARDING_FLAG}=1`,
     places: {
       enabled: placesConfigured(env),
       actionPath: placesActionPath(project.slug),
@@ -92,8 +97,16 @@ export const meta: Route.MetaFunction = ({ data }) => [
 export default function OnboardingReviews({
   loaderData,
 }: Route.ComponentProps) {
-  const { project, counts, hasSecret, curl, importHref, places, keysHref } =
-    loaderData;
+  const {
+    project,
+    counts,
+    hasSecret,
+    curl,
+    importHref,
+    takeoutHref,
+    places,
+    keysHref,
+  } = loaderData;
   return (
     <>
       <PageHeader
@@ -124,11 +137,31 @@ export default function OnboardingReviews({
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <OptionCard
+          icon={<FileArchive size={18} strokeWidth={1.75} aria-hidden />}
+          title="Import your Google reviews"
+          body="Every review of your Google Business Profile, from a Takeout export you download yourself. Read in your browser; only the reviews are sent."
+          action={
+            <div className="flex flex-col gap-4">
+              <TakeoutSteps />
+              <Link
+                to={takeoutHref}
+                className={cn(
+                  buttonVariants({ size: "md" }),
+                  "self-start text-on-dark! no-underline! hover:text-on-dark!",
+                )}
+              >
+                Import from Takeout
+              </Link>
+            </div>
+          }
+        />
+
         <OptionCard
           icon={<Upload size={18} strokeWidth={1.75} aria-hidden />}
           title="Upload a CSV or JSON export"
-          body="An export from Google, Yelp, Trustpilot, Birdeye, Podium or any spreadsheet. We detect the columns; you confirm them."
+          body="An export from Yelp, Trustpilot, Birdeye, Podium or any spreadsheet. We detect the columns; you confirm them."
           action={
             <Link
               to={importHref}

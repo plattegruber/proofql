@@ -205,7 +205,7 @@ export async function createUpload(
   const kind = uploadKind(input.filename, input.contentType);
   if (kind === null) {
     throw new ImportError(
-      "Upload a .csv or a .json file (Google Takeout's Reviews.json works as is).",
+      "Upload a .csv or a .json file. For a Google Takeout export, use Import → Google Takeout instead.",
     );
   }
   const runId = crypto.randomUUID();
@@ -475,7 +475,6 @@ export async function runImport(
     queue,
     store,
     run,
-    plan,
     failures,
     log,
     queueExhausted: false,
@@ -564,12 +563,13 @@ export async function runImport(
   return { state: "finished", run: finished };
 }
 
-interface BatchContext {
+/** What one batch commit needs; shared with the Takeout import (takeout.server.ts). */
+export interface BatchContext {
   db: Db;
   queue: IndexQueue;
   store: UploadStore;
   run: IngestRun;
-  plan: ImportPlan;
+  /** Every failure so far, persisted whole to `<artifact>.errors.json`. */
   failures: RowFailure[];
   log: Logger | undefined;
   /** The Queues daily limit was hit during this call: stop trying to send. */
@@ -578,16 +578,22 @@ interface BatchContext {
   deferred: number;
 }
 
-/** One batch: upsert, bump the counts, enqueue, persist the failures. */
-async function commitBatch(
+/**
+ * One batch: upsert, bump the counts, enqueue, persist the failures.
+ * `extraSkipped` counts rows the caller skipped before the upsert (the
+ * Takeout import's star-only and stale reviews), so the counts stay the
+ * resume cursor.
+ */
+export async function commitBatch(
   ctx: BatchContext,
   batch: { rowNumber: number; review: ReviewInput }[],
   batchFailures: RowFailure[],
+  extraSkipped = 0,
 ): Promise<void> {
   const { db, run } = ctx;
   let created = 0;
   let updated = 0;
-  let skipped = 0;
+  let skipped = extraSkipped;
   const failures = [...batchFailures];
 
   if (batch.length > 0) {
@@ -599,7 +605,7 @@ async function commitBatch(
     });
     created = result.created;
     updated = result.updated;
-    skipped = result.skipped;
+    skipped += result.skipped;
     if (result.rejected.length > 0) {
       const rejected = new Set(
         result.rejected.map((r) => `${r.source}\0${r.external_id}`),
@@ -653,7 +659,7 @@ async function commitBatch(
     );
   }
   ctx.log?.log("import.batch", {
-    rows: batch.length + batchFailures.length,
+    rows: batch.length + batchFailures.length + extraSkipped,
     created,
     updated,
     skipped,
@@ -695,7 +701,7 @@ export function processedRows(run: IngestRun): number {
   return run.created + run.updated + run.skipped + run.failed;
 }
 
-async function fail(
+export async function fail(
   db: Db,
   run: IngestRun,
   message: string,
@@ -714,7 +720,7 @@ async function fail(
   return { state: "failed", run: failed ?? run, error: message };
 }
 
-async function loadFailures(
+export async function loadFailures(
   store: UploadStore,
   artifactKey: string,
 ): Promise<RowFailure[]> {
@@ -741,10 +747,11 @@ export async function findRun(db: Db, runId: string): Promise<IngestRun> {
   return run;
 }
 
-/** The run kinds the import pages show: uploads, and Places bootstraps (#47). */
+/** The run kinds the import pages show: uploads, Places bootstraps (#47) and Takeout imports. */
 export const DASHBOARD_RUN_KINDS: readonly IngestRun["kind"][] = [
   "csv",
   "places",
+  "takeout",
 ];
 
 /** A project's run of a dashboard kind, or 404 — never another tenant's. */

@@ -80,6 +80,7 @@ the next day, since candidates are age-based):
 every (project, environment, place) whose latest `places` run
   finished more than 25 days ago                 (a failed one: more than a day ago)
   and whose project has no `active` google connection
+  and whose project has no succeeded `takeout` run in that environment
   and that still has at least one bootstrap row for the place
 oldest first, 200 per tick
   └─ GET /v1/places/<id>  (past the KV cache; the fresh copy is written back)
@@ -107,6 +108,22 @@ bootstrap review for the place has opted out and is left alone — a
 re-import from the Import tab starts the cycle again. A refresh never
 *starts* a bootstrap: nothing is written for a place Google now returns
 no reviews for except the removal of the rows it used to.
+
+**Superseded by a Google Takeout import.** A Takeout export of the
+Business Profile (dashboard → Import → Google Takeout,
+`apps/dashboard/app/lib/takeout.server.ts`) has every review, not five. When
+a project imports one, the import page names the Places bootstrap it will
+replace and, once confirmed, the import deletes that environment's
+`places/…` rows (lowering `review_count`, bumping the cache generation)
+in the same step that records the run. The refresh then leaves the project
+and environment alone twice over: no bootstrap row survives, and the
+candidate query skips any `(project, environment)` with a **succeeded
+`takeout` run**, the same way it skips a project with an active
+connection. That run row is the record of the supersession, so nothing
+else needs to be stored. The Places card refuses to import into such an
+environment (`409`, before any Google call), since Places' five would come
+back as duplicates under other ids; a newer Takeout export is the way to
+update. The other environment is unaffected.
 
 Failure shape: a Google error fails that project's run only (`error` is
 the same human description the card shows: "Google no longer lists this

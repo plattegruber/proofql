@@ -19,7 +19,9 @@
  *    — or, for a run that `failed`, more than
  *    {@link PLACES_REFRESH_RETRY_FAILED_AFTER_DAYS} ago, so a Google
  *    outage costs a day, not a month — and the project has no `active`
- *    google connection, and at least one bootstrap row for that place is
+ *    google connection, no succeeded Google Takeout import in that
+ *    environment (the export has every review and replaced the bootstrap),
+ *    and at least one bootstrap row for that place is
  *    still in the project (a customer who deleted them all has opted out;
  *    a re-import from the dashboard starts over). Oldest first, at most
  *    {@link PLACES_REFRESH_LIMIT} per tick.
@@ -308,6 +310,22 @@ export async function selectRefreshCandidates(
                 eq(connections.projectId, latest.projectId),
                 eq(connections.kind, "google"),
                 eq(connections.status, "active"),
+              ),
+            ),
+        ),
+        // A succeeded Google Takeout import in the same environment has
+        // superseded the bootstrap (it deletes the rows too; this keeps a
+        // refresh from ever racing it). The dashboard's Takeout import.
+        notExists(
+          db
+            .select({ one: sql`1` })
+            .from(ingestRuns)
+            .where(
+              and(
+                eq(ingestRuns.projectId, latest.projectId),
+                eq(ingestRuns.environment, latest.environment),
+                eq(ingestRuns.kind, "takeout"),
+                eq(ingestRuns.status, "succeeded"),
               ),
             ),
         ),

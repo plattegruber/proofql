@@ -1,0 +1,32 @@
+{
+  "reviews": [
+    {
+      "reviewer": {
+        "displayName": "Avery Lin"
+      },
+      "starRating": "FIVE",
+      "createTime": "2025-01-01T10:15:30.123456Z",
+      "updateTime": "2025-01-01T10:15:30.123456Z",
+      "name": "accounts/77/locations/2001/reviews/AbFvOq000Tk",
+      "comment": "The sourdough has a crackly crust and an open crumb. Worth the early line.",
+      "reviewReply": {
+        "comment": "Thank you, Avery! We hope to see you again soon.",
+        "updateTime": "2025-01-02T10:15:30.123456Z"
+      }
+    },
+    {
+      "reviewer": {
+        "displayName": "Jordan P."
+      },
+      "starRating": "FIVE",
+      "createTime": "2025-01-10T10:15:30.123456Z",
+      "updateTime": "2025-08-05T10:15:30.999999Z",
+      "name": "accounts/77/locations/2001/reviews/AbFvOq001Tk",
+      "comment": "Best morning buns in town. Edited: the cardamom ones now last until ten.",
+      "reviewReply": {
+        "comment": "Thank you, Jordan! We hope to see you again soon.",
+        "updateTime": "2025-01-11T10:15:30.123456Z"
+      }
+    }
+  ]
+}

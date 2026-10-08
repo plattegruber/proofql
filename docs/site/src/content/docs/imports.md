@@ -1,9 +1,9 @@
 ---
 title: Imports
-description: Getting reviews in. The CSV upload and its supported exports, the push API's review shape and upsert rules, your public Google reviews through Places, and the Google connector.
+description: Getting reviews in. Your Google reviews from a Takeout export, the CSV upload and its supported exports, the push API's review shape and upsert rules, your public Google reviews through Places, and the Google connector.
 ---
 
-Four ways in, one shape out. However a review arrives, it is normalized into the same record, split and embedded by the same pipeline, and queryable within seconds.
+Five ways in, one shape out. However a review arrives, it is normalized into the same record, split and embedded by the same pipeline, and queryable within seconds.
 
 ## The review shape
 
@@ -82,15 +82,17 @@ Formats detected from their headers:
 
 | Profile | Recognized by | Default `source` |
 |---|---|---|
-| Google Takeout (`Reviews.json`) | `reviewer.displayName`, `starRating`, `comment`, `createTime` | `google` |
-| Google Business Profile export | the Business Profile CSV columns | `google` |
+| Google Takeout `reviews.json` (one page) | `reviewer.displayName`, `starRating`, `comment`, `createTime` | `google` |
+| Google reviews spreadsheet | `Review ID`, `Reviewer Name`, `Star Rating`, `Review Text`, `Review Date` | `google` |
 | Yelp for Business | `Reviewer`, `Rating`, `Review`, `Review Date`, `Review URL` | `yelp` |
 | Trustpilot | the Trustpilot review export columns | `trustpilot` |
 | Birdeye | its multi-source export; the `Source` column maps onto `source` | per row |
 | Podium | `Site`, `Customer Name`, `Stars`, `Comment`, `Date Posted` | `custom` |
 | Generic CSV | any header row; columns are matched by name (`review`, `comment`, `stars`, `rating`, `author`, `date`, …) and then by what their values look like | `custom` |
 
-Headers are matched case-insensitively with punctuation and whitespace collapsed, so `Review_Date`, `review date` and `Review Date` are the same column. JSON uploads are flattened to the same table: an array of objects, or an object with one array-valued key (`{ "reviews": [...] }`, which is what Takeout writes); nested objects become dotted headers.
+Headers are matched case-insensitively with punctuation and whitespace collapsed, so `Review_Date`, `review date` and `Review Date` are the same column. JSON uploads are flattened to the same table: an array of objects, or an object with one array-valued key (`{ "reviews": [...] }`, which is what a Takeout `reviews.json` page holds); nested objects become dotted headers.
+
+For Google, use [Google Takeout](#google-takeout) instead of this upload: it reads the whole export (every page of every location), keeps your replies, and removes reviews deleted on Google. The Takeout profile above is for one `reviews.json` page mapped by hand. Google itself has no review spreadsheet export; the "Google reviews spreadsheet" profile matches the sheets third-party Business Profile tools produce.
 
 What the normalizer accepts:
 
@@ -99,13 +101,47 @@ What the normalizer accepts:
 - **`external_id`**: the vendor's review id when the export has one; otherwise a stable hash of source, author, date, and the start of the text, so re-importing the same export updates rather than duplicates.
 - **The cap**: the plan's review limit is checked against the file before the run; the result page says how many rows would not fit, and updates to existing reviews never count against it.
 
+## Google Takeout
+
+Every review of your Google Business Profile, from an export you download yourself. On the project's **Import** tab (and onboarding step 2), **Import from Takeout** (`/app/projects/<slug>/import/takeout`).
+
+**Export from Google.** Signed in as an owner or manager of the profile:
+
+1. Open [takeout.google.com](https://takeout.google.com/).
+2. Select **Deselect all**, then tick only **Google Business Profile** ("All data related to your business").
+3. Select **Next step**, keep the file type **.zip**, and select **Create export**. Google emails a download link, usually the same day; the archive expires after about 7 days.
+
+**Import it.** Choose the `.zip` (every part, if Google split a large export into several), or the `reviews*.json` files from its `Google Business Profile` folder. The archive is opened in your browser: only the review pages and location names are read, and only the reviews of the locations you pick are sent. Photos in the export never leave your computer. An export holds every profile your Google account manages, so pick the locations this project's site should show (one location is picked for you). Choose live or test, confirm, and the import runs like any other, with the same progress page.
+
+What the export has, and how it lands:
+
+| In the export | Review |
+| --- | --- |
+| `name` (`accounts/<a>/locations/<l>/reviews/<r>`) | `external_id`, the same id the Business Profile connector uses |
+| — | `source: "google"` |
+| `starRating` (`ONE`…`FIVE`) | `rating` |
+| `comment` | `text`; for a review Google translated, the reviewer's original words. A review with stars and no text is **skipped** and counted: there is nothing to search |
+| `reviewer.displayName` | `author_name` ("A Google user" when absent) |
+| `createTime` | `occurred_at` |
+| `updateTime` | `metadata.google_update_time` |
+| `reviewReply.comment`, `.updateTime` | `metadata.owner_reply`, `metadata.owner_reply_updated_at`: your reply is kept on file (up to 512 characters) but never indexed, searched or shown |
+| the location | `metadata.location` (its id) and `metadata.location_title`, so a multi-location site can filter by branch |
+
+Takeout has no reviewer photo and no link to the review, so `author_avatar_url` and `url` are null and the snippet shows "Google review" as plain text. Google's guidance for businesses is that reviews belong to their authors and that you get a reviewer's consent before using their review in your own marketing; and that you present them as reviews on Google, without stars beside Google's name.
+
+**Importing again.** Export again whenever you like and import the newer archive: new reviews are added, edited ones are updated (and re-indexed), unchanged ones are left alone. A review is matched by its `locations/<l>/reviews/<r>` part, so the same review under another account folder, or already brought in by the connector, is updated rather than duplicated, and an older export never overwrites a newer edit. When you import whole archives, a review already in the project for those locations that the export no longer has, and that is older than the export, was deleted on Google and is **removed** here too; the import page says so before you confirm, and you can turn it off. Loose JSON files may be a subset, so they never remove anything.
+
+**Places reviews are replaced.** If the project has the five reviews from [Find your business on Google](#find-your-business-on-google) in that environment, the import replaces them (the page says so and names the place before you confirm): the export has all of them, under their Business Profile ids. They stop refreshing, and the Places card refuses to import into that environment again, since Places' five would come back as duplicates.
+
+**Large exports.** Every review is stored at once. Indexing for search runs at about 3,300 reviews a day on the current plan, so a 10,000-review export is searchable over about three days; the page says so before you confirm and the progress page shows where it is. One import takes up to 10 MB of review text, which is tens of thousands of reviews; for more, import a few locations at a time.
+
 ## Find your business on Google
 
 The fastest way to a first result. On onboarding step 2 and on the project's **Import** tab, **Find your business on Google** searches Google Places for the business by name; pick it from the matches and **Import reviews** pulls the reviews Google shares publicly for that place — at most **five**, the ones Google ranks most relevant — as `source: "google"` reviews with the place's id and name in `metadata` (`place_id`, `place_name`), so you can filter on them. The import takes a few seconds and lands on the same progress view as a file import; running it again later updates the same five rather than duplicating them.
 
 Imported reviews keep their author name, photo, and link, and the snippet shows them with a "Google" badge linked back to the review — Google's terms require the attribution, and it is also what makes a review credible on your site. A review that is only a star rating has no text to search and is skipped; the result page counts it.
 
-Five is Google's limit for this API, not ours. For all of a location's reviews, kept in sync, connect your Google Business Profile below once the connector lands; until then, a Takeout export through the upload above brings in everything you have today.
+Five is Google's limit for this API, not ours. For all of a location's reviews, import a [Google Takeout](#google-takeout) export, which replaces these five; or, once it lands, connect your Google Business Profile below to keep them in sync.
 
 ## Google Business Profile
 
@@ -113,4 +149,4 @@ Coming in M3. Connect a Google account with one OAuth consent, pick the location
 
 The connector is gated on Google approving ProofQL's Business Profile API access ([#44](https://github.com/plattegruber/proofql/issues/44)); the connect flow is [#45](https://github.com/plattegruber/proofql/issues/45) and polling is [#46](https://github.com/plattegruber/proofql/issues/46). The lighter companion above, [#47](https://github.com/plattegruber/proofql/issues/47), already pulls a place's five public reviews through the Places API so a new project has something to query before the first import finishes.
 
-Until then, a Google Takeout export through the CSV upload (or the push API) is the way to bring Google reviews in.
+Until then, a [Google Takeout](#google-takeout) export is the way to bring all of your Google reviews in. Both store the review's resource name as its id.

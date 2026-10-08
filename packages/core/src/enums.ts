@@ -28,8 +28,18 @@ export const CONNECTION_STATUSES = [
 ] as const;
 export type ConnectionStatus = (typeof CONNECTION_STATUSES)[number];
 
-/** How a batch of reviews arrived: the push API, a CSV upload, a connector poll, or a Places bootstrap. */
-export const INGEST_RUN_KINDS = ["api", "csv", "google", "places"] as const;
+/**
+ * How a batch of reviews arrived: the push API, a CSV upload, a connector
+ * poll, a Places bootstrap, or a Google Takeout export of a Business
+ * Profile's reviews.
+ */
+export const INGEST_RUN_KINDS = [
+  "api",
+  "csv",
+  "google",
+  "places",
+  "takeout",
+] as const;
 export type IngestRunKind = (typeof INGEST_RUN_KINDS)[number];
 
 /** Outcome of an ingest run. */

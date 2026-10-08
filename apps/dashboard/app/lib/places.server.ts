@@ -36,7 +36,7 @@ import {
   type PlacesClient,
   placesArtifactKey,
 } from "@proofql/google";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import type { Environment, IndexQueue, IngestRun } from "./csv.server";
 
@@ -127,6 +127,24 @@ export async function importPlaceReviews(
   input: ImportPlaceInput,
 ): Promise<ImportPlaceResult> {
   const { db, queue } = deps;
+  // A Takeout export already brought in every Google review (and replaced
+  // the bootstrap); Places' five would come back as duplicates under
+  // other ids. Checked before calling Google, so it costs no quota.
+  const takeout = await db.query.ingestRuns.findFirst({
+    columns: { id: true },
+    where: and(
+      eq(schema.ingestRuns.projectId, input.projectId),
+      eq(schema.ingestRuns.environment, input.environment),
+      eq(schema.ingestRuns.kind, "takeout"),
+      eq(schema.ingestRuns.status, "succeeded"),
+    ),
+  });
+  if (takeout !== undefined) {
+    throw new PlacesImportError(
+      `This project's ${input.environment} Google reviews come from a Takeout export, which has all of them; Places would add duplicates. Import a newer Takeout export to update them.`,
+      409,
+    );
+  }
   const { place: details, cached } = await deps.places.place(input.placeId);
   const mapped: MappedPlace = mapPlaceReviews(details);
   if ((details.reviews ?? []).length === 0) {
