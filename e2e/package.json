@@ -12,11 +12,11 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@clerk/backend": "^3.23.0",
-    "@clerk/testing": "^2.2.43",
-    "@playwright/test": "^1.63.0",
+    "@clerk/backend": "^3.23.1",
+    "@clerk/testing": "^2.2.44",
+    "@playwright/test": "^1.64.0",
     "@proofql/tsconfig": "workspace:*",
-    "@types/node": "^26.6.3",
+    "@types/node": "^26.6.5",
     "typescript": "^5.9.2"
   }
 }
