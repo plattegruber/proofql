@@ -105,7 +105,7 @@ jobs:
       - name: Build pipeline and api workspace dependencies
         run: pnpm --filter "@proofql/pipeline^..." --filter "@proofql/api^..." build
       - name: Deploy proofql-pipeline-preview
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -113,7 +113,7 @@ jobs:
           workingDirectory: workers/pipeline
           command: deploy --env preview
       - name: Deploy proofql-api-preview
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -126,7 +126,7 @@ jobs:
       - name: Build proofql-cdn-preview
         run: pnpm --filter "@proofql/cdn..." build
       - name: Deploy proofql-cdn-preview
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -143,7 +143,7 @@ jobs:
           CLOUDFLARE_ENV: preview
         run: pnpm --filter "@proofql/dashboard..." build
       - name: Deploy proofql-dashboard-preview
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -162,7 +162,7 @@ jobs:
           SUPPORT_EMAIL: ${{ vars.SUPPORT_EMAIL }}
         run: pnpm --filter "@proofql/docs..." build
       - name: Deploy proofql-docs-preview
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -178,7 +178,7 @@ jobs:
           SUPPORT_EMAIL: ${{ vars.SUPPORT_EMAIL }}
         run: pnpm --filter "@proofql/www..." build
       - name: Deploy proofql-www-preview
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -245,7 +245,7 @@ jobs:
       - name: Build pipeline and api workspace dependencies
         run: pnpm --filter "@proofql/pipeline^..." --filter "@proofql/api^..." build
       - name: Deploy proofql-pipeline-prod
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -253,7 +253,7 @@ jobs:
           workingDirectory: workers/pipeline
           command: deploy --env prod
       - name: Deploy proofql-api-prod
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -266,7 +266,7 @@ jobs:
       - name: Build proofql-cdn-prod
         run: pnpm --filter "@proofql/cdn..." build
       - name: Deploy proofql-cdn-prod
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -283,7 +283,7 @@ jobs:
           CLOUDFLARE_ENV: prod
         run: pnpm --filter "@proofql/dashboard..." build
       - name: Deploy proofql-dashboard-prod
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -302,7 +302,7 @@ jobs:
           SUPPORT_EMAIL: ${{ vars.SUPPORT_EMAIL }}
         run: pnpm --filter "@proofql/docs..." build
       - name: Deploy proofql-docs-prod
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -323,7 +323,7 @@ jobs:
         run: pnpm --filter "@proofql/www..." build
       - name: Deploy proofql-www-prod
         if: vars.WWW_PROD_ENABLED == 'true'
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
