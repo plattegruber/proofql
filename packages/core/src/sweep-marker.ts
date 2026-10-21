@@ -31,8 +31,8 @@
  *   database client unless another job is due. A failed read runs the
  *   sweep (fail safe).
  * - **Expires** by itself one TTL after it was set. Until then every tick
- *   sweeps, so the database stays awake for up to an hour after the first
- *   ingest of a window: the price of spending no write on "idle again".
+ *   sweeps, so the database stays awake for up to 15 minutes (plus Neon's
+ *   5-minute idle window) after the first ingest of a window: the price of spending no write on "idle again".
  * - **Extended** (`extendSweepMarker`) by a sweep that still has work
  *   (something re-sent, deferred, or unindexed in flight) when the marker
  *   is within {@link SWEEP_MARKER_EXTEND_WINDOW_MS} of expiring. The new
@@ -46,8 +46,8 @@
  *
  * KV costs per environment per day: 288 reads for the ticks plus one per
  * wrapped producer that sends; **puts: at most one per window, a window
- * lasting at least TTL − extension window (50 minutes): ≤ 29 a day
- * worst case, about 24 under steady trickle traffic; deletes: none.**
+ * lasting at least TTL − extension window (12 minutes): ≤ 120 a day
+ * worst case, 96 under steady trickle traffic; deletes: none.**
  * Every KV failure goes through the isolate's `kvFaults` reporter
  * (`kv.limit_exceeded` / `kv.read_failed` / `kv.write_failed`) and never
  * fails the caller.
@@ -62,10 +62,10 @@ import type { IngestProducer } from "./queue-guard.js";
 export const SWEEP_MARKER_KEY = "pipeline:sweep-pending";
 
 /** The marker expires this long after it is put (module doc). */
-export const SWEEP_MARKER_TTL_SECONDS = 3_600;
+export const SWEEP_MARKER_TTL_SECONDS = 900;
 
 /** A sweep with work left extends a marker this close to expiry. */
-export const SWEEP_MARKER_EXTEND_WINDOW_MS = 10 * 60_000;
+export const SWEEP_MARKER_EXTEND_WINDOW_MS = 3 * 60_000;
 
 /** The KV surface the marker needs; `env.CACHE` (a `KVNamespace`) fits. */
 export interface SweepMarkerKv {

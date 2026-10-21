@@ -1142,23 +1142,22 @@ ticks are at least 45 minutes apart, so each is its own wakeup.
 
 **What changed.** The sweep only runs while the KV key
 `pipeline:sweep-pending` exists (`@proofql/core` `sweep-marker.ts`). The
-key **expires an hour after it is put, and nothing ever deletes it**. A
+key **expires 15 minutes after it is put, and nothing ever deletes it**. A
 set-then-delete pair per burst of traffic would have cost up to ~144 puts
 plus ~144 deletes per environment a day: ~288 of the account's 1,000 daily
 puts, which the workers.dev result cache and the generation bumps share,
-plus ~288 deletes (a separate 1,000 a day in the table above; ~576 of
-1,000 if they are ever counted as writes).
+plus ~288 deletes (a separate 1,000 a day in the table above).
 
 - Every producer puts it right before it sends index messages (api
   ingest, CSV and Places imports, the Google poll, the Places refresh, a
   `connection.sync`), whether or not the send then succeeds, with
-  `expirationTtl: 3600`. It reads first and puts only when the key is
+  `expirationTtl: 900`. It reads first and puts only when the key is
   absent.
 - The cron reads it once per tick. Present: the sweep runs. Absent, and no
   other job due: the tick opens no database client at all.
 - A sweep that still has work (anything re-sent, deferred, or unindexed
   and in flight at any age, under the attempt cap) in the marker's last
-  10 minutes extends it: one fresh put with the TTL, whose new value blocks
+  3 minutes extends it: one fresh put with the TTL, whose new value blocks
   a second extension in the same window. A sweep that finds work with no
   marker (a full sweep after a `pnpm db:reindex`, a Queues outage) puts
   one, so the backlog drains every five minutes. An idle sweep makes no KV
@@ -1171,25 +1170,27 @@ plus ~288 deletes (a separate 1,000 a day in the table above; ~576 of
   the next full sweep.
 
 **KV writes, per environment per day.** Puts: one per window, and a window
-lasts at least 50 minutes (an hour, or 50 minutes when extended), so **at
-most 29**, and **24** under steady trickle traffic. Deletes: **none**.
-Both environments: ≤ 58 of the 1,000. Reads: 288 for the ticks plus one per
+lasts at least 12 minutes (15, or 12 when extended), so **at most 120**,
+and **96** under steady trickle traffic (also what the simulated worst case
+gives, since ticks are 5 minutes apart). Deletes: **none**. Both
+environments: ≤ 240 of the 1,000 puts, 192 under trickle. Reads: 288 for the ticks plus one per
 producer send. `sweep-gate.test.ts` simulates both days.
 
 **What activity costs on top of the idle floor.** A burst of activity (an
 ingest, an import, a dashboard session, an uncached query) keeps the
 compute up for its own duration plus 5 minutes. A burst that enqueues
 reviews also puts the marker, and the sweep then queries every tick until
-it expires, so **the database stays awake for about an hour after the
-first ingest of a window**: ~65 minutes, **~0.27 CU-hour** per isolated
-ingest burst. Further ingests inside that hour cost nothing extra.
+it expires, so **the database stays awake for about 20 minutes after the
+first ingest of a window** (15 for the marker, 5 for Neon's idle window),
+**~0.08 CU-hour** per isolated ingest burst. Further ingests inside those
+15 minutes cost nothing extra.
 
 | Source (per branch unless stated) | Wakeups | CU-hours / month |
 |---|---|---|
 | Idle floor (the six database ticks) | 6 a day | ~4.7 |
-| Daily acceptance run (07:23 UTC; its ingest keeps the sweep running for the marker's hour) | 1 a day | ~8.4 |
+| Daily acceptance run (07:23 UTC; the journey plus the marker's 15 minutes) | 1 a day | ~2.8 |
 | A deploy (migration plus one deep smoke check, back to back) | 1 per deploy | ~0.04 each |
-| An isolated ingest burst (API push, CSV or Places import, a Google poll that finds new reviews) | per burst | ~0.27 each |
+| An isolated ingest burst (API push, CSV or Places import, a Google poll that finds new reviews) | per burst | ~0.08 each |
 | External deep uptime monitor every 30 min | 48 a day | ~37 |
 | … every 60 min | 24 a day | ~18.6 |
 | … every 6 h | 4 a day | ~0 extra if it lands on 00:00/06:00/12:00/18:00, else ~3.1 |
@@ -1197,23 +1198,24 @@ ingest burst. Further ingests inside that hour cost nothing extra.
 **The ceiling.** 100 CU-hours a month at 0.25 CU is **400 compute-hours**,
 about **12.9 hours awake a day across both branches** (31-day month), or
 roughly **130 isolated wakeups a day** in total. The fixed costs above (both
-branches' idle floors ~9.3, both acceptance runs ~16.8, a deep monitor on
-prod at 60 minutes ~18.6) come to **~45 CU-hours**, which leaves ~55 for
-real use: ~7 hours a day of awake compute, or ~200 isolated ingest bursts a
-month. A sustained load that autoscales the compute to 1 CU spends four
+branches' idle floors ~9.3, both acceptance runs ~5.6, a deep monitor on
+prod at 60 minutes ~18.6) come to **~34 CU-hours**, which leaves ~66 for
+real use: ~8.5 hours a day of awake compute, or ~800 isolated ingest bursts
+a month. A sustained load that autoscales the compute to 1 CU spends four
 times as fast.
 
-**The trade-off to watch.** An environment that receives an ingest at
-least once an hour, all day (a tenant pushing reviews every 30 minutes),
-keeps its marker alive continuously, so the sweep queries every tick and
-that branch's compute never suspends: **~186 CU-hours a month for one
-branch, past the whole allowance in about 16 days**. The delete-based
-marker would have cost ~10–15 minutes per burst instead, but spent up to
-~288 puts and ~288 deletes a day. Steady hourly ingest is also the point where the
-free plans stop fitting anyway (§16's upgrade trigger). If it happens
-before the upgrade, shorten `SWEEP_MARKER_TTL_SECONDS`: at *T* minutes the
-worst case is ~1440 / (*T* − 10) puts a day per environment, and trickle
-slower than every *T* minutes lets the compute suspend between bursts.
+**The trade-off to watch.** Hourly ingest (a tenant pushing reviews once an
+hour, all day) lets the marker lapse after 15 minutes each time, so the
+compute is up ~20 minutes an hour: ~8 hours a day, **~62 CU-hours a month
+for that branch**. Over half the allowance, but it suspends between pushes.
+Ingest with gaps under ~15 minutes, all day, keeps the marker alive and the
+compute awake permanently (~186 CU-hours a month for one branch), as any
+traffic with gaps under Neon's 5 minutes would anyway. Either is past §16's
+upgrade trigger. `SWEEP_MARKER_TTL_SECONDS` is the knob: at *T* minutes
+with a 3-minute extension window, the worst case is ~1440 / (*T* − 3) puts
+a day per environment, and ingest gaps longer than ~*T* + 5 minutes let the
+compute suspend in between. The one-hour TTL first tried here capped puts
+at 29 a day but kept a branch awake through hourly ingest.
 
 **The rule.** Anything periodic that reaches Postgres more often than every
 5 minutes keeps a compute awake permanently: 0.25 × 24 × 31 = 186 CU-hours a
@@ -1228,7 +1230,7 @@ touches the database; only `/health?deep=1` does (docs/launch.md §16
 ticks opens a database client on exactly 6 and spends 288 KV reads and no
 writes; marker set → sweep; expired marker → no database; KV failing →
 sweep; the six full-sweep ticks; a producer sending after every tick of a
-day costs 24 puts, or 29 when every sweep has work left, and no deletes),
+day costs 96 puts, ≤ 120 when every sweep has work left, and no deletes),
 `packages/core/src/sweep-marker.test.ts` (put only when absent, always
 with the TTL, the extension guard, the re-put race, expiry, KV failures) and `sweep.integration.test.ts` (`idle` on
 the real schema). The CU-hour figures are arithmetic from Neon's published

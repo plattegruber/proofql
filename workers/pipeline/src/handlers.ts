@@ -6,7 +6,7 @@
  * `handleScheduled` runs the jobs `jobsDueAt` (src/schedule.ts) picks for
  * the tick's scheduled time — the re-enqueue sweep (src/sweep.ts) for
  * reviews stuck unindexed, but only while the KV work marker (which
- * expires an hour after it is set) exists or on a full-sweep tick (`planSweep`; @proofql/core sweep-marker.ts), so an
+ * expires 15 minutes after it is set) exists or on a full-sweep tick (`planSweep`; @proofql/core sweep-marker.ts), so an
  * idle tick opens no database client; at 00/06/12/18:00 UTC the Google poll
  * (src/google-poll.ts, #46); at 03:30 UTC the Places refresh of
  * bootstraps older than 25 days (src/places-refresh.ts, #116); at 04:15

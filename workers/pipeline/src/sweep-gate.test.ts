@@ -131,11 +131,11 @@ describe("handleScheduled: an expired marker means no database", () => {
     kv.seed(String(now), SWEEP_MARKER_TTL_SECONDS);
     const { env, probe } = probeEnv(kv);
 
-    now = at("12:55");
+    now = at("12:10");
     await handleScheduled(env, now);
     expect(probe.opened).toBe(1);
 
-    now = at("13:00");
+    now = at("12:15");
     const result = await handleScheduled(env, now);
     expect(result).toEqual({ ran: [], failed: [] });
     expect(probe.opened).toBe(1);
@@ -237,7 +237,7 @@ describe("settleSweepMarker (never deletes)", () => {
   });
 });
 
-describe("KV write budget (free plan: 1,000 writes a day, deletes included, account-wide)", () => {
+describe("KV write budget (free plan: 1,000 puts a day, account-wide; deletes are a separate 1,000)", () => {
   async function day(sweepIdle: boolean) {
     const { log } = testLogger();
     const kv = new MemorySweepMarkerKv();
@@ -267,16 +267,16 @@ describe("KV write budget (free plan: 1,000 writes a day, deletes included, acco
     return kv.calls;
   }
 
-  it("steady trickle (every send indexed by the next tick): 24 puts a day, no deletes", async () => {
+  it("steady trickle (every send indexed by the next tick): 96 puts a day, no deletes", async () => {
     const calls = await day(true);
-    expect(calls.put).toBe(24);
+    expect(calls.put).toBe(96);
     expect(calls.delete).toBe(0);
   });
 
-  it("worst case (work always pending, so sweeps extend): at most 29 puts a day, no deletes", async () => {
+  it("worst case (work always pending, so sweeps extend): at most 120 puts a day (one per 12-minute window), no deletes", async () => {
     const calls = await day(false);
-    expect(calls.put).toBeLessThanOrEqual(29);
-    expect(calls.put).toBeGreaterThanOrEqual(24);
+    expect(calls.put).toBeLessThanOrEqual(120);
+    expect(calls.put).toBeGreaterThanOrEqual(96);
     expect(calls.delete).toBe(0);
   });
 });
