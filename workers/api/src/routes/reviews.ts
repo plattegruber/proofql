@@ -22,7 +22,8 @@
  *
  * A failed queue write does not fail the request (#159). The rows are
  * committed with `indexed_at` null, and the pipeline's five-minute sweep
- * re-enqueues every unindexed review, so the response is the normal 200
+ * re-enqueues every unindexed review (the send first sets the sweep's KV
+ * work marker, `withSweepMarker`, so the sweep knows to run), so the response is the normal 200
  * receipt (those reviews report `status: "indexing"`) with a top-level
  * `indexing: "deferred"`. The usual cause is the Workers Free plan's daily
  * Queues operations limit; indexing then catches up after 00:00 UTC.
@@ -44,6 +45,7 @@ import {
   type ReviewInput,
   reviewBatchSchema,
   reviewInputSchema,
+  withSweepMarker,
 } from "@proofql/core";
 import {
   type Db,
@@ -110,16 +112,19 @@ reviewsRoutes.post(
         throw toApiError(error);
       });
 
+      const enqueueLog = logFor(c).child({
+        project_id: auth.projectId,
+        key_environment: auth.environment,
+      });
+      // The rows are committed: tell the cron's sweep there is work
+      // (@proofql/core sweep-marker.ts; a KV write only when it was idle).
       const enqueued = await enqueueOrDefer(
-        c.env.INGEST_QUEUE,
-        result.toEnqueue,
-        {
-          log: logFor(c).child({
-            project_id: auth.projectId,
-            key_environment: auth.environment,
-          }),
+        withSweepMarker(c.env.INGEST_QUEUE, c.env.CACHE, {
+          log: enqueueLog,
           site: "api.ingest",
-        },
+        }),
+        result.toEnqueue,
+        { log: enqueueLog, site: "api.ingest" },
       );
 
       await db.insert(schema.ingestRuns).values({

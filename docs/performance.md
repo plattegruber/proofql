@@ -1016,7 +1016,7 @@ the result cache. Hyperdrive counts are statements; a transaction counts its
 | **Onboarding** (create project + keys, find the business on Google, import its 5 reviews, preview) | ~10 | before: ~7 (Places search + details, 5 bumps). after: ~3 | before: ~7. after: **~3** (Places search, Places details, 1 bump) | ~40 for the dashboard steps + ~50 to index 5 reviews | 15 (5 reviews × 3) |
 | Waitlist submission (pre-launch) | 1 | 1 | 1 (unchanged) | 1 | 0 |
 | Google connect (OAuth) | 2 | 1 | 1 put + 1 delete (unchanged) | a few | 1 write for the first sync |
-| Crons (sweep every 5 min, Google poll every 6 h, Places refresh daily) | ~293 per day | Places refresh: 0 reads (fresh fetch), 1 per bump | 1 Places cache write per refreshed place + 1 bump if it changed | 1 per sweep tick + the polls | as many as they re-enqueue |
+| Crons (one five-minute tick; sweep gated on the KV work marker, Google poll every 6 h, Places refresh and purge daily) | 288 per day | 1 per tick (the marker), Places refresh 1 per bump | 1 Places cache write per refreshed place + 1 bump if it changed; marker: ≤ 1 put + 1 delete per busy period (≤ ~144 a day) | idle day: only the 6 database ticks (00:00, 03:30, 04:15, 06:00, 12:00, 18:00 UTC); before 2026-10-20 at least 1 per tick (288) | as many as they re-enqueue |
 
 The per-isolate rows trade a single global KV entry for state in each
 isolate, and a busy worker runs in several isolates per colo. The auth
@@ -1110,6 +1110,98 @@ Once `api.proofql.dev` is routed (scope §7.6), the Cache API path turns on
 by itself, with no deploy flag. Verify it then with two identical
 `/v1/query` requests to the custom domain: the second is `x-cache: HIT`,
 and `wrangler tail` shows no `kv.*` lines and no KV writes for it.
+
+### Neon compute-hours: why the cron must not query an idle database (2026-10-20)
+
+**What happened.** Neon project `hidden-haze-63906501` is on Neon's Free
+plan: **100 CU-hours of compute per project per month**, shared by both
+branches (`prod` and `preview`), and the compute is suspended until the
+next billing period once they are spent. It had used 110 CU-hours by
+2026-10-14 and was suspended until 2026-11-01. From then on everything that
+needs Postgres failed (onboarding's "Something went wrong", ingest,
+uncached queries), while every `/health` stayed 200 because none touched
+the database, and the daily acceptance run failed for six days without
+telling anyone.
+
+**Why.** Neon scales a compute to zero after **5 minutes** without
+activity. The pipeline's single `*/5` cron ran the re-enqueue sweep on
+every tick in both environments, and the sweep's first statement reads
+`reviews`. A query every 5 minutes against a 5-minute idle timeout means
+the compute never suspends. At the minimum compute size of **0.25 CU**
+(the sizes are under Neon console → Branches → Computes; autoscaling above
+the minimum under load only makes it worse):
+
+| | Postgres ticks a day, per environment | Compute awake, per branch | CU-hours / day (both branches) | CU-hours / 31-day month (both) |
+|---|---|---|---|---|
+| Before (sweep every tick) | **288** (every tick) | 24 h (never suspends) | 2 × 0.25 × 24 = **12** | **372**: the 100 are gone in ~8.3 days |
+| After, idle day | **6** (00:00, 03:30, 04:15, 06:00, 12:00, 18:00 UTC) | ~6 × 6 min ≈ 0.6 h | 2 × 0.25 × 0.6 = **0.3** | **~9.3** |
+
+"~6 min" per wakeup is the job itself (seconds), the cold start (under a
+second) and Neon's 5-minute idle window after the last statement. The six
+ticks are at least 45 minutes apart, so each is its own wakeup.
+
+**What changed.** The sweep only runs while the KV key
+`pipeline:sweep-pending` is set (`@proofql/core` `sweep-marker.ts`):
+
+- Every producer sets it right before it sends index messages (api ingest,
+  CSV and Places imports, the Google poll, the Places refresh, a
+  `connection.sync`), whether or not the send then succeeds. It reads
+  first and writes only when the key is absent.
+- The cron reads it once per tick. Absent, and no other job due: the tick
+  opens no database client at all.
+- A sweep that finds nothing unindexed (at any age, under the attempt cap)
+  deletes it, but not before it is 5 minutes old, so a cycle spans at
+  least two ticks.
+- KV unreadable: the sweep runs (fail safe). And every tick that already
+  wakes the database for another job sweeps in full, marker or not, so a
+  lost marker costs at most six hours and no extra wakeup. A full sweep
+  that finds work sets the marker, so a backlog (`pnpm db:reindex`, a
+  Queues outage) drains every five minutes.
+
+**What activity costs on top of the idle floor.** A burst of activity (an
+ingest, an import, a dashboard session, an uncached query) keeps the
+compute up for its own duration plus 5 minutes. A burst that enqueues
+reviews also sets the marker, which keeps the sweep querying for 2 ticks,
+so an isolated ingest costs roughly 10–15 minutes awake: **~0.05 CU-hour**.
+
+| Source (per branch unless stated) | Wakeups | CU-hours / month |
+|---|---|---|
+| Idle floor (the six database ticks) | 6 a day | ~4.7 |
+| Daily acceptance run (07:23 UTC; journey plus the sweep ticks its ingest causes) | 1 a day | ~2 |
+| A deploy (migration plus one deep smoke check, back to back) | 1 per deploy | ~0.04 each |
+| External deep uptime monitor every 30 min | 48 a day | ~37 |
+| … every 60 min | 24 a day | ~18.6 |
+| … every 6 h | 4 a day | ~0 extra if it lands on 00:00/06:00/12:00/18:00, else ~3.1 |
+
+**The ceiling.** 100 CU-hours a month at 0.25 CU is **400 compute-hours**,
+about **12.9 hours awake a day across both branches** (31-day month), or
+roughly **130 isolated wakeups a day** in total. The fixed costs above (both
+branches' idle floors, both acceptance runs, a deep monitor on prod at 60
+minutes) come to ~32 CU-hours, which leaves ~68 for real use: ~8.8 hours a
+day of awake compute. A sustained load that autoscales the compute to 1 CU
+spends four times as fast.
+
+**The rule.** Anything periodic that reaches Postgres more often than every
+5 minutes keeps a compute awake permanently: 0.25 × 24 × 31 = 186 CU-hours a
+month for one branch, nearly twice the whole allowance. Each periodic
+database job with interval *I* minutes (> 5) costs about (1440 / *I*) × 6
+minutes awake a day. Gate new cron work on a cheap signal, as the sweep
+does, or put it on one of the six database ticks. Plain `/health` never
+touches the database; only `/health?deep=1` does (docs/launch.md §16
+"Uptime monitoring").
+
+**Checked by** `workers/pipeline/src/sweep-gate.test.ts` (an idle day of 288
+ticks opens a database client on exactly 6 and spends 288 KV reads and no
+writes; marker set → sweep; KV failing → sweep; the six full-sweep ticks;
+a producer marking after every tick of a day costs ≤ ~144 puts),
+`packages/core/src/sweep-marker.test.ts` (set only on the transition,
+hold, re-set race, KV failures) and `sweep.integration.test.ts` (`idle` on
+the real schema). The CU-hour figures are arithmetic from Neon's published
+limits, not measured: no load was run. Neon closes idle connections when it
+suspends a compute, so Hyperdrive's pool should not keep it awake. After
+the next deploy, confirm the computes show **Idle** between the six ticks
+(Neon console → Branches → Computes) and that the project's compute usage
+grows by well under 1 CU-hour a day.
 
 ### How this was checked
 

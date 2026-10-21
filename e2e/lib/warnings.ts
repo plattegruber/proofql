@@ -24,3 +24,22 @@ export function recordWarning(message: string): void {
   mkdirSync(dirname(WARNINGS_FILE), { recursive: true });
   appendFileSync(WARNINGS_FILE, `${message}\n`);
 }
+
+/**
+ * The redacted `[at] FAILED at …` line of a failing run, also kept in
+ * `test-results/at-failure.txt` (one line per failed attempt). The
+ * workflow's `alert` job quotes the last one in the `acceptance-failure`
+ * issue (scripts/acceptance-alert.sh), so a red run is noticed without
+ * anyone opening the log. The caller must pass an already-redacted line.
+ */
+export const FAILURE_FILE = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "test-results",
+  "at-failure.txt",
+);
+
+export function recordFailureLine(redactedLine: string): void {
+  mkdirSync(dirname(FAILURE_FILE), { recursive: true });
+  appendFileSync(FAILURE_FILE, `${redactedLine.replace(/\s*\n\s*/g, " ")}\n`);
+}

@@ -34,6 +34,16 @@
  * same way), logs `quota.exhausted` with `resource: "queues"` once, and
  * reports the unsent reviews as `deferred`. The first tick after the reset
  * sends them.
+ *
+ * `idle` (the 2026-10-14 Neon suspension; `@proofql/core` sweep-marker.ts):
+ * the cron skips this sweep while the KV "sweep pending" marker is absent,
+ * and clears the marker when a sweep reports `idle`: nothing re-sent,
+ * nothing deferred, and no review still waiting for the consumer at any
+ * age (unindexed, not hidden, under `maxAttempts`). The last part matters:
+ * a review enqueued a minute ago is not a candidate yet, and clearing the
+ * marker under it would leave it unswept for hours if its message is then
+ * lost. Exhausted reviews never count, so a review the pipeline can never
+ * index cannot keep the database awake.
  */
 
 import {
@@ -82,6 +92,12 @@ export interface SweepResult {
   exhausted: number;
   /** `sendBatch` calls made. */
   batches: number;
+  /**
+   * Nothing left for a sweep to do: nothing sent or deferred this tick and
+   * no unindexed, unhidden review under `maxAttempts` at any age (module
+   * doc). The cron clears the work marker on it.
+   */
+  idle: boolean;
 }
 
 export const DEFAULT_MAX_INDEX_ATTEMPTS = 5;
@@ -162,6 +178,24 @@ export async function sweepUnindexed(
     sent.push(...ids);
   }
 
+  // Any-age in-flight check, only when this tick had nothing to send: one
+  // `exists` over the same predicate without the age cutoff.
+  let idle = false;
+  if (candidates.length === 0) {
+    const [inFlight] = await ctx.db
+      .select({ id: reviews.id })
+      .from(reviews)
+      .where(
+        and(
+          isNull(reviews.indexedAt),
+          isNull(reviews.hiddenAt),
+          lt(reviews.indexAttempts, maxAttempts),
+        ),
+      )
+      .limit(1);
+    idle = inFlight === undefined;
+  }
+
   log.log("sweep.completed", {
     older_than_minutes: options.olderThanMinutes,
     limit: options.limit,
@@ -169,6 +203,7 @@ export async function sweepUnindexed(
     deferred,
     exhausted: exhausted.length,
     batches,
+    idle,
     review_ids: sent,
   });
   return {
@@ -176,6 +211,7 @@ export async function sweepUnindexed(
     deferred,
     exhausted: exhausted.length,
     batches,
+    idle,
   };
 }
 

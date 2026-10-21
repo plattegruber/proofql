@@ -11,6 +11,8 @@
 //                                          index send was refused (#162)
 //
 // Errors come back as { error } in the voice, never Google's raw text.
+
+import { withSweepMarker } from "@proofql/core";
 import {
   describePlacesError,
   type PlaceMatch,
@@ -108,11 +110,17 @@ export async function action(args: Route.ActionArgs) {
         {
           db,
           places,
-          queue: {
-            sendBatch: async (messages) => {
-              await env.INGEST_QUEUE.sendBatch([...messages]);
+          // Marks the pipeline sweep's KV work flag on the first send
+          // (@proofql/core sweep-marker.ts).
+          queue: withSweepMarker(
+            {
+              sendBatch: async (messages) => {
+                await env.INGEST_QUEUE.sendBatch([...messages]);
+              },
             },
-          },
+            env.CACHE,
+            { log, site: "dashboard.places_import" },
+          ),
           log,
         },
         { projectId: project.id, environment, placeId },

@@ -543,6 +543,12 @@ describe("GET /health", () => {
     expect(res.status).toBe(200);
     await conforms(res, "get", "/health");
   });
+
+  it("200 with deep=1 against the real database", async () => {
+    const res = await call("/health?deep=1");
+    expect(res.status).toBe(200);
+    await conforms(res, "get", "/health");
+  });
 });
 
 describe("POST /v1/reviews", () => {
