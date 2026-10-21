@@ -402,7 +402,7 @@ a documented ops command run by you against the prod branch
 | Task | Command | Notes |
 |---|---|---|
 | **Upgrade an account to paid** | `pnpm db:set-plan -- --account <org_…> --plan paid` | §7; `packages/db/README.md` "Migration workflow". |
-| **Re-index a project's reviews after a chunker change** | `pnpm db:reindex -- --project <slug\|uuid> --dry-run`, then without `--dry-run`; `--all --environment live` for every project | #127 added `sentence` chunks (migration 0008); reviews indexed before it keep `full` + `window` chunks only, so their highlights stay window-wide until re-indexed. The script marks reviews (`indexed_at = NULL`, `index_attempts = 0`) and the pipeline's five-minute sweep re-enqueues them 500 per tick, starting at its next full-sweep tick (≤ 6 h) unless you set the sweep marker first (`pnpm --filter @proofql/pipeline exec wrangler kv key put pipeline:sweep-pending 1 --binding CACHE --env prod --remote`), so a 5,000-review project takes about 50 minutes once started and one Workers AI embedding batch per review; search keeps serving the old chunks until each review is replaced. Watch `review.indexed` lines with `sentences > 0` (`wrangler tail proofql-pipeline-prod --search review.indexed`). Details: `packages/db/README.md` "Re-indexing". |
+| **Re-index a project's reviews after a chunker change** | `pnpm db:reindex -- --project <slug\|uuid> --dry-run`, then without `--dry-run`; `--all --environment live` for every project | #127 added `sentence` chunks (migration 0008); reviews indexed before it keep `full` + `window` chunks only, so their highlights stay window-wide until re-indexed. The script marks reviews (`indexed_at = NULL`, `index_attempts = 0`) and the pipeline's five-minute sweep re-enqueues them 500 per tick, starting at its next full-sweep tick (≤ 6 h) unless you set the sweep marker first (`pnpm --filter @proofql/pipeline exec wrangler kv key put pipeline:sweep-pending 1 --ttl 3600 --binding CACHE --env prod --remote`), so a 5,000-review project takes about 50 minutes once started and one Workers AI embedding batch per review; search keeps serving the old chunks until each review is replaced. Watch `review.indexed` lines with `sentences > 0` (`wrangler tail proofql-pipeline-prod --search review.indexed`). Details: `packages/db/README.md` "Re-indexing". |
 | **Purge deleted workspaces by hand** | `pnpm db:purge-accounts -- --dry-run`, then without `--dry-run` (`--limit <n>`, default 50) | #169. The pipeline's 04:15 UTC cron tick already hard-deletes accounts soft-deleted (Clerk `organization.deleted`) more than 30 days ago, 50 per tick, logging `account.purged` (`wrangler tail proofql-pipeline-prod --search account.purge`). Use the script to see what is due or to catch up after an outage. It touches the database only; the purged projects' R2 uploads are removed by the cron, or by the bucket's 7-day lifecycle rule (`infra/provisioning.md` §4). A purged workspace is gone: the next sign-in with that Clerk organization creates a new, empty account. |
 | **Check a tenant's search cost** | `pnpm --filter @proofql/db exec tsx scripts/bench-search.ts --project <slug\|uuid>` against a branch of prod | `docs/performance.md` §2: ~2.5–3 ms per 1,000 chunks; `search_ms` p50 above ~50 ms for one `project_id` is the trigger for a per-tenant partial HNSW index. |
 
@@ -433,7 +433,7 @@ fails for both environments (it happened on 2026-10-14; performance.md §7
 | Hyperdrive queries | 100,000 | ~40,000 uncached queries, or ~10,000 reviews indexed |
 | Queues operations | 10,000 | **~3,300 reviews indexed** (3 operations each). This is the tightest limit for imports. Past it, ingest still accepts reviews and indexing catches up after 00:00 UTC |
 | Workers AI | 10,000 neurons | ~30,000 reviews indexed, or far more queries. Not the constraint |
-| **Neon compute** (monthly, not daily; both branches) | 100 CU-hours / month | ~400 compute-hours at 0.25 CU: **~12.9 h awake a day** across prod and preview, or ~130 isolated wakeups a day (each ≈ 6 min: the work plus Neon's 5-minute idle window). Fixed costs ≈ 32 CU-hours a month: the cron's six database ticks a day per branch (~9.3), the daily acceptance runs (~3.9), a deep uptime monitor on prod at 60 min (~18.6). Anything that queries more often than every 5 minutes keeps a compute awake for good (186 CU-hours a month per branch) |
+| **Neon compute** (monthly, not daily; both branches) | 100 CU-hours / month | ~400 compute-hours at 0.25 CU: **~12.9 h awake a day** across prod and preview, or ~130 isolated wakeups a day (each ≈ 6 min: the work plus Neon's 5-minute idle window). Fixed costs ≈ 45 CU-hours a month: the cron's six database ticks a day per branch (~9.3), the daily acceptance runs (~16.8, since each ingest keeps the sweep running for the marker's hour), a deep uptime monitor on prod at 60 min (~18.6). Each further isolated ingest burst costs ~0.27. Anything that queries more often than every 5 minutes keeps a compute awake for good (186 CU-hours a month per branch), and **so does ingest arriving at least hourly all day** (the marker never lapses) |
 
 Cached queries cost no database queries and, on a custom domain, no KV
 writes. Once the first prod deploy routes `api.proofql.dev` (§2), the result and auth caches
@@ -446,10 +446,14 @@ one per environment (`*/5 * * * *`, #174) and picks the jobs due on each
 tick itself (`workers/pipeline/src/schedule.ts`): the sweep, the Google poll
 at 00/06/12/18:00, the Places refresh at 03:30 and the account purge at
 04:15 UTC. **The sweep is gated** so an idle tick never wakes Neon: it runs
-only while the KV key `pipeline:sweep-pending` is set (every producer sets
-it before sending index messages; an idle sweep clears it), when KV cannot
-be read (fail safe), and in full on the six ticks that wake the database
-anyway (00:00, 03:30, 04:15, 06:00, 12:00, 18:00). An idle day therefore
+only while the KV key `pipeline:sweep-pending` exists, when KV cannot be
+read (fail safe), and in full on the six ticks that wake the database
+anyway (00:00, 03:30, 04:15, 06:00, 12:00, 18:00). Every producer puts the
+key, only when it is absent, with a **one-hour TTL**, before sending index
+messages; it is never deleted, and a sweep that still has work in its last
+10 minutes extends it once. KV cost: ≤ 29 puts a day per environment
+(24 under steady trickle), no deletes. The database stays awake for about
+an hour after the first ingest of a window. An idle day therefore
 touches Postgres on **6 ticks per environment, down from 288**. Most
 `cron.tick` lines say `sweep: "idle"` with `jobs: []`. A skipped tick skips that run; each job is idempotent
 and age-based, so it catches up at its next due time (six hours for

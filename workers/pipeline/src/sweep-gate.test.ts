@@ -13,8 +13,9 @@ import {
   type IngestMessage,
   MemorySweepMarkerKv,
   markSweepPending,
+  SWEEP_MARKER_EXTEND_WINDOW_MS,
   SWEEP_MARKER_KEY,
-  SWEEP_MARKER_MIN_HOLD_MS,
+  SWEEP_MARKER_TTL_SECONDS,
 } from "@proofql/core";
 import { describe, expect, it } from "vitest";
 
@@ -55,7 +56,7 @@ describe("handleScheduled: Postgres only when there is work", () => {
 
   it("a set marker runs the sweep (and so reaches the database)", async () => {
     const kv = new MemorySweepMarkerKv();
-    kv.store.set(SWEEP_MARKER_KEY, String(at("12:00")));
+    kv.seed(String(at("12:00")), SWEEP_MARKER_TTL_SECONDS);
     const { env, probe } = probeEnv(kv);
     const result = await handleScheduled(env, at("12:05"));
     expect(result.failed).toEqual(["sweep"]);
@@ -109,7 +110,7 @@ describe("planSweep", () => {
       reason: "full",
       marker: { kind: "absent" },
     });
-    kv.store.set(SWEEP_MARKER_KEY, "1");
+    kv.seed("1");
     expect(await planSweep(at("12:05"), kv, log)).toMatchObject({
       run: true,
       reason: "pending",
@@ -122,38 +123,89 @@ describe("planSweep", () => {
   });
 });
 
-describe("settleSweepMarker", () => {
+describe("handleScheduled: an expired marker means no database", () => {
+  it("one TTL after the last put, the tick is idle again", async () => {
+    let now = at("12:00");
+    const kv = new MemorySweepMarkerKv();
+    kv.clock = () => now;
+    kv.seed(String(now), SWEEP_MARKER_TTL_SECONDS);
+    const { env, probe } = probeEnv(kv);
+
+    now = at("12:55");
+    await handleScheduled(env, now);
+    expect(probe.opened).toBe(1);
+
+    now = at("13:00");
+    const result = await handleScheduled(env, now);
+    expect(result).toEqual({ ran: [], failed: [] });
+    expect(probe.opened).toBe(1);
+    expect(kv.calls.delete).toBe(0);
+  });
+});
+
+describe("settleSweepMarker (never deletes)", () => {
   const now = at("12:05");
   const clock = () => now;
+  const ttlMs = SWEEP_MARKER_TTL_SECONDS * 1000;
 
-  it("idle sweep clears a marker past the hold", async () => {
-    const { log, out } = testLogger();
+  function kvAt() {
     const kv = new MemorySweepMarkerKv();
-    const value = String(now - SWEEP_MARKER_MIN_HOLD_MS);
-    kv.store.set(SWEEP_MARKER_KEY, value);
-    const marker = { kind: "present", value, setAt: Number(value) } as const;
+    kv.clock = clock;
+    return kv;
+  }
+
+  it("idle sweep: no KV call at all, the marker is left to expire", async () => {
+    const { log } = testLogger();
+    const kv = kvAt();
+    kv.seed(String(now - ttlMs + 60_000), SWEEP_MARKER_TTL_SECONDS);
+    const marker = await planSweep(now, kv, log).then((p) => p.marker);
+    const before = { ...kv.calls };
     expect(
       await settleSweepMarker({ idle: true }, marker, kv, log, clock),
-    ).toBe("cleared");
-    expect(kv.store.has(SWEEP_MARKER_KEY)).toBe(false);
-    expect(out.find("sweep.marker_cleared")).toHaveLength(1);
+    ).toBe("none");
+    expect(kv.calls).toEqual(before);
   });
 
-  it("idle sweep keeps a marker younger than the hold", async () => {
-    const { log } = testLogger();
-    const kv = new MemorySweepMarkerKv();
-    const value = String(now - 60_000);
-    kv.store.set(SWEEP_MARKER_KEY, value);
-    const marker = { kind: "present", value, setAt: Number(value) } as const;
+  it("work left near expiry: extends once, with the TTL", async () => {
+    const { log, out } = testLogger();
+    const kv = kvAt();
+    kv.seed(
+      String(now - (ttlMs - SWEEP_MARKER_EXTEND_WINDOW_MS)),
+      SWEEP_MARKER_TTL_SECONDS,
+    );
+    const marker = (await planSweep(now, kv, log)).marker;
     expect(
-      await settleSweepMarker({ idle: true }, marker, kv, log, clock),
-    ).toBe("held");
-    expect(kv.store.get(SWEEP_MARKER_KEY)).toBe(value);
+      await settleSweepMarker({ idle: false }, marker, kv, log, clock),
+    ).toBe("extended");
+    expect(kv.puts).toEqual([
+      expect.objectContaining({
+        value: String(now),
+        expirationTtl: SWEEP_MARKER_TTL_SECONDS,
+      }),
+    ]);
+    expect(out.find("sweep.marker_extended")).toHaveLength(1);
+    const next = (await planSweep(now, kv, log)).marker;
+    expect(await settleSweepMarker({ idle: false }, next, kv, log, clock)).toBe(
+      "kept",
+    );
+    expect(kv.calls.put).toBe(1);
+  });
+
+  it("work left, marker fresh: kept, no KV call", async () => {
+    const { log } = testLogger();
+    const kv = kvAt();
+    kv.seed(String(now - 60_000), SWEEP_MARKER_TTL_SECONDS);
+    const marker = (await planSweep(now, kv, log)).marker;
+    const before = { ...kv.calls };
+    expect(
+      await settleSweepMarker({ idle: false }, marker, kv, log, clock),
+    ).toBe("kept");
+    expect(kv.calls).toEqual(before);
   });
 
   it("work left and no marker (a full sweep found a backlog): sets it, so the next ticks keep draining", async () => {
     const { log } = testLogger();
-    const kv = new MemorySweepMarkerKv();
+    const kv = kvAt();
     expect(
       await settleSweepMarker(
         { idle: false },
@@ -163,41 +215,19 @@ describe("settleSweepMarker", () => {
         clock,
       ),
     ).toBe("set");
-    expect(kv.store.get(SWEEP_MARKER_KEY)).toBe(String(now));
-  });
-
-  it("work left and the marker already set: no KV call at all", async () => {
-    const { log } = testLogger();
-    const kv = new MemorySweepMarkerKv();
-    kv.store.set(SWEEP_MARKER_KEY, "1");
-    expect(
-      await settleSweepMarker(
-        { idle: false },
-        { kind: "present", value: "1", setAt: 1 },
-        kv,
-        log,
-        clock,
-      ),
-    ).toBe("kept");
-    expect(kv.calls).toEqual({ get: 0, put: 0, delete: 0 });
+    expect(kv.puts[0]).toMatchObject({
+      value: String(now),
+      expirationTtl: SWEEP_MARKER_TTL_SECONDS,
+    });
   });
 
   it("KV failing never throws out of the tick", async () => {
     const { log } = testLogger();
-    const kv = new MemorySweepMarkerKv();
-    kv.fail = { get: true, put: true, delete: true };
+    const kv = kvAt();
+    kv.fail = { get: true, put: true };
     expect(
       await settleSweepMarker(
         { idle: false },
-        { kind: "unknown" },
-        kv,
-        log,
-        clock,
-      ),
-    ).toBe("failed");
-    expect(
-      await settleSweepMarker(
-        { idle: true },
         { kind: "unknown" },
         kv,
         log,
@@ -207,32 +237,46 @@ describe("settleSweepMarker", () => {
   });
 });
 
-describe("KV write budget (free plan: 1,000 puts a day, account-wide)", () => {
-  it("worst case, a producer marks right after every tick of a day: at most ~144 puts and deletes per environment", async () => {
+describe("KV write budget (free plan: 1,000 writes a day, deletes included, account-wide)", () => {
+  async function day(sweepIdle: boolean) {
     const { log } = testLogger();
     const kv = new MemorySweepMarkerKv();
-    const day = Date.UTC(2026, 9, 20);
+    let now = Date.UTC(2026, 9, 20);
+    kv.clock = () => now;
     for (let m = 0; m < 24 * 60; m += 5) {
-      const tick = day + m * 60_000;
+      const tick = Date.UTC(2026, 9, 20) + m * 60_000;
+      now = tick;
       const plan = await planSweep(tick, kv, log);
       if (plan.run) {
-        // Every sweep finds the work already indexed (the cheapest busy period).
         await settleSweepMarker(
-          { idle: true },
+          { idle: sweepIdle },
           plan.marker,
           kv,
           log,
           () => tick,
         );
       }
+      // A producer sends right after every tick, all day.
+      now = tick + 1_000;
       await markSweepPending(kv, {
         log,
         site: "test.producer",
-        now: () => tick + 1_000,
+        now: () => now,
       });
     }
-    expect(kv.calls.put).toBeLessThanOrEqual(145);
-    expect(kv.calls.delete).toBeLessThanOrEqual(145);
-    expect(kv.calls.put).toBeGreaterThan(100);
+    return kv.calls;
+  }
+
+  it("steady trickle (every send indexed by the next tick): 24 puts a day, no deletes", async () => {
+    const calls = await day(true);
+    expect(calls.put).toBe(24);
+    expect(calls.delete).toBe(0);
+  });
+
+  it("worst case (work always pending, so sweeps extend): at most 29 puts a day, no deletes", async () => {
+    const calls = await day(false);
+    expect(calls.put).toBeLessThanOrEqual(29);
+    expect(calls.put).toBeGreaterThanOrEqual(24);
+    expect(calls.delete).toBe(0);
   });
 });

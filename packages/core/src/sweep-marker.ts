@@ -11,44 +11,46 @@
  * to do: a review only needs the sweep when its message was never sent or
  * never processed.
  *
- * The rule, in one place:
+ * The rule, in one place. The marker **expires; nothing ever deletes it**.
+ * Clearing it on idle would cost a delete per busy period and a put for
+ * each next one, up to ~144 of each per environment a day under trickle
+ * traffic, against the Free plan's 1,000 puts (shared with the result
+ * cache and generation bumps) and 1,000 deletes a day:
  *
  * - **Set** (`markSweepPending`) by every producer just before it sends
  *   index messages: the api's `POST /v1/reviews`, the dashboard's CSV and
- *   Places imports and its `connection.sync`, the pipeline's Google poll
- *   and Places refresh. `withSweepMarker` wraps a queue binding so the
- *   call sites do not change. The rows are already committed, so whether
- *   the send then succeeds or is refused (#159) the sweep is the safety
- *   net for them. Setting reads first and writes only when the key is
- *   absent, and a wrapped producer marks at most once, so a write is spent
- *   on the idle → busy transition only, never per review or per batch.
- * - **Read** by the cron at the start of every tick (one KV read). Absent
- *   ⇒ the sweep is skipped and the tick opens no database client unless
- *   another job is due. A failed read runs the sweep (fail safe).
- * - **Cleared** (`clearSweepMarker`) by a sweep that found nothing left to
- *   do: nothing to re-send, nothing deferred, and no unindexed review still
- *   in flight. It is held for at least {@link SWEEP_MARKER_MIN_HOLD_MS}
- *   after it was set, so it is never cleared by the first tick after a
- *   set: every set/clear cycle spans at least two ticks, which caps the
- *   cycles (one put and one delete each) at about 144 a day per
- *   environment however traffic arrives. The price is one extra sweep
- *   tick, about five more minutes of Neon compute, per isolated burst.
+ *   Places imports, the pipeline's Google poll, Places refresh and
+ *   `connection.sync`. `withSweepMarker` wraps a queue binding so the call
+ *   sites do not change. The rows are already committed, so whether the
+ *   send then succeeds or is refused (#159) the sweep is the safety net
+ *   for them. Setting reads first and puts only when the key is absent,
+ *   with `expirationTtl` {@link SWEEP_MARKER_TTL_SECONDS}, so at most one
+ *   put per environment per TTL window, however much traffic arrives.
+ * - **Read** by the cron at the start of every tick (one KV read). Present
+ *   ⇒ the sweep runs. Absent ⇒ the sweep is skipped and the tick opens no
+ *   database client unless another job is due. A failed read runs the
+ *   sweep (fail safe).
+ * - **Expires** by itself one TTL after it was set. Until then every tick
+ *   sweeps, so the database stays awake for up to an hour after the first
+ *   ingest of a window: the price of spending no write on "idle again".
+ * - **Extended** (`extendSweepMarker`) by a sweep that still has work
+ *   (something re-sent, deferred, or unindexed in flight) when the marker
+ *   is within {@link SWEEP_MARKER_EXTEND_WINDOW_MS} of expiring. The new
+ *   value is the extension time, so the guard (age ≥ TTL − window) allows
+ *   at most one extension per TTL window. A sweep that finds work with no
+ *   marker (a full sweep after a `pnpm db:reindex` or a lost write) sets
+ *   it the same way, so the backlog drains every five minutes.
  * - A **full sweep** runs, marker or not, on every tick that already wakes
  *   the database for another job (00/06/12/18:00, 03:30, 04:15 UTC), so a
- *   lost marker costs at most six hours and no extra wakeup. A full sweep
- *   that finds work sets the marker, so a backlog it discovers (a
- *   `pnpm db:reindex`, a lost write) keeps draining every five minutes.
+ *   lost marker costs at most six hours and no extra wakeup.
  *
- * KV is eventually consistent (a write can take up to 60 s to be seen in
- * another location) and has no compare-and-set, so a producer's set can
- * race a sweep's clear. The clear re-reads the key and deletes only an
- * unchanged value, which narrows the window; the full sweep closes it.
- *
- * KV costs: one read per cron tick (288 a day per environment), one read
- * per wrapped producer that sends, and at most one put and one delete per
- * busy period. Every KV failure goes through the isolate's `kvFaults`
- * reporter (`kv.limit_exceeded` / `kv.read_failed` / `kv.write_failed`)
- * and never fails the caller.
+ * KV costs per environment per day: 288 reads for the ticks plus one per
+ * wrapped producer that sends; **puts: at most one per window, a window
+ * lasting at least TTL − extension window (50 minutes): ≤ 29 a day
+ * worst case, about 24 under steady trickle traffic; deletes: none.**
+ * Every KV failure goes through the isolate's `kvFaults` reporter
+ * (`kv.limit_exceeded` / `kv.read_failed` / `kv.write_failed`) and never
+ * fails the caller.
  */
 
 import { type KvFaultReporter, kvFaults } from "./kv-guard.js";
@@ -59,15 +61,23 @@ import type { IngestProducer } from "./queue-guard.js";
 /** Lives in the shared `CACHE` namespace, beside `gen:<id>` and the result cache. */
 export const SWEEP_MARKER_KEY = "pipeline:sweep-pending";
 
-/** The marker is not cleared until it is this old (module doc). */
-export const SWEEP_MARKER_MIN_HOLD_MS = 5 * 60_000;
+/** The marker expires this long after it is put (module doc). */
+export const SWEEP_MARKER_TTL_SECONDS = 3_600;
+
+/** A sweep with work left extends a marker this close to expiry. */
+export const SWEEP_MARKER_EXTEND_WINDOW_MS = 10 * 60_000;
 
 /** The KV surface the marker needs; `env.CACHE` (a `KVNamespace`) fits. */
 export interface SweepMarkerKv {
   get(key: string): Promise<string | null>;
-  put(key: string, value: string): Promise<void>;
-  delete(key: string): Promise<void>;
+  put(
+    key: string,
+    value: string,
+    options?: { expirationTtl?: number },
+  ): Promise<void>;
 }
+
+const PUT_OPTIONS = { expirationTtl: SWEEP_MARKER_TTL_SECONDS } as const;
 
 export interface SweepMarkerContext {
   log: Logger;
@@ -133,7 +143,11 @@ export async function markSweepPending(
   }
   if (current !== null) return "present";
   try {
-    await kv.put(SWEEP_MARKER_KEY, String((ctx.now ?? Date.now)()));
+    await kv.put(
+      SWEEP_MARKER_KEY,
+      String((ctx.now ?? Date.now)()),
+      PUT_OPTIONS,
+    );
   } catch (error) {
     reporter.report(ctx.log, "put", ctx.site, error);
     return "failed";
@@ -142,61 +156,50 @@ export async function markSweepPending(
   return "set";
 }
 
-export type ClearOutcome =
-  | "cleared"
-  /** Younger than the minimum hold; kept. */
-  | "held"
-  /** Nothing to clear. */
-  | "absent"
-  /** A producer re-set it since the tick read it; kept. */
-  | "changed"
-  /** KV failed; logged. The sweep runs again next tick (fail safe). */
+export type ExtendOutcome =
+  /** There was no marker; this call put one. */
+  | "set"
+  /** It was near expiry; this call put a fresh one. */
+  | "extended"
+  /** Left alone: not near expiry yet, or changed since the tick read it. */
+  | "kept"
+  /** KV failed; logged. The sweep still runs while KV fails (fail safe). */
   | "failed";
 
 /**
- * After a sweep found nothing to do: delete the marker the tick read
- * (`seen`), unless it is younger than the hold or has changed since.
- * Never throws. Logs `sweep.marker_cleared` when it deletes.
+ * After a sweep that still has work: put a fresh marker if there is none,
+ * or if the one the tick read (`seen`) expires within
+ * {@link SWEEP_MARKER_EXTEND_WINDOW_MS}. The fresh value is the current
+ * time, so a marker is extended at most once per TTL window. Never
+ * throws, never deletes. Logs `sweep.marker_set` / `sweep.marker_extended`.
  */
-export async function clearSweepMarker(
+export async function extendSweepMarker(
   kv: SweepMarkerKv,
   seen: SweepMarkerState,
   ctx: SweepMarkerContext,
-): Promise<ClearOutcome> {
-  if (seen.kind === "absent") return "absent";
+): Promise<ExtendOutcome> {
+  if (seen.kind !== "present") {
+    const outcome = await markSweepPending(kv, ctx);
+    return outcome === "present" ? "kept" : outcome;
+  }
   const now = (ctx.now ?? Date.now)();
-  if (
-    seen.kind === "present" &&
-    seen.setAt !== null &&
-    now - seen.setAt < SWEEP_MARKER_MIN_HOLD_MS
-  ) {
-    return "held";
-  }
+  const extendAfter =
+    SWEEP_MARKER_TTL_SECONDS * 1000 - SWEEP_MARKER_EXTEND_WINDOW_MS;
+  // A value without a time (one put by hand) counts as due: extending it
+  // also gives it a TTL.
+  if (seen.setAt !== null && now - seen.setAt < extendAfter) return "kept";
   const reporter = ctx.reporter ?? kvFaults;
-  let current: string | null;
   try {
-    current = await kv.get(SWEEP_MARKER_KEY);
+    // Re-read so two overlapping ticks cannot both extend one window.
+    const current = await kv.get(SWEEP_MARKER_KEY);
+    if (current !== null && current !== seen.value) return "kept";
+    await kv.put(SWEEP_MARKER_KEY, String(now), PUT_OPTIONS);
   } catch (error) {
-    reporter.report(ctx.log, "get", ctx.site, error);
+    reporter.report(ctx.log, "put", ctx.site, error);
     return "failed";
   }
-  if (current === null) return "absent";
-  if (seen.kind === "present" && current !== seen.value) return "changed";
-  if (seen.kind === "unknown") {
-    // The tick could not read it; judge the hold on the value read now.
-    const setAt = parseSetAt(current);
-    if (setAt !== null && now - setAt < SWEEP_MARKER_MIN_HOLD_MS) {
-      return "held";
-    }
-  }
-  try {
-    await kv.delete(SWEEP_MARKER_KEY);
-  } catch (error) {
-    reporter.report(ctx.log, "delete", ctx.site, error);
-    return "failed";
-  }
-  ctx.log.log("sweep.marker_cleared", { site: ctx.site });
-  return "cleared";
+  ctx.log.log("sweep.marker_extended", { site: ctx.site });
+  return "extended";
 }
 
 /**
@@ -225,29 +228,67 @@ export function withSweepMarker<Q extends IngestProducer>(
   return { sendBatch: sendBatch as Q["sendBatch"] };
 }
 
-/** In-memory `SweepMarkerKv` for tests; `fail` makes the named methods throw. */
+/**
+ * In-memory `SweepMarkerKv` for tests: honours `expirationTtl` against
+ * `clock`, records every put's options, and counts calls. `delete` exists
+ * only so a test can assert nothing ever calls it.
+ */
 export class MemorySweepMarkerKv implements SweepMarkerKv {
-  readonly store = new Map<string, string>();
+  readonly store = new Map<
+    string,
+    { value: string; expiresAt: number | null }
+  >();
   readonly calls = { get: 0, put: 0, delete: 0 };
-  fail: { get?: boolean; put?: boolean; delete?: boolean } = {};
+  readonly puts: { key: string; value: string; expirationTtl?: number }[] = [];
+  fail: { get?: boolean; put?: boolean } = {};
+  clock: () => number = Date.now;
+
+  /** Seed a value (no TTL unless given), bypassing the counters. */
+  seed(value: string, ttlSeconds?: number): void {
+    this.store.set(SWEEP_MARKER_KEY, {
+      value,
+      expiresAt:
+        ttlSeconds === undefined ? null : this.clock() + ttlSeconds * 1000,
+    });
+  }
+
+  peek(): string | null {
+    return this.live(SWEEP_MARKER_KEY);
+  }
+
+  private live(key: string): string | null {
+    const entry = this.store.get(key);
+    if (!entry) return null;
+    if (entry.expiresAt !== null && this.clock() >= entry.expiresAt) {
+      this.store.delete(key);
+      return null;
+    }
+    return entry.value;
+  }
 
   async get(key: string): Promise<string | null> {
     this.calls.get += 1;
     if (this.fail.get) throw new Error("KV get() limit exceeded for the day.");
-    return this.store.get(key) ?? null;
+    return this.live(key);
   }
 
-  async put(key: string, value: string): Promise<void> {
+  async put(
+    key: string,
+    value: string,
+    options?: { expirationTtl?: number },
+  ): Promise<void> {
     this.calls.put += 1;
     if (this.fail.put) throw new Error("KV put() limit exceeded for the day.");
-    this.store.set(key, value);
+    this.puts.push({ key, value, ...options });
+    const ttl = options?.expirationTtl;
+    this.store.set(key, {
+      value,
+      expiresAt: ttl === undefined ? null : this.clock() + ttl * 1000,
+    });
   }
 
   async delete(key: string): Promise<void> {
     this.calls.delete += 1;
-    if (this.fail.delete) {
-      throw new Error("KV delete() limit exceeded for the day.");
-    }
     this.store.delete(key);
   }
 }

@@ -66,7 +66,7 @@ export const SWEEP_PERIOD_MINUTES = 5;
 /** How to start the sweep now rather than at the next full-sweep tick. */
 export const MARKER_HINT =
   "pnpm --filter @proofql/pipeline exec wrangler kv key put " +
-  "pipeline:sweep-pending 1 --binding CACHE --env <preview|prod> --remote";
+  "pipeline:sweep-pending 1 --ttl 3600 --binding CACHE --env <preview|prod> --remote";
 
 /** How long the sweep needs to re-enqueue `count` reviews, in minutes. */
 export function estimateMinutes(count: number): number {

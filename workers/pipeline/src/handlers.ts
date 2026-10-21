@@ -5,8 +5,8 @@
  * Cron contract (`triggers.crons`, one five-minute cron; #174):
  * `handleScheduled` runs the jobs `jobsDueAt` (src/schedule.ts) picks for
  * the tick's scheduled time — the re-enqueue sweep (src/sweep.ts) for
- * reviews stuck unindexed, but only while the KV work marker is set or on
- * a full-sweep tick (`planSweep`; @proofql/core sweep-marker.ts), so an
+ * reviews stuck unindexed, but only while the KV work marker (which
+ * expires an hour after it is set) exists or on a full-sweep tick (`planSweep`; @proofql/core sweep-marker.ts), so an
  * idle tick opens no database client; at 00/06/12/18:00 UTC the Google poll
  * (src/google-poll.ts, #46); at 03:30 UTC the Places refresh of
  * bootstraps older than 25 days (src/places-refresh.ts, #116); at 04:15
@@ -66,14 +66,13 @@ import {
 } from "@proofql/ai";
 import {
   type CoalescedGenerations,
-  clearSweepMarker,
   coalesceGenerationBumps,
   createLogger,
+  extendSweepMarker,
   type IngestMessage,
   ingestMessageSchema,
   kvFaults,
   type Logger,
-  markSweepPending,
   readSweepMarker,
   type SweepMarkerKv,
   type SweepMarkerState,
@@ -523,20 +522,14 @@ export async function planSweep(
 }
 
 /** What the tick did to the marker (`cron.tick` field `marker`). */
-export type MarkerAction =
-  | "set"
-  | "kept"
-  | "cleared"
-  | "held"
-  | "changed"
-  | "absent"
-  | "failed";
+export type MarkerAction = "none" | "set" | "extended" | "kept" | "failed";
 
 /**
- * After a sweep: an idle sweep clears the marker the tick read (after the
- * minimum hold); a sweep with work left sets it if it was not set, so a
- * backlog a full sweep finds drains every five minutes, not every six
- * hours. Never throws.
+ * After a sweep. The marker is never deleted: an idle sweep leaves it to
+ * expire (no KV call at all). A sweep with work left puts one if there is
+ * none (a full sweep found a backlog, which then drains every five
+ * minutes rather than every six hours) or extends one about to expire, at
+ * most once per TTL window (`extendSweepMarker`). Never throws.
  */
 export async function settleSweepMarker(
   result: Pick<SweepResult, "idle">,
@@ -545,11 +538,9 @@ export async function settleSweepMarker(
   log: Logger,
   now?: () => number,
 ): Promise<MarkerAction> {
+  if (result.idle) return "none";
   const ctx = { log, site: SWEEP_MARKER_SITE, ...(now ? { now } : {}) };
-  if (result.idle) return clearSweepMarker(kv, marker, ctx);
-  if (marker.kind === "present") return "kept";
-  const outcome = await markSweepPending(kv, ctx);
-  return outcome === "present" ? "kept" : outcome;
+  return extendSweepMarker(kv, marker, ctx);
 }
 
 /**

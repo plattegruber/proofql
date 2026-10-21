@@ -181,7 +181,7 @@ drains the rest every five minutes. To start within five minutes instead:
 
 ```sh
 pnpm --filter @proofql/pipeline exec wrangler kv key put pipeline:sweep-pending 1 \
-  --binding CACHE --env prod --remote
+  --ttl 3600 --binding CACHE --env prod --remote
 ```
 
 While it runs: the old chunks keep serving search until the moment a

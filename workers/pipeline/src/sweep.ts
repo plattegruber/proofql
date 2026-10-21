@@ -36,14 +36,15 @@
  * sends them.
  *
  * `idle` (the 2026-10-14 Neon suspension; `@proofql/core` sweep-marker.ts):
- * the cron skips this sweep while the KV "sweep pending" marker is absent,
- * and clears the marker when a sweep reports `idle`: nothing re-sent,
- * nothing deferred, and no review still waiting for the consumer at any
- * age (unindexed, not hidden, under `maxAttempts`). The last part matters:
- * a review enqueued a minute ago is not a candidate yet, and clearing the
- * marker under it would leave it unswept for hours if its message is then
- * lost. Exhausted reviews never count, so a review the pipeline can never
- * index cannot keep the database awake.
+ * the cron skips this sweep while the KV "sweep pending" marker is absent.
+ * The marker expires on its own; a sweep that is not `idle` (something
+ * re-sent or deferred, or a review still waiting for the consumer at any
+ * age: unindexed, not hidden, under `maxAttempts`) keeps it alive by
+ * putting one when there is none or extending one about to expire. The
+ * any-age part matters: a review enqueued a minute ago is not a candidate
+ * yet, and letting the marker lapse under it would leave it unswept for
+ * hours if its message is then lost. Exhausted reviews never count, so a
+ * review the pipeline can never index cannot keep the database awake.
  */
 
 import {
@@ -95,7 +96,7 @@ export interface SweepResult {
   /**
    * Nothing left for a sweep to do: nothing sent or deferred this tick and
    * no unindexed, unhidden review under `maxAttempts` at any age (module
-   * doc). The cron clears the work marker on it.
+   * doc). Not idle ⇒ the cron keeps the work marker alive.
    */
   idle: boolean;
 }
