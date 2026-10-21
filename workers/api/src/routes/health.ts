@@ -16,7 +16,7 @@
  * stayed 200 for days while nothing that needed Postgres worked.
  */
 
-import { pingDatabase } from "@proofql/db";
+import { type DbPing, pingDatabase } from "@proofql/db";
 import { Hono } from "hono";
 
 import type { AppEnv } from "../bindings.js";
@@ -27,7 +27,13 @@ export const healthRoutes = new Hono<AppEnv>();
 healthRoutes.get("/", async (c) => {
   if (c.req.query("deep") !== "1") return c.json({ ok: true });
   c.header("cache-control", "no-store");
-  const ping = await pingDatabase(c.get("getDb")());
+  let ping: DbPing;
+  try {
+    ping = await pingDatabase(c.get("getDb")());
+  } catch (cause) {
+    // Opening the client itself threw (a provider that fails eagerly).
+    ping = { ok: false, ms: 0, error: "failed", cause };
+  }
   if (ping.ok) return c.json({ ok: true, db: { ok: true, ms: ping.ms } });
   logFor(c).log("health.db_failed", {
     level: "error",

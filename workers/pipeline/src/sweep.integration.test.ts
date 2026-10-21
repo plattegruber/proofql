@@ -171,7 +171,7 @@ describe("sweepUnindexed", () => {
       deferred: 0,
       exhausted: 2,
       batches: 0,
-      idle: false,
+      idle: true,
     });
     expect(queue.sent).toHaveLength(1);
   });
