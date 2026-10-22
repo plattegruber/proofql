@@ -131,12 +131,27 @@ paths:
     get:
       tags: [Health]
       operationId: getHealth
-      summary: Liveness check
-      description: "Always `{ \"ok\": true }` when the worker is up. No authentication."
+      summary: Liveness check, optionally with the database
+      description: |
+        Without `deep`: always `{ "ok": true }` when the worker is up. It
+        touches no database, so it is safe to poll every minute.
+
+        With `deep=1`: also runs one statement against Postgres (5 s
+        timeout) and answers 503 when it fails. Every deep call reaches the
+        database, and wakes it when it has scaled to zero, so poll it no
+        more often than every 30 minutes. No authentication.
       security: []
+      parameters:
+        - name: deep
+          in: query
+          required: false
+          description: "`1` to include the database check. Any other value is ignored."
+          schema:
+            type: string
+            enum: ["1"]
       responses:
         "200":
-          description: The worker is serving requests.
+          description: The worker is serving requests (and, with `deep=1`, Postgres answered).
           headers:
             x-request-id:
               $ref: "#/components/headers/XRequestId"
@@ -147,6 +162,20 @@ paths:
               examples:
                 ok:
                   value: { ok: true }
+                deep:
+                  value: { ok: true, db: { ok: true, ms: 12 } }
+        "503":
+          description: "`deep=1` only: Postgres did not answer, or the statement failed."
+          headers:
+            x-request-id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthFailure"
+              examples:
+                timeout:
+                  value: { ok: false, db: { ok: false, error: timeout, ms: 5001 } }
 
   /v1/reviews:
     post:
@@ -1354,6 +1383,43 @@ components:
         ok:
           type: boolean
           const: true
+        db:
+          description: Present with `deep=1`.
+          type: object
+          required: [ok, ms]
+          additionalProperties: false
+          properties:
+            ok:
+              type: boolean
+              const: true
+            ms:
+              type: integer
+              minimum: 0
+              description: Round trip of the check, in milliseconds.
+
+    HealthFailure:
+      type: object
+      required: [ok, db]
+      additionalProperties: false
+      properties:
+        ok:
+          type: boolean
+          const: false
+        db:
+          type: object
+          required: [ok, error, ms]
+          additionalProperties: false
+          properties:
+            ok:
+              type: boolean
+              const: false
+            error:
+              type: string
+              enum: [timeout, failed]
+              description: "`timeout`: no answer within 5 s. `failed`: the statement returned an error."
+            ms:
+              type: integer
+              minimum: 0
 
     ErrorCode:
       type: string

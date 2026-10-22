@@ -41,7 +41,7 @@ needs no database, but it loads the schema, which takes its enum values from
 | `pnpm db:generate` | Diff `src/schema` against the last snapshot and emit SQL into `migrations/` |
 | `pnpm db:migrate` | Apply pending migrations from `migrations/` to `DATABASE_URL` (`scripts/migrate.ts`, drizzle's migrator; idempotent) |
 | `pnpm db:set-plan -- --account <uuid\|org_…> --plan free\|paid` | Ops (#54): change an account's plan and rewrite its projects' `show_badge` mirror in one transaction (`scripts/set-plan.ts` → `setAccountPlan`). `--sync` instead of `--plan` only repairs the mirror. The only way a plan changes until billing (M3). |
-| `pnpm db:reindex -- --project <slug\|uuid> \| --all [--environment live\|test] [--dry-run]` | Ops (#127): mark reviews for re-indexing after a chunker change. Sets `indexed_at = NULL` and `index_attempts = 0` on the selected (non-hidden) reviews; the pipeline's five-minute sweep (#72) re-enqueues them 500 per tick and `indexReview` replaces each review's chunks, so it is idempotent. Prints the count and the expected time. See "Re-indexing" below. |
+| `pnpm db:reindex -- --project <slug\|uuid> \| --all [--environment live\|test] [--dry-run]` | Ops (#127): mark reviews for re-indexing after a chunker change. Sets `indexed_at = NULL` and `index_attempts = 0` on the selected (non-hidden) reviews; the pipeline's five-minute sweep (#72) re-enqueues them 500 per tick, starting at the next full sweep (≤ 6 h) or at once if the sweep marker is set ("Re-indexing"), and `indexReview` replaces each review's chunks, so it is idempotent. Prints the count and the expected time. See "Re-indexing" below. |
 
 Local dev: start Postgres (`docker compose up -d`, #11), then
 `DATABASE_URL=postgres://proofql:proofql@localhost:54323/proofql pnpm db:migrate`.
@@ -171,6 +171,18 @@ transaction and the embedding stage sets `indexed_at` again, so the whole
 operation is idempotent: running it twice costs a second round of
 embeddings and nothing else. The script prints how many reviews it marked
 and how long the sweep will take (`ceil(n / 500) × 5` minutes).
+
+The sweep only runs while the KV work marker `pipeline:sweep-pending` is
+set, or on the cron's six daily full-sweep ticks (00:00, 03:30, 04:15,
+06:00, 12:00, 18:00 UTC), so that an idle tick never wakes Neon
+(`@proofql/core` `sweep-marker.ts`). This script cannot set the marker, so
+the first batch waits for the next full sweep, which sets the marker and
+drains the rest every five minutes. To start within five minutes instead:
+
+```sh
+pnpm --filter @proofql/pipeline exec wrangler kv key put pipeline:sweep-pending 1 \
+  --ttl 900 --binding CACHE --env prod --remote
+```
 
 While it runs: the old chunks keep serving search until the moment a
 review is re-chunked; its new rows then carry NULL embeddings for the

@@ -187,6 +187,13 @@ jobs:
           command: deploy --env preview
       # workers.dev URLs are deterministic once the account subdomain is
       # known (repository variable WORKERS_SUBDOMAIN, infra/provisioning.md).
+      #
+      # api and dashboard are checked with `?deep=1`: one `select` through
+      # Hyperdrive, 503 when Postgres does not answer. Plain /health never
+      # touches the database (so uptime monitors can poll it freely), which
+      # is how the 2026-10-14 Neon suspension went unseen behind a green
+      # smoke check. One deep call per deploy wakes Neon for ~5 minutes; the
+      # migration job just woke it anyway. One retry covers a cold start.
       - name: Smoke check /health
         env:
           SUBDOMAIN: ${{ vars.WORKERS_SUBDOMAIN }}
@@ -195,10 +202,11 @@ jobs:
             echo "::notice::WORKERS_SUBDOMAIN variable not set; skipping smoke check (infra/provisioning.md)."
             exit 0
           fi
-          for worker in api pipeline cdn dashboard; do
-            url="https://proofql-${worker}-preview.${SUBDOMAIN}.workers.dev/health"
+          for check in api:/health?deep=1 pipeline:/health cdn:/health dashboard:/health?deep=1; do
+            url="https://proofql-${check%%:*}-preview.${SUBDOMAIN}.workers.dev${check#*:}"
             echo "GET $url"
-            curl --fail --silent --show-error --max-time 20 "$url"
+            curl --fail-with-body --silent --show-error --max-time 20 \
+              --retry 1 --retry-delay 5 --retry-all-errors "$url"
             echo
           done
           # The docs and marketing sites have no /health (static assets);
@@ -349,11 +357,13 @@ jobs:
       # The custom domains (env.prod.routes; docs/launch.md "Domains"). A
       # first deploy creates the DNS record and certificate, which can take a
       # minute to answer, hence the retries. The docs site has no /health
-      # (static assets); its front page is the smoke.
+      # (static assets); its front page is the smoke. api and dashboard use
+      # `?deep=1`, so a prod database that does not answer fails the deploy
+      # (preview job's comment).
       - name: Smoke check custom domains
         run: |
-          for url in https://api.proofql.dev/health https://cdn.proofql.dev/health \
-                     https://app.proofql.dev/health https://docs.proofql.dev/; do
+          for url in "https://api.proofql.dev/health?deep=1" https://cdn.proofql.dev/health \
+                     "https://app.proofql.dev/health?deep=1" https://docs.proofql.dev/; do
             echo "GET $url"
             curl --fail --silent --show-error --max-time 20 --output /dev/null \
               --retry 6 --retry-delay 10 --retry-all-errors "$url"
