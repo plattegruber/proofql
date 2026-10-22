@@ -36,39 +36,55 @@ export const ACCOUNT_PLANS = PLAN_NAMES;
 export type AccountPlan = Plan;
 export const accountPlanEnum = pgEnum("account_plan", ACCOUNT_PLANS);
 
-export const accounts = pgTable("accounts", {
-  id: id(),
-  /** Clerk Organization id — the join point for webhooks and JWT resolution. */
-  clerkOrgId: text("clerk_org_id").notNull().unique(),
-  name: text("name").notNull(),
-  plan: accountPlanEnum("plan").notNull().default("free"),
-  /** Set once Stripe billing lands (M3); null on the free tier. */
-  stripeCustomerId: text("stripe_customer_id").unique(),
-  /**
-   * Set by the dashboard's Clerk webhook on `organization.deleted` (#36).
-   * A soft mark, not a DELETE: deleting the row would cascade through
-   * every project, key, review and chunk the moment someone removes the
-   * organization in Clerk, and that is not reversible. The data stays for
-   * `ACCOUNT_PURGE_AFTER_DAYS` (30), then the pipeline's daily purge
-   * hard-deletes the row and everything that cascades from it (#169,
-   * `purgeDeletedAccounts` in ../tenancy/purge.ts). Until then a sign-in
-   * with the same Clerk organization clears the mark (`requireAccount`
-   * upserts by `clerk_org_id`); after it, that sign-in creates a new,
-   * empty account — nothing is left to revive.
-   */
-  deletedAt: timestamp("deleted_at", { withTimezone: true }),
-  /**
-   * When the guided onboarding (#53) was finished or dismissed for this
-   * account. Null means a sign-in with zero projects lands on
-   * `/app/onboarding`; set, the overview shows as usual. On the account
-   * rather than in a cookie so the decision follows the user across
-   * devices and browsers.
-   */
-  onboardingCompletedAt: timestamp("onboarding_completed_at", {
-    withTimezone: true,
-  }),
-  ...timestamps,
-});
+export const accounts = pgTable(
+  "accounts",
+  {
+    id: id(),
+    /** Clerk Organization id — the join point for webhooks and JWT resolution. */
+    clerkOrgId: text("clerk_org_id").notNull().unique(),
+    name: text("name").notNull(),
+    plan: accountPlanEnum("plan").notNull().default("free"),
+    /** Set once Stripe billing lands (M3); null on the free tier. */
+    stripeCustomerId: text("stripe_customer_id").unique(),
+    /**
+     * Set by the dashboard's Clerk webhook on `organization.deleted` (#36).
+     * A soft mark, not a DELETE: deleting the row would cascade through
+     * every project, key, review and chunk the moment someone removes the
+     * organization in Clerk, and that is not reversible. The data stays for
+     * `ACCOUNT_PURGE_AFTER_DAYS` (30), then the pipeline's daily purge
+     * hard-deletes the row and everything that cascades from it (#169,
+     * `purgeDeletedAccounts` in ../tenancy/purge.ts). Until then a sign-in
+     * with the same Clerk organization clears the mark (`requireAccount`
+     * upserts by `clerk_org_id`); after it, that sign-in creates a new,
+     * empty account — nothing is left to revive.
+     */
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    /**
+     * When the guided onboarding (#53) was finished or dismissed for this
+     * account. Null means a sign-in with zero projects lands on
+     * `/app/onboarding`; set, the overview shows as usual. On the account
+     * rather than in a cookie so the decision follows the user across
+     * devices and browsers.
+     */
+    onboardingCompletedAt: timestamp("onboarding_completed_at", {
+      withTimezone: true,
+    }),
+    /**
+     * The Clerk user who created the Organization (`organization.created`'s
+     * `created_by`, or the first signed-in loader of a new workspace). Lets
+     * the dashboard apply the free plan's project allowance per person rather
+     * than per workspace, so creating more Clerk organizations does not
+     * multiply the free tier (docs/go-live.md "Free-tier multiplication").
+     * Null for accounts created before it existed and for the local stub;
+     * null means "not counted", never "blocked".
+     */
+    createdByUserId: text("created_by_user_id"),
+    ...timestamps,
+  },
+  (table) => [
+    index("accounts_created_by_user_id_idx").on(table.createdByUserId),
+  ],
+);
 
 export const projects = pgTable(
   "projects",

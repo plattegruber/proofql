@@ -9,7 +9,7 @@ import NewProject from "./app.projects.new";
 
 type LoaderData = {
   plan: "free" | "paid";
-  quota: { used: number; limit: number; atLimit: boolean };
+  quota: { used: number; limit: number; elsewhere: number; atLimit: boolean };
 };
 
 function renderNew(data: LoaderData) {
@@ -35,7 +35,10 @@ describe("new project", () => {
   afterEach(cleanup);
 
   it("derives the slug from the name until the slug is edited", async () => {
-    renderNew({ plan: "paid", quota: { used: 1, limit: 50, atLimit: false } });
+    renderNew({
+      plan: "paid",
+      quota: { used: 1, limit: 50, elsewhere: 0, atLimit: false },
+    });
     const name = await screen.findByLabelText("Name");
     const slug = screen.getByLabelText("Slug") as HTMLInputElement;
 
@@ -51,7 +54,7 @@ describe("new project", () => {
   it("shows the upgrade message instead of the form at the free limit", async () => {
     const { container } = renderNew({
       plan: "free",
-      quota: { used: 1, limit: 1, atLimit: true },
+      quota: { used: 1, limit: 1, elsewhere: 0, atLimit: true },
     });
     expect(
       await screen.findByText("Your plan is at its project limit"),
@@ -65,5 +68,17 @@ describe("new project", () => {
         .getAttribute("href"),
     ).toBe("/app");
     expect(container.textContent).not.toContain("!");
+  });
+
+  it("says why when the free project is in another workspace", async () => {
+    renderNew({
+      plan: "free",
+      quota: { used: 0, limit: 1, elsewhere: 1, atLimit: true },
+    });
+    expect(
+      await screen.findByText("Your plan is at its project limit"),
+    ).toBeTruthy();
+    expect(screen.getByText(/in another workspace you created/)).toBeTruthy();
+    expect(screen.queryByLabelText("Name")).toBeNull();
   });
 });

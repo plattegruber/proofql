@@ -1,0 +1,17 @@
+# Workers Static Assets headers (https://developers.cloudflare.com/workers/static-assets/headers/).
+# The docs site had none (docs/go-live.md, "Security headers"). Same set as
+# apps/www/public/_headers, widened only for what Starlight actually loads:
+# its inline theme and module scripts, inline styles, and the Google Fonts
+# stylesheet and font files. No iframes, forms or fetches; no search index.
+# HSTS without includeSubDomains or preload: the apex owns that decision.
+
+/*
+  Strict-Transport-Security: max-age=31536000
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'none'
+
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable

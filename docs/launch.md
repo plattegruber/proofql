@@ -38,6 +38,8 @@ and where it lives), [`docs/security.md`](security.md) (§7 WAF rules),
 [`docs/places.md`](places.md) (Google Places terms), the roadmap
 [#52](https://github.com/plattegruber/proofql/issues/52).
 
+**Current state:** [`docs/go-live.md`](go-live.md) audits every item below against production (2026-10-08) and lists the remaining owner steps in order, with `scripts/signup-switch.sh` for §13.
+
 ---
 
 ## 1. Accounts and provisioning

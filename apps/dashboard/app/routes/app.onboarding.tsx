@@ -31,7 +31,11 @@ import {
   readOnboardingSession,
   startOnboardingProject,
 } from "~/lib/onboarding.server";
-import { createProjectSchema, slugify } from "~/lib/projects";
+import {
+  createProjectSchema,
+  elsewhereLimitMessage,
+  slugify,
+} from "~/lib/projects";
 import { projectQuota } from "~/lib/projects.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/app.onboarding";
@@ -137,7 +141,8 @@ export async function action(args: Route.ActionArgs) {
           }
         : {
             "": [
-              `Your ${PLAN_LABEL[account.plan] ?? account.plan} plan allows ${pluralProjects(result.quota?.limit ?? 1)}. Continue with the project you have, or delete it to start over.`,
+              (result.quota && elsewhereLimitMessage(result.quota)) ??
+                `Your ${PLAN_LABEL[account.plan] ?? account.plan} plan allows ${pluralProjects(result.quota?.limit ?? 1)}. Continue with the project you have, or delete it to start over.`,
             ],
           };
     return data({ fieldErrors }, { status: 422 });
@@ -193,7 +198,13 @@ export default function OnboardingProject({
       />
       <OnboardingSteps current="project" className="mb-8" />
 
-      {quota.atLimit && existing ? (
+      {quota.atLimit && !existing && elsewhereLimitMessage(quota) ? (
+        <Card title="You already have a free project">
+          <p className="m-0 text-small text-gray-600">
+            {elsewhereLimitMessage(quota)}
+          </p>
+        </Card>
+      ) : quota.atLimit && existing ? (
         <Card title="Your plan is at its project limit">
           <p className="m-0 text-small text-gray-600">
             {pluralProjects(quota.limit)} included; you have {quota.used}.

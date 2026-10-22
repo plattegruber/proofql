@@ -42,6 +42,7 @@ import {
 import {
   type CreateProjectResult,
   createProject,
+  type QuotaAccount,
   setAllowedOrigins,
 } from "./projects.server";
 
@@ -166,7 +167,7 @@ export type StartOnboardingResult =
 export async function startOnboardingProject(
   db: Db,
   input: {
-    account: { id: string; plan: string };
+    account: QuotaAccount;
     name: string;
     slug: string;
     /** Added to `allowed_origins` for the preview; omit to add none. */

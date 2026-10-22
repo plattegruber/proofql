@@ -145,7 +145,11 @@ export default function ImportUpload({
       <PageHeader
         overline="Step 1 of 3"
         title="Import reviews"
-        description="Upload an export from your review platform and map its columns on the next screen, or pull your public Google reviews below."
+        description={
+          loaderData.places.enabled
+            ? "Upload an export from your review platform and map its columns on the next screen, or pull your public Google reviews below."
+            : "Upload an export from your review platform and map its columns on the next screen."
+        }
       />
       <Form
         method="post"
@@ -246,35 +250,38 @@ export default function ImportUpload({
         </div>
       </Form>
 
-      <section
-        aria-labelledby="places-heading"
-        aria-disabled={loaderData.places.enabled ? undefined : true}
-        className="mt-6 max-w-2xl border border-hairline bg-surface-card p-5"
-      >
-        <div className="flex items-start gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center border border-hairline text-ink-900">
-            <MapPin size={18} strokeWidth={1.75} aria-hidden />
-          </span>
-          <div>
-            <h2
-              id="places-heading"
-              className="m-0 text-title font-semibold text-ink-900"
-            >
-              {PLACES_CARD_TITLE}
-            </h2>
-            <p className="mt-1 mb-0 text-small text-gray-600">
-              {PLACES_CARD_BODY}
-            </p>
+      {/* Shown only where GOOGLE_PLACES_API_KEY is set: an option the user
+          cannot use is not offered at all. */}
+      {loaderData.places.enabled && (
+        <section
+          aria-labelledby="places-heading"
+          className="mt-6 max-w-2xl border border-hairline bg-surface-card p-5"
+        >
+          <div className="flex items-start gap-3">
+            <span className="flex size-9 shrink-0 items-center justify-center border border-hairline text-ink-900">
+              <MapPin size={18} strokeWidth={1.75} aria-hidden />
+            </span>
+            <div>
+              <h2
+                id="places-heading"
+                className="m-0 text-title font-semibold text-ink-900"
+              >
+                {PLACES_CARD_TITLE}
+              </h2>
+              <p className="mt-1 mb-0 text-small text-gray-600">
+                {PLACES_CARD_BODY}
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="mt-5 border-t border-hairline pt-4">
-          <PlacesFinder
-            actionPath={loaderData.places.actionPath}
-            enabled={loaderData.places.enabled}
-            chooseEnvironment
-          />
-        </div>
-      </section>
+          <div className="mt-5 border-t border-hairline pt-4">
+            <PlacesFinder
+              actionPath={loaderData.places.actionPath}
+              enabled={loaderData.places.enabled}
+              chooseEnvironment
+            />
+          </div>
+        </section>
+      )}
     </>
   );
 }

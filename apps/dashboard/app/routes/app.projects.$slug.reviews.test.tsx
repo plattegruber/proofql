@@ -165,8 +165,14 @@ describe("reviews route", () => {
       fixture({ rows: [], nextCursor: null, sources: [] }),
     );
     expect(await screen.findByText("No reviews yet")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "import tab" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "API docs" })).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "Import tab" }).getAttribute("href"),
+    ).toMatch(/^\/app\/projects\/[^/]+\/import$/);
+    expect(
+      screen.getByRole("link", { name: "API docs" }).getAttribute("href"),
+    ).toBe("https://docs.proofql.dev/api");
+    // The Google connector is dark until #44; the empty state must not offer it.
+    expect(container.textContent).not.toContain("Google");
     expect(screen.queryByRole("table")).toBeNull();
     expect(container.textContent).not.toContain("!");
   });

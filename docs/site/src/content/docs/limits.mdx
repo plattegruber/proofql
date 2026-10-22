@@ -17,6 +17,8 @@ The free tier is meant to be enough for a small business for good. Paid removes 
 
 Billing is not open yet (M3): the Paid column is the shape of the plan, not a price list, and its numbers are ceilings against runaway scripts rather than product promises. Pricing will be at <a href={PRICING_URL}>{PRICING_URL}</a>. Sources (CSV, the push API, Google) and key kinds (live and test) are the same on every plan; Paid adds priority polling for Google.
 
+The free plan's project allowance is per person, not per workspace: projects in other free workspaces you created count toward it, so a second free workspace starts at its limit until you delete the project in the first one. Workspaces someone else created, and paid ones, do not count.
+
 At the review cap a `POST /v1/reviews` is a [`422 review_limit_reached`](/errors#review_limit_reached) and nothing from that batch is written. At the query quota a cache miss on `/v1/query` is a [`429 query_quota_exceeded`](/errors#query_quota_exceeded) with `Retry-After` set to the seconds until the next UTC month, while cached answers keep being served. The month is a calendar month in UTC.
 
 Queries are counted per project; a cache hit (`cached: true`, `x-cache: HIT`) is not counted. Identical requests from the snippet across your pages hit the same cache entry, so a site that asks the same handful of questions uses a small fraction of the quota however much traffic it gets.
