@@ -1,0 +1,20 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-105.27, 40.01]
+      },
+      "properties": {
+        "date": "2025-04-02T18:00:00Z",
+        "five_star_rating_published": 4,
+        "review_text_published": "Nice trail head.",
+        "location": {
+          "name": "Example Trailhead"
+        }
+      }
+    }
+  ]
+}

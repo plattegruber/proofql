@@ -5,6 +5,7 @@
 // review's attribution. Below-floor cards are the same card, muted, with the
 // reason spelled out. The bar ticks both tiers of the floor (#138): the
 // floor, and the lower word-match tier a lexical candidate is held to.
+import { UNDISPLAYED_METADATA_KEYS } from "@proofql/core";
 import { Link } from "react-router";
 
 import { Stars } from "~/components/reviews/stars";
@@ -186,11 +187,13 @@ export function ResultCard({
         <span>{review.source}</span>
         <span aria-hidden>·</span>
         <span>{formatDate(review.occurredAt)}</span>
-        {Object.entries(review.metadata).map(([key, value]) => (
-          <span key={key} className="border border-hairline px-1.5 py-0.5">
-            {key}={value}
-          </span>
-        ))}
+        {Object.entries(review.metadata)
+          .filter(([key]) => !UNDISPLAYED_METADATA_KEYS.includes(key))
+          .map(([key, value]) => (
+            <span key={key} className="border border-hairline px-1.5 py-0.5">
+              {key}={value}
+            </span>
+          ))}
         <Link to={reviewHref} className="ml-auto text-label">
           Open review
         </Link>

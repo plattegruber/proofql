@@ -24,6 +24,7 @@ export * from "./retention.js";
 export * from "./review.js";
 export * from "./sentiment.js";
 export * from "./sweep-marker.js";
+export * from "./takeout/index.js";
 export * from "./usage.js";
 
 /** Kept from the scaffold (#10): the workers' build-graph smoke tests import it. */
