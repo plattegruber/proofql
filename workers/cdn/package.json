@@ -17,7 +17,7 @@
     "@proofql/snippet": "workspace:*",
     "@proofql/tsconfig": "workspace:*",
     "@types/node": "^26.6.3",
-    "typescript": "^5.9.2",
+    "typescript": "^7.0.2",
     "vitest": "^3.2.4",
     "wrangler": "^4.145.0"
   }
