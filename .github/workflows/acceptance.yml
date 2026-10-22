@@ -16,6 +16,14 @@
 #          CLERK_SECRET_KEY_PROD is the Clerk production instance's key; the
 #          job skips with a notice while that secret is empty.
 #
+# A red run is not left for someone to notice (the 2026-10-14 Neon
+# suspension went six days with a red daily run and nobody told): the
+# `alert` job opens one issue per environment, "Acceptance failing on
+# <env>" with the label `acceptance-failure`, quoting the redacted
+# `[at] FAILED at …` line and linking the run. Repeats comment on it; the
+# next green run of that environment closes it (scripts/acceptance-alert.sh).
+# Manual dispatches from a branch other than main never touch issues.
+#
 # Artifacts are uploaded on failure, for preview only. The repository is
 # public, so its artifacts are too: preview's traces hold only what the
 # run's cleanup deletes; prod captures and uploads nothing, and its failures
@@ -99,6 +107,8 @@ jobs:
     if: needs.gate.outputs.preview == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      failure_line: ${{ steps.failure.outputs.line }}
     # One run per environment at a time: two runs would race each other's
     # cleanup. Never cancelled midway (that would skip the cleanup); the next
     # run's start-of-run sweep catches anything a dead run left.
@@ -128,6 +138,20 @@ jobs:
             echo "::warning title=Acceptance (preview)::$line"
             echo "- :warning: **preview:** $line" >> "$GITHUB_STEP_SUMMARY"
           done
+      # The spec's redacted `[at] FAILED at …` line (e2e/lib/warnings.ts
+      # `recordFailureLine`), for the `alert` job's issue.
+      - name: Capture the failing step
+        id: failure
+        if: failure()
+        run: |
+          f=e2e/test-results/at-failure.txt
+          line=""
+          [ -s "$f" ] && line="$(tail -n 1 "$f" | cut -c 1-1000)"
+          {
+            echo "line<<AT_FAILURE_EOF"
+            printf '%s\n' "$line"
+            echo "AT_FAILURE_EOF"
+          } >> "$GITHUB_OUTPUT"
       - name: Upload Playwright report and traces
         if: failure()
         uses: actions/upload-artifact@v7
@@ -147,6 +171,9 @@ jobs:
     concurrency:
       group: acceptance-prod
       cancel-in-progress: false
+    outputs:
+      ran: ${{ steps.secret.outputs.present }}
+      failure_line: ${{ steps.failure.outputs.line }}
     env:
       AT_TARGET: prod
       AT_PROD_EMAIL: ${{ vars.AT_PROD_EMAIL }}
@@ -192,3 +219,60 @@ jobs:
       # downloadable by anyone signed in to GitHub. Prod captures none of
       # them (playwright.config.ts); the log names the failing step, the URL
       # and the visible error text, with keys redacted.
+
+      # The spec's redacted `[at] FAILED at …` line (e2e/lib/warnings.ts
+      # `recordFailureLine`), for the `alert` job's issue.
+      - name: Capture the failing step
+        id: failure
+        if: failure() && steps.secret.outputs.present == 'true'
+        run: |
+          f=e2e/test-results/at-failure.txt
+          line=""
+          [ -s "$f" ] && line="$(tail -n 1 "$f" | cut -c 1-1000)"
+          {
+            echo "line<<AT_FAILURE_EOF"
+            printf '%s\n' "$line"
+            echo "AT_FAILURE_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  # Open / comment on / close the per-environment `acceptance-failure` issue
+  # (header comment). Its own job so only it holds `issues: write`; the jobs
+  # that run the journey keep a read-only token. `always()` so it runs when
+  # a test job failed; a skipped job (not targeted) is left alone.
+  alert:
+    needs: [gate, preview, prod]
+    if: >-
+      always() && needs.gate.result == 'success' &&
+      (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts/acceptance-alert.sh
+          sparse-checkout-cone-mode: false
+      - name: Report preview
+        if: needs.preview.result != 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AT_ENV: preview
+          AT_RESULT: ${{ needs.preview.result }}
+          AT_RAN: "true"
+          AT_FAILURE_LINE: ${{ needs.preview.outputs.failure_line }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EVENT: ${{ github.event_name }}
+        run: bash scripts/acceptance-alert.sh
+      - name: Report prod
+        if: always() && needs.prod.result != 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AT_ENV: prod
+          AT_RESULT: ${{ needs.prod.result }}
+          AT_RAN: ${{ needs.prod.outputs.ran || 'false' }}
+          AT_FAILURE_LINE: ${{ needs.prod.outputs.failure_line }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EVENT: ${{ github.event_name }}
+        run: bash scripts/acceptance-alert.sh

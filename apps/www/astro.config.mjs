@@ -2,8 +2,8 @@
 //
 // Static output, built to dist/ and served by an assets-only Worker
 // (wrangler.jsonc), the same shape as docs/site. One page, no client
-// framework: the only script is the demo's tab switcher
-// (src/scripts/tabs.ts). Stylesheets are inlined so the first paint needs
+// framework: small inlined scripts only (the demo's tab switcher, the
+// header's phone menu, the logo's motion; src/scripts/). Stylesheets are inlined so the first paint needs
 // no extra request; the fonts are self-hosted from public/fonts and
 // preloaded in src/layouts/Base.astro.
 

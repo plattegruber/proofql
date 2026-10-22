@@ -543,6 +543,12 @@ describe("GET /health", () => {
     expect(res.status).toBe(200);
     await conforms(res, "get", "/health");
   });
+
+  it("200 with deep=1 against the real database", async () => {
+    const res = await call("/health?deep=1");
+    expect(res.status).toBe(200);
+    await conforms(res, "get", "/health");
+  });
 });
 
 describe("POST /v1/reviews", () => {
@@ -1362,6 +1368,19 @@ describe("503 service_unavailable on every database-backed operation", () => {
     };
     expect(b.error.code).toBe("service_unavailable");
     expect(b.error.message).not.toMatch(/too many clients/);
+  });
+
+  it("get /health?deep=1 → 503 with the reason only", async () => {
+    const res = await down.request(
+      "/health?deep=1",
+      {},
+      env,
+      fakeCtx().asExecutionContext(),
+    );
+    expect(res.status).toBe(503);
+    const b = await conforms(res, "get", "/health");
+    expect(b).toMatchObject({ ok: false, db: { ok: false, error: "failed" } });
+    expect(JSON.stringify(b)).not.toMatch(/too many clients/);
   });
 });
 

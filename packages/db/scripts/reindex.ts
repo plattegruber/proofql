@@ -23,6 +23,13 @@
  * and converges; running it twice costs a second round of embeddings and
  * nothing else.
  *
+ * Start delay: the cron only sweeps while the KV work marker is set, or on
+ * one of its six daily full-sweep ticks (00:00, 03:30, 04:15, 06:00, 12:00,
+ * 18:00 UTC; the 2026-10-14 Neon suspension). This script cannot set the
+ * marker (no KV binding either), so the first batch waits for the next
+ * full sweep, which then sets the marker and drains the rest every five
+ * minutes. To start at once, set the marker by hand ({@link MARKER_HINT}).
+ *
  * What a visitor sees meanwhile: the old chunks keep serving search until
  * the moment a review is re-chunked, then its new rows carry NULL
  * embeddings for the second or so the Workers AI call takes, during which
@@ -55,6 +62,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  */
 export const SWEEP_LIMIT_PER_TICK = 500;
 export const SWEEP_PERIOD_MINUTES = 5;
+
+/** How to start the sweep now rather than at the next full-sweep tick. */
+export const MARKER_HINT =
+  "pnpm --filter @proofql/pipeline exec wrangler kv key put " +
+  "pipeline:sweep-pending 1 --ttl 900 --binding CACHE --env <preview|prod> --remote";
 
 /** How long the sweep needs to re-enqueue `count` reviews, in minutes. */
 export function estimateMinutes(count: number): number {
@@ -172,9 +184,15 @@ async function main(): Promise<void> {
     console.log(
       `The pipeline's re-enqueue sweep runs every ${SWEEP_PERIOD_MINUTES} minutes ` +
         `and re-sends up to ${SWEEP_LIMIT_PER_TICK} reviews per tick, so expect ` +
-        `the last of them on the queue within about ${minutes} minute(s); ` +
-        "watch `review.indexed` lines with `sentences` > 0 in the pipeline logs.",
+        `the last of them on the queue within about ${minutes} minute(s) of its ` +
+        "first run; watch `review.indexed` lines with `sentences` > 0 in the pipeline logs.",
     );
+    if (total > 0) {
+      console.log(
+        "The first run is the next full sweep (00:00, 03:30, 04:15, 06:00, 12:00 " +
+          `or 18:00 UTC). To start within five minutes, set the sweep marker: ${MARKER_HINT}`,
+      );
+    }
   } finally {
     await raw.end();
   }

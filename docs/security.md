@@ -257,7 +257,11 @@ publish a hidden review.
   (`.github/workflows/ci.yml` `audit`, `continue-on-error`): a new upstream
   advisory must not block every PR at once; the red mark is the signal.
   Transitive pins go in the root `pnpm.overrides` (`form-data >= 4.0.6`,
-  GHSA-hmw2-7cc7-3qxx, build-time only under `starlight-openapi`). An
+  GHSA-hmw2-7cc7-3qxx, build-time only under `starlight-openapi`;
+  `sharp >= 0.35.5`, GHSA-wq5f-xc86-pv6w / CVE-2026-96889 in its bundled
+  librsvg, build-time only under `astro` in `docs/site` and `apps/www` and
+  dev-only under `miniflare`; drop it once astro's own range requires the
+  fix). An
   advisory with **no patched version** may be listed in
   `pnpm.auditConfig.ignoreGhsas` only when the package never runs in a
   deployed worker — today `http-cache-semantics` under `astro`

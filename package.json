@@ -42,7 +42,8 @@
       "workerd"
     ],
     "overrides": {
-      "form-data": ">=4.0.6"
+      "form-data": ">=4.0.6",
+      "sharp": ">=0.35.5"
     },
     "auditConfig": {
       "ignoreGhsas": [
