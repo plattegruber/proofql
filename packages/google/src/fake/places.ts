@@ -27,6 +27,8 @@ export interface FakePlace {
   formattedAddress: string;
   rating?: number;
   userRatingCount: number;
+  /** Returned by the place fetch when the mask asks for it (#151). */
+  primaryType?: string;
   reviews?: FakePlaceReview[];
 }
 
@@ -52,6 +54,7 @@ export const CEDAR_RIDGE: FakePlace = {
   formattedAddress: "1200 Cedar Ridge Rd, Boulder, CO 80302, USA",
   rating: 4.8,
   userRatingCount: 212,
+  primaryType: "dentist",
   reviews: [
     {
       name: `places/${CEDAR_RIDGE_ID}/reviews/r-implant-1`,
@@ -142,6 +145,8 @@ export const HARBOR_LIGHT: FakePlace = {
   formattedAddress: "48 Pearl St, Boulder, CO 80302, USA",
   rating: 4.5,
   userRatingCount: 2,
+  // A type the category table does not map (#151).
+  primaryType: "bakery",
   reviews: [
     {
       name: `places/${HARBOR_LIGHT_ID}/reviews/r-sourdough-1`,
@@ -187,7 +192,7 @@ function googleError(code: number, status: string, message: string): Response {
 }
 
 function summaryOf(place: FakePlace) {
-  const { reviews: _reviews, ...summary } = place;
+  const { reviews: _reviews, primaryType: _primaryType, ...summary } = place;
   return summary;
 }
 
@@ -272,6 +277,9 @@ async function handle(
       return googleError(404, "NOT_FOUND", "Place not found.");
     }
     const body: Record<string, unknown> = summaryOf(place);
+    if (mask.includes("*") || mask.includes("primaryType")) {
+      if (place.primaryType) body.primaryType = place.primaryType;
+    }
     if (mask.includes("*") || mask.includes("reviews")) {
       if (place.reviews) body.reviews = place.reviews;
     }

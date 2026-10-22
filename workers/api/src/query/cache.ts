@@ -28,7 +28,8 @@
  * receives — `q` normalized (trimmed, whitespace collapsed, lower-cased),
  * `limit`, `mode`, `fallback`, a sorted `include` list, `filters` with
  * sorted keys and a sorted, de-duplicated `source` list, and the project
- * policy inputs (`min_rating`, `similarity_floor`) — so two requests that
+ * policy inputs (`min_rating`, `similarity_floor`, the generic words of
+ * `category`) — so two requests that
  * would run the same SQL share an entry and nothing that changes the SQL
  * *or the stored shape* can share one (`include: ["text"]` changes what
  * each result carries, not the SQL; it is in the key for the body's sake). Policy is in
@@ -80,8 +81,8 @@
 
 import {
   bumpProjectGeneration,
-  GENERIC_QUERY_WORDS,
   type GenerationKv,
+  genericQueryWords,
   LEXICAL_RULE,
   lexicalFloorFor,
 } from "@proofql/core";
@@ -140,6 +141,11 @@ export interface CacheKeyPolicy {
   minRating: number;
   similarityFloor: number;
   /**
+   * The project's business category (#151); only its generic words enter
+   * the key, so two categories with the same words share answers.
+   */
+  category?: string | null | undefined;
+  /**
    * Reranker threshold when experimental reranking is on (#147); absent
    * otherwise, which leaves keys made without reranking unchanged.
    */
@@ -194,10 +200,10 @@ export function cacheIdentity(input: CacheKeyInput): Record<string, unknown> {
             // answer for it.
             lexical_floor: lexicalFloorFor(policy.similarityFloor),
             // Which chunks count as word matches (#147): answers cached
-            // under the every-term rule, or another generic-word list,
-            // never answer for this one.
+            // under the every-term rule, or another generic-word list
+            // (another category, #151), never answer for this one.
             lexical_rule: LEXICAL_RULE,
-            generic_words: GENERIC_QUERY_WORDS,
+            generic_words: genericQueryWords(policy.category),
             rerank_threshold: policy.rerankThreshold,
           },
   };

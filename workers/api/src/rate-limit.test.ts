@@ -57,6 +57,7 @@ function authFor(kind: ApiKeyKind, plan: Plan = "free"): AuthContext {
       allowedOrigins: [],
       minRating: 4,
       similarityFloor: 0.55,
+      category: null,
     },
   };
 }

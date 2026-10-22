@@ -15,6 +15,7 @@ export {
   type Db,
   type Sql,
 } from "./client.js";
+export { DB_PING_TIMEOUT_MS, type DbPing, pingDatabase } from "./health.js";
 export {
   dedupeLastWins,
   type IngestedReview,
@@ -47,6 +48,7 @@ export {
   searchChunks,
 } from "./queries/searchChunks.js";
 export * as schema from "./schema/index.js";
+export { setCategoryFromGoogleIfUnset } from "./tenancy/category.js";
 export {
   type SetAccountPlanResult,
   setAccountPlan,

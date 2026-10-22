@@ -71,6 +71,7 @@ export async function loader(args: Route.LoaderArgs): Promise<PlaygroundData> {
     const policy = {
       minRating: project.minRating,
       similarityFloor: project.similarityFloor,
+      category: project.category,
     };
     const [sources, outcome] = await Promise.all([
       listReviewSources(db, {

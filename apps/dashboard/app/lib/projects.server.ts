@@ -172,13 +172,18 @@ export interface ProjectSettingsUpdate {
   slug: string;
   minRating: number;
   similarityFloor: number;
+  /** `projects.category` (#151); null clears it. */
+  category: string | null;
 }
 
 export type UpdateProjectResult =
   | {
       ok: true;
       project: Project;
-      /** True when `min_rating` or `similarity_floor` actually changed. */
+      /**
+       * True when `min_rating`, `similarity_floor` or `category` (its
+       * generic query words, #151) actually changed.
+       */
       policyChanged: boolean;
     }
   | { ok: false; reason: "slug_taken" | "not_found" };
@@ -208,6 +213,7 @@ export async function updateProjectSettings(
         slug: update.slug,
         minRating: update.minRating,
         similarityFloor: update.similarityFloor,
+        category: update.category,
         updatedAt: new Date(),
       })
       .where(
@@ -223,7 +229,8 @@ export async function updateProjectSettings(
       project: row,
       policyChanged:
         before.minRating !== row.minRating ||
-        before.similarityFloor !== row.similarityFloor,
+        before.similarityFloor !== row.similarityFloor ||
+        before.category !== row.category,
     };
   } catch (error) {
     if (isUniqueViolation(error)) return { ok: false, reason: "slug_taken" };

@@ -17,6 +17,7 @@ import { schema, upsertReviews } from "@proofql/db";
 import { project, setupTestDb } from "@proofql/db/test";
 import {
   mapPlaceReviews,
+  PLACES_PLACE_FIELD_MASK,
   placeCacheKey,
   placeDetailsSchema,
 } from "@proofql/google";
@@ -224,8 +225,7 @@ describe("refreshPlacesBootstraps", () => {
       {
         method: "GET",
         path: `/v1/places/${CEDAR_RIDGE_ID}`,
-        fieldMask:
-          "id,displayName,formattedAddress,rating,userRatingCount,reviews",
+        fieldMask: PLACES_PLACE_FIELD_MASK,
       },
     ]);
     // ...and the fresh copy written through for the dashboard.
@@ -393,6 +393,11 @@ describe("refreshPlacesBootstraps", () => {
 
   it("is idempotent: a second refresh of an unchanged place enqueues nothing and bumps nothing", async () => {
     const seed = await bootstrapped({ ranDaysAgo: 26 });
+    // As the dashboard import leaves it; a null category is backfilled (below).
+    await t.db
+      .update(projects)
+      .set({ category: "dental" })
+      .where(eq(projects.id, seed.projectId));
     const { kv, queue, ctx } = harness();
     const result = await refreshPlacesBootstraps(ctx);
     expect(result).toMatchObject({
@@ -408,6 +413,43 @@ describe("refreshPlacesBootstraps", () => {
     expect(runs[1]).toMatchObject({ status: "succeeded", error: null });
     // And now it is fresh: nothing is due.
     expect(await refreshPlacesBootstraps(ctx)).toMatchObject({ candidates: 0 });
+  });
+
+  it("backfills a null category from the place's primaryType and bumps (#151)", async () => {
+    const seed = await bootstrapped({ ranDaysAgo: 26 });
+    const { kv, ctx, out } = harness();
+    await refreshPlacesBootstraps(ctx);
+    const [row] = await t.db
+      .select({ category: projects.category })
+      .from(projects)
+      .where(eq(projects.id, seed.projectId));
+    expect(row?.category).toBe("dental");
+    expect(kv.store.get(generationKey(seed.projectId))).toBe("1");
+    expect(out.only("places.refresh.refreshed")).toMatchObject({
+      category_set: true,
+      generation: 1,
+    });
+  });
+
+  it("never overrides a category, and leaves an unmapped type null (#151)", async () => {
+    const chosen = await bootstrapped({ ranDaysAgo: 26 });
+    await t.db
+      .update(projects)
+      .set({ category: "remodeling" })
+      .where(eq(projects.id, chosen.projectId));
+    // Harbor Light is a `bakery`, which the category table does not map.
+    const bakery = await bootstrapped({ place: HARBOR_LIGHT, ranDaysAgo: 26 });
+    const { ctx, out } = harness();
+    await refreshPlacesBootstraps(ctx);
+    const rows = await t.db
+      .select({ id: projects.id, category: projects.category })
+      .from(projects);
+    const byId = new Map(rows.map((r) => [r.id, r.category]));
+    expect(byId.get(chosen.projectId)).toBe("remodeling");
+    expect(byId.get(bakery.projectId)).toBeNull();
+    expect(
+      out.find("places.refresh.refreshed").map((l) => l.category_set),
+    ).toEqual([false, false]);
   });
 
   it("skips a project with an active google connection, and one refreshed 10 days ago", async () => {

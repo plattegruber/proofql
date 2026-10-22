@@ -78,6 +78,8 @@ export interface PlaygroundResult {
 export interface PlaygroundPolicy {
   minRating: number;
   similarityFloor: number;
+  /** `projects.category` (#151): the generic words of the partial word match. */
+  category?: string | null;
 }
 
 /** The api's response-level verdict (`workers/api/src/query/route.ts`). */
@@ -116,6 +118,7 @@ export function effectivePolicy(
   return {
     minRating: Math.max(project.minRating, request.minRating ?? 0),
     similarityFloor: project.similarityFloor,
+    category: project.category ?? null,
   };
 }
 

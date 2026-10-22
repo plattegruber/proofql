@@ -151,6 +151,8 @@ describe("handleDeadLetters", () => {
       deferred: 0,
       exhausted: 1,
       batches: 0,
+      // Dead letters are capped, so they never keep the sweep (or Neon) busy.
+      idle: true,
     });
     expect(queue.sent).toEqual([]);
     expect(sweepLog.out.only("sweep.exhausted")).toMatchObject({

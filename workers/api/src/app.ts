@@ -60,6 +60,7 @@ import {
 } from "./rate-limit.js";
 import { requestGuards } from "./request-guards.js";
 import { requestContext } from "./request-id.js";
+import { healthRoutes } from "./routes/health.js";
 import { reviewsRoutes } from "./routes/reviews.js";
 import { reviewsCrudRoutes } from "./routes/reviews-crud.js";
 import { securityHeaders } from "./security-headers.js";
@@ -217,7 +218,7 @@ export function createApp(options: CreateAppOptions = {}): Hono<AppEnv> {
     await next();
   });
 
-  app.get("/health", (c) => c.json({ ok: true }));
+  app.route("/health", healthRoutes);
   app.route("/v1/reviews", reviewsRoutes);
   app.route("/v1/reviews", reviewsCrudRoutes);
   app.route("/v1/query", queryRoutes);

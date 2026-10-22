@@ -100,7 +100,7 @@ Clerk users. Turn both on if your Clerk plan offers them ([O6](#o6-clerk-setting
 **One person, many workspaces (fixed in this PR).** A workspace is a Clerk
 Organization and an `accounts` row; the free plan's limits are per account,
 and the instance allowed any user to create organizations without limit.
-Now `accounts.created_by_user_id` (migration 0010, additive) records each
+Now `accounts.created_by_user_id` (migration 0011, additive) records each
 organization's creator, from the webhook's `created_by` or, on first load,
 Clerk's `createdBy` (or the signed-in user). `projectQuota` counts the
 creator's projects in their other free, not-deleted workspaces against the
@@ -222,7 +222,7 @@ Do **not** change the sign-up mode here; that is the Go step.
 
 ### O8. Smoke test on prod
 
-After merging this PR and approving its prod deploy (migration 0010 runs in
+After merging this PR and approving its prod deploy (migration 0011 runs in
 `migrate-prod` before the workers deploy): launch.md §12 with an
 allowlisted or invited address. This is the first **sign-up** through the
 prod Clerk instance; acceptance only signs in. Confirm the new account row
