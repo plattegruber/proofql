@@ -8,6 +8,8 @@
  * bump out in the PR description.
  */
 
+import type { BusinessCategory } from "@proofql/core";
+
 /**
  * Version of the demo dataset. Bump on ANY change to what the seed
  * produces. It is written into the demo account's name
@@ -46,8 +48,17 @@
  * search holds full-text matches to the lower word-match tier (0.53). The
  * fake-embedded local corpus answers fewer loosely worded queries than at
  * v5; the cdn demo page's three queries still clear (0.754 / 0.798 / 0.775).
+ *
+ * v7 (#151): same reviews and chunks; the demo project's `category` is
+ * `dental` ({@link DEMO_PROJECT_CATEGORY}), so its generic query words
+ * keep "dental", "dentist" and "teeth" now that they come from the
+ * category instead of a constant (migration 0010 sets the same value on
+ * an already-seeded database).
  */
-export const SEED_VERSION = 6;
+export const SEED_VERSION = 7;
+
+/** The demo project's business category (#151); a `CATEGORY_TABLE` key. */
+export const DEMO_PROJECT_CATEGORY: BusinessCategory = "dental";
 
 /**
  * Natural key of the demo account. The wipe step finds any previous seed

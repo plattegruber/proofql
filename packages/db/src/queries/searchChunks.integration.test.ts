@@ -274,6 +274,9 @@ describe("relevance: the two-tier floor (#138)", () => {
   const policy: SearchPolicy = {
     minRating: 4,
     similarityFloor: DEFAULT_SIMILARITY_FLOOR,
+    // The fixtures below are a dental practice's (#151: generic words come
+    // from the project's category).
+    category: "dental",
   };
   const lexicalFloor = lexicalFloorFor(DEFAULT_SIMILARITY_FLOOR); // 0.53
   function twoTierQuery(projectId: string, text: string) {
@@ -352,6 +355,32 @@ describe("relevance: the two-tier floor (#138)", () => {
     );
     expect(results.map((r) => r.reviewId)).toEqual([implant.id]);
     expect(results[0]?.lexical).toBe(true);
+  });
+
+  it("takes the generic words from the project's category (#151)", async () => {
+    const p = await project(t.db);
+    // A roofer's review shares "roof" with the query, which every roofing
+    // review would: no evidence for "repair".
+    const roof = await withSimilarity(
+      p.id,
+      "They replaced our roof in two days.",
+      0.6,
+    );
+    const roofing = {
+      ...twoTierQuery(p.id, "roof repair company"),
+      policy: { ...policy, category: "roofing" },
+    };
+    expect(await searchChunks(t.db, roofing)).toEqual([]);
+    // Unset (or a dentist's list): "roof" counts, one of two specific words.
+    for (const category of [null, "dental"]) {
+      const results = await searchChunks(t.db, {
+        ...roofing,
+        policy: { ...policy, category },
+      });
+      expect(results.map((r) => [r.reviewId, r.lexical])).toEqual([
+        [roof.id, true],
+      ]);
+    }
   });
 
   it("keeps a must-be-empty query empty when it shares only a generic word (#147)", async () => {

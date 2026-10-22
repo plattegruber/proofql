@@ -636,8 +636,8 @@ every-term match, so each is a superset of `all`.
 | `half` (≥ half of content words) | 101 | 82.9% (29/35) | 23/35 | 4.5% (1/22) | 66.3% | 46.6% | p01, p19 |
 | **`half-specific`** (≥ half, ignoring "dental dentist teeth review office") | 97 | **85.7% (30/35)** | **25/35** | **4.5% (1/22)** | 69.8% | **50.0%** | **p01, p10, p19** |
 
-- **Chosen: `half-specific`** (`LEXICAL_RULE` and `GENERIC_QUERY_WORDS` in
-  `@proofql/core`): the most answered queries with the must-be-empty rate
+- **Chosen: `half-specific`** (`LEXICAL_RULE` in `@proofql/core`; the
+  generic words now come from the project's category, next section): the most answered queries with the must-be-empty rate
   under the 5% cap, and top-3 clean unchanged at 25/35. A query made only of
   generic words gets no partial credit. `any` fails outright: "the office
   dog greets patients" alone returns ten reviews.
@@ -679,6 +679,97 @@ every-term match, so each is a superset of `all`.
   result is 30/35 answered and 25/35 top-3 clean, matching the replay.
   The run was not repeated: the free plan allows two live collections and
   the second went to the reranker.
+
+### Generic words from the category (#151)
+
+The `half-specific` rule's generic words were a dental constant ("dental
+dentist teeth review office"), so for any other business its category
+words counted as evidence: on a roofer's page "copper roof" shares "roof"
+with nearly every review. #150 tried deriving them from document
+frequency and measured worse (reviews rarely repeat the words searchers use
+about the category; the demo derived only `{dr}`). Now they come from the
+project's business category: `genericQueryWords(projects.category)` in
+`@proofql/core` is a universal list ("review reviews company service
+business office team") plus the category's own words from
+`CATEGORY_TABLE` (15 categories keyed to Google types). The category is set
+from Places `primaryType` or Business Profile
+`categories.primaryCategory` on import while it is null, or chosen in
+Settings; null gets the universal list.
+
+**Measured offline, with no api and no Workers AI calls.** `pnpm
+db:floor-local` loads a labelled corpus into a scratch project on a local
+database, embeds nothing itself, and runs each query through `searchChunks`
+with the scratch-run settings (mode `reviews`, limit 20, floor 0.30); the
+output is a `SavedRun`, so `--annotate` and `--replay` read it unchanged.
+The vectors were computed on a laptop with `sentence-transformers` and
+`BAAI/bge-m3`, the model Workers AI serves as `@cf/baai/bge-m3`: on the
+dental fixtures they reproduce the preview scratch run
+([`2026-10-05-chunks.json`](floor-tuning/2026-10-05-chunks.json)) to a
+mean absolute difference of 0.00007 in cosine over 1,178 shared rows
+(max 0.003, Pearson 0.999998).
+
+**Dental is unchanged.** None of the 59 dental queries contains a universal
+word the old list lacked, so every query keeps the same specific lexemes
+(checked in Postgres for all 59) and every chunk keeps its word-match flag:
+annotated with the old constant and with `dental`, the local run's 1,180
+rows have identical flags (97 word matches).
+[`2026-10-08-local-dental.json`](floor-tuning/2026-10-08-local-dental.json):
+
+| Dental, 0.66 / 0.53 | Answered | Top-3 clean | Must-be-empty with a row | Precision | Recall |
+|---|---|---|---|---|---|
+| Every term (#146) | 77.1% (27/35) | 25/35 | 0.0% (0/22) | 73.4% | 31.8% |
+| Old constant (#147, before) | 85.7% (30/35) | 25/35 | 4.5% (1/22) | 69.8% | 50.0% |
+| **Category `dental` (after)** | **85.7% (30/35)** | **25/35** | **4.5% (1/22)** | **69.8%** | **50.0%** |
+| No category (universal words only) | 82.9% (29/35) | 23/35 | 4.5% (1/22) | 66.3% | 46.6% |
+
+The "before" row equals the #147 table above, measured on preview: the
+local harness reproduces it exactly. A dental project without a category
+loses p10 "pediatric dentist for my toddler" to the universal list, which
+is why migration 0010 sets the demo project's category and the Places and
+Business Profile imports fill it in.
+
+**Roofing improves.** A second labelled set
+(`src/seed/fixtures/relevance-roofing.ts`, not seeded): 32 reviews of a
+roofer, 26 answerable queries, 14 must-be-empty ones that pair a category
+word with something no review answers ("copper roof", "roof coating",
+"roofing company owner"). Raw:
+[`before`](floor-tuning/2026-10-08-local-roofing-before.json) (the old
+constant), [`after`](floor-tuning/2026-10-08-local-roofing-after.json)
+(category `roofing`). "Word-tier admissions" are rows that pass only
+through the word-match tier (similarity between the tiers, flagged a word
+match), split into labelled answers / unrelated rows on answerable
+queries / rows on must-be-empty queries.
+
+| Roofing | Answered | Top-3 clean | Must-be-empty with a row | Precision | Recall | Word-tier admissions |
+|---|---|---|---|---|---|---|
+| 0.66 / 0.53, before | 92.3% (24/26) | 15/26 | 78.6% (11/14) | 37.8% | 81.6% | 11 / 33 / 56 |
+| **0.66 / 0.53, after** | **100% (26/26)** | **15/26** | **71.4% (10/14)** | **59.6%** | **89.5%** | **14 / 5 / 1** |
+| 0.72 / 0.59, before | 84.6% (22/26) | 14/26 | 57.1% (8/14) | 48.2% | 71.1% | 18 / 27 / 43 |
+| **0.72 / 0.59, after** | **84.6% (22/26)** | **17/26** | **0.0% (0/14)** | **81.8%** | **71.1%** | **17 / 4 / 0** |
+| Flat 0.72 (no word tier) | 46.2% (12/26) | 10/26 | 0.0% (0/14) | 85.7% | 31.6% | — |
+
+- **The category removes the "roof" leak.** At the shipped pair, rows the
+  word tier admitted for must-be-empty queries fall from 56 to 1, and
+  unrelated rows on answerable ones from 33 to 5. Fewer specific words
+  also make the half rule easier to meet with the word that matters:
+  "roof repair company" needs "repair" (1 of 1) rather than 2 of 3, and
+  rp01 and rp09 gain their answers.
+- **The default floor is too low for this corpus, and that is not the
+  generic words.** 9 of the 14 negatives still return rows at 0.66 with
+  the every-term rule, on similarity alone: every roofing review is about
+  a roof, so "copper roof" scores 0.71 against the metal roof review.
+  The lowest safe flat floor here is 0.72. At 0.72 / 0.59 (the same
+  0.13 offset) the category takes the must-be-empty rate from 8 of 14 to
+  0 at the same 22/26 answered. Per-category default floors would need
+  more labelled corpora; owners tune the floor in Settings meanwhile.
+- **Cost of the shorter specific list.** rp09 "roof replacement warranty"
+  now also passes r24 and r15, which say "replaced" about something else
+  (1 of 2 specific words), and rn06 "roof moss cleaning" passes r01
+  ("cleaned up every nail"). Both are the half rule's known shape, not
+  the category.
+- **Caveat** as for every scratch run: one chunk per review is recorded,
+  so a sibling chunk can admit a review the replay misses (rp01's r29 is
+  one). Workers AI calls for all of the above: **0**.
 
 ### Reranker (#147): measured, off
 

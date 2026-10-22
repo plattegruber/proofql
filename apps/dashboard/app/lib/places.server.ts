@@ -26,7 +26,12 @@
  * API (`@proofql/google/fake`) and no network.
  */
 import { enqueueOrDefer, type Logger } from "@proofql/core";
-import { type Db, schema, upsertReviews } from "@proofql/db";
+import {
+  type Db,
+  schema,
+  setCategoryFromGoogleIfUnset,
+  upsertReviews,
+} from "@proofql/db";
 import {
   createPlacesClient,
   kvPlacesCache,
@@ -114,6 +119,11 @@ export interface ImportPlaceResult {
   indexingDeferred: boolean;
   /** Whether the place came from the KV cache rather than Google. */
   cached: boolean;
+  /**
+   * `projects.category` was null and the place's `primaryType` set it
+   * (#151); the caller bumps the cache generation.
+   */
+  categorySet: boolean;
 }
 
 /**
@@ -168,6 +178,13 @@ export async function importPlaceReviews(
       reviews: mapped.reviews,
       onLimit: "truncate",
     });
+    // The place's type names the business (#151); never overrides a
+    // category the owner chose, or one an earlier import set.
+    const categorySet = await setCategoryFromGoogleIfUnset(
+      db,
+      input.projectId,
+      details.primaryType,
+    );
     const enqueue = await enqueueOrDefer(queue, result.toEnqueue, {
       log,
       site: "dashboard.places_import",
@@ -201,6 +218,8 @@ export async function importPlaceReviews(
       enqueued,
       indexing_deferred: !enqueue.sent,
       cached,
+      primary_type: details.primaryType ?? null,
+      category_set: categorySet,
     });
     return {
       run,
@@ -212,6 +231,7 @@ export async function importPlaceReviews(
       enqueued,
       indexingDeferred: !enqueue.sent,
       cached,
+      categorySet,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "unhandled error";

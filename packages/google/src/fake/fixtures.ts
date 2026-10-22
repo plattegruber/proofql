@@ -42,6 +42,7 @@ export const FIXTURE_LOCATIONS: FakeLocation[] = [
     postalCode: "80301",
     verified: true,
     placeId: "ChIJnorth0000000000000001",
+    primaryCategory: "gcid:dentist",
   },
   {
     id: "202",
@@ -53,6 +54,7 @@ export const FIXTURE_LOCATIONS: FakeLocation[] = [
     postalCode: "80305",
     verified: true,
     placeId: "ChIJsouth0000000000000002",
+    primaryCategory: "gcid:dentist",
   },
   {
     id: "203",
@@ -64,6 +66,7 @@ export const FIXTURE_LOCATIONS: FakeLocation[] = [
     postalCode: "80501",
     verified: false,
     placeId: "ChIJlake00000000000000003",
+    primaryCategory: "gcid:dentist",
   },
 ];
 

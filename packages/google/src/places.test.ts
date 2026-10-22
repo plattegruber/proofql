@@ -219,6 +219,7 @@ describe("response shapes and field masks", () => {
       "places.userRatingCount",
     ]);
     expect(PLACES_PLACE_FIELD_MASK.split(",")).toContain("reviews");
+    expect(PLACES_PLACE_FIELD_MASK.split(",")).toContain("primaryType");
     expect(PLACES_PLACE_FIELD_MASK).not.toContain("places.");
   });
 });
@@ -331,6 +332,8 @@ describe("createPlacesClient: place", () => {
     const first = await places.place(CEDAR_RIDGE_ID);
     expect(first.cached).toBe(false);
     expect(first.place.reviews).toHaveLength(5);
+    // The business category's source (#151), in the same billed call.
+    expect(first.place.primaryType).toBe("dentist");
     expect(api.calls).toEqual([
       {
         method: "GET",

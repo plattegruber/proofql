@@ -12,8 +12,9 @@
  *   config's stemmed, stop-word-free lexemes) is in the chunk.
  * - `half`: at least half of the query's content words are in the chunk.
  * - `half-specific`: at least half of the query's content words that are
- *   **not generic** (`GENERIC_QUERY_WORDS` in `@proofql/core`, stemmed the
- *   same way) are in the chunk; a query made only of generic words gets no
+ *   **not generic** for the project's business category (#151;
+ *   `genericQueryWords(category)` in `@proofql/core`, stemmed the same
+ *   way) are in the chunk; a query made only of generic words gets no
  *   partial credit.
  *
  * Every rule is a superset of `all` (it is OR-ed in), so a chunk that
@@ -26,8 +27,9 @@ import { type SQL, sql } from "drizzle-orm";
 /**
  * A boolean SQL expression: does the chunk whose tsvector is `tsv` match
  * `queryText` under `rule`. `genericWords` is a space-separated word list
- * (only read by `half-specific`); it is stemmed by Postgres with the same
- * config as the corpus, so "office" excludes the lexeme `offic`.
+ * (only read by `half-specific`; `genericQueryWords(category)`); it is
+ * stemmed by Postgres with the same config as the corpus, so "office"
+ * excludes the lexeme `offic` and "roofing" excludes `roof`.
  */
 export function lexicalMatchSql(
   tsv: SQL,
