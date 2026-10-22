@@ -104,6 +104,7 @@ describe("sweepUnindexed", () => {
       deferred: 0,
       exhausted: 0,
       batches: 1,
+      idle: false,
     });
     expect(queue.sent).toEqual([
       {
@@ -147,6 +148,7 @@ describe("sweepUnindexed", () => {
       deferred: 0,
       exhausted: 1,
       batches: 1,
+      idle: false,
     });
     expect(queue.sent.map((m) => m.reviewId)).toEqual([lastChance.id]);
     expect((await reload(exhausted.id)).indexAttempts).toBe(
@@ -169,6 +171,7 @@ describe("sweepUnindexed", () => {
       deferred: 0,
       exhausted: 2,
       batches: 0,
+      idle: true,
     });
     expect(queue.sent).toHaveLength(1);
   });
@@ -220,6 +223,7 @@ describe("sweepUnindexed", () => {
       deferred: 0,
       exhausted: 0,
       batches: 1,
+      idle: false,
     });
     expect(limited.sent.map((m) => m.reviewId)).toEqual(
       oldestFirst.slice(0, 50),
@@ -232,6 +236,7 @@ describe("sweepUnindexed", () => {
       deferred: 0,
       exhausted: 0,
       batches: 2,
+      idle: false,
     });
     expect(full.batches.map((b) => b.length)).toEqual([100, 20]);
     expect(full.sent.map((m) => m.reviewId)).toEqual(oldestFirst);
@@ -323,5 +328,32 @@ describe("sweepUnindexed", () => {
     for (const row of attempts) {
       expect(row.indexAttempts).toBe(sentIds.has(row.id) ? 1 : 0);
     }
+  });
+
+  it("idle (#neon-idle): true only when nothing is unindexed at any age; exhausted and hidden reviews never count", async () => {
+    const queue = new FakeQueue();
+    expect((await sweep(queue).run()).idle).toBe(true);
+
+    // Exhausted and hidden: still idle, so neither can keep Neon awake.
+    await stale({ indexAttempts: DEFAULT_MAX_INDEX_ATTEMPTS });
+    await stale({ hiddenAt: new Date() });
+    await stale({ indexedAt: minutesAgo(9) });
+    const s = sweep(queue);
+    const quiet = await s.run();
+    expect(quiet).toMatchObject({ enqueued: 0, exhausted: 1, idle: true });
+    expect(s.out.only("sweep.completed")).toMatchObject({ idle: true });
+
+    // A review enqueued a minute ago is not a candidate yet, but it is in
+    // flight: not idle, so the cron keeps the marker until it is indexed.
+    const fresh = await review(t.db);
+    const young = await sweep(queue).run();
+    expect(young).toMatchObject({ enqueued: 0, idle: false });
+    expect(queue.sent).toEqual([]);
+
+    await t.db
+      .update(reviews)
+      .set({ indexedAt: new Date() })
+      .where(eq(reviews.id, fresh.id));
+    expect((await sweep(queue).run()).idle).toBe(true);
   });
 });

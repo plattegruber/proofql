@@ -38,6 +38,7 @@ import {
   TEST_PAGE_ORIGIN,
   target,
 } from "../lib/target";
+import { recordFailureLine } from "../lib/warnings";
 
 /** Ingest → every review `indexed`, as the dashboard reports it. */
 const INDEXING_TIMEOUT_MS = 3 * 60 * 1000;
@@ -284,11 +285,12 @@ async function describeFailure(
   }
   const message =
     error instanceof Error ? error.message.split("\n")[0] : String(error);
-  console.error(
-    redact(
-      `[at] FAILED at "${stepName}" on ${path}: ${message}${visible.length ? ` | visible: ${visible.join(" / ")}` : ""}`,
-    ),
+  const line = redact(
+    `[at] FAILED at "${stepName}" on ${path}: ${message}${visible.length ? ` | visible: ${visible.join(" / ")}` : ""}`,
   );
+  console.error(line);
+  // For the workflow's failure issue (lib/warnings.ts `recordFailureLine`).
+  recordFailureLine(line);
 }
 
 async function cleanUp(

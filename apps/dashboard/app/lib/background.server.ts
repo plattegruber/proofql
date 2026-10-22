@@ -7,6 +7,7 @@
 // response; `runImport` pauses itself inside that (DEFAULT_RUN_BUDGET_MS)
 // and the progress page offers "Resume" when a run has stalled, so a file
 // bigger than one budget still completes — in several hops.
+import { withSweepMarker } from "@proofql/core";
 import { createDb } from "@proofql/db";
 import type { RouterContextProvider } from "react-router";
 
@@ -27,11 +28,23 @@ export function runImportInBackground(
 ): void {
   const { env, ctx, log } = getCloudflare(context);
   const { db, sql } = createDb(env.HYPERDRIVE.connectionString);
-  const queue: IndexQueue = {
-    sendBatch: async (messages) => {
-      await env.INGEST_QUEUE.sendBatch([...messages]);
+  // Marks the pipeline sweep's KV work flag on the first send
+  // (@proofql/core sweep-marker.ts).
+  const queue: IndexQueue = withSweepMarker(
+    {
+      sendBatch: async (messages) => {
+        await env.INGEST_QUEUE.sendBatch([...messages]);
+      },
     },
-  };
+    env.CACHE,
+    {
+      log,
+      site:
+        runner === "takeout"
+          ? "dashboard.takeout_import"
+          : "dashboard.csv_import",
+    },
+  );
   const deps = { db, store: env.UPLOADS, queue, log };
   const task = (
     runner === "takeout"

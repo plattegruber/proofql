@@ -135,9 +135,33 @@ describe("cacheKey", () => {
         { q: "implants" },
         { policy: { minRating: 4, similarityFloor: 0.5 } },
       ),
+      // Another category's generic words (#151).
+      keyFor(
+        { q: "implants" },
+        {
+          policy: { minRating: 4, similarityFloor: 0.55, category: "dental" },
+        },
+      ),
     ]);
     for (const variant of variants) expect(variant).not.toBe(base);
     expect(new Set(variants).size).toBe(variants.length);
+  });
+
+  it("keys on the category's generic words, not its name (#151)", async () => {
+    const policy = { minRating: 4, similarityFloor: 0.55 };
+    // Unset and unknown categories both get the universal words only.
+    expect(
+      await keyFor({ q: "roof" }, { policy: { ...policy, category: null } }),
+    ).toBe(await keyFor({ q: "roof" }, { policy }));
+    expect(
+      await keyFor({ q: "roof" }, { policy: { ...policy, category: "zzz" } }),
+    ).toBe(await keyFor({ q: "roof" }, { policy }));
+    expect(
+      await keyFor(
+        { q: "roof" },
+        { policy: { ...policy, category: "roofing" } },
+      ),
+    ).not.toBe(await keyFor({ q: "roof" }, { policy }));
   });
 
   it("exposes the identity it hashes", () => {
@@ -150,7 +174,7 @@ describe("cacheKey", () => {
           q: " Implants ",
           filters: { source: ["yelp", "google"], since: "2025-01-01" },
         }),
-        policy: { minRating: 4, similarityFloor: 0.55 },
+        policy: { minRating: 4, similarityFloor: 0.55, category: "dental" },
       }),
     ).toEqual({
       q: "implants",
@@ -169,7 +193,8 @@ describe("cacheKey", () => {
         similarity_floor: 0.55,
         lexical_floor: 0.42,
         lexical_rule: "half-specific",
-        generic_words: "dental dentist teeth review office",
+        generic_words:
+          "review reviews company service business office team dental dentist teeth",
       },
     });
   });

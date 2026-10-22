@@ -1227,6 +1227,7 @@ describe("/v1/query", () => {
         limit: 3,
         min_rating: 4,
         similarity_floor: 0.55,
+        category: null,
         returned: 1,
         match: "query",
         cached: "BYPASS",

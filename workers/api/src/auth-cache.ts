@@ -235,6 +235,9 @@ export function isAuthCacheEntry(value: unknown): value is AuthCacheEntry {
     isPlan(auth.plan) &&
     isStringArray(project.allowedOrigins) &&
     typeof project.minRating === "number" &&
-    typeof project.similarityFloor === "number"
+    typeof project.similarityFloor === "number" &&
+    // Entries cached before #151 have no `category`: a miss, so the key is
+    // read again with it rather than searched without its generic words.
+    (typeof project.category === "string" || project.category === null)
   );
 }

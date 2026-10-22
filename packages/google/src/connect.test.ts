@@ -145,6 +145,8 @@ describe("discovery", () => {
         verified: true,
         enabled: false,
         placeId: "ChIJnorth0000000000000001",
+        // Business Profile's primary category (#151).
+        primaryCategory: "categories/gcid:dentist",
       },
       expect.objectContaining({ id: "202", verified: true, enabled: false }),
       expect.objectContaining({ id: "203", verified: false, enabled: false }),

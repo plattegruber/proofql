@@ -10,7 +10,7 @@ import { SUPPORT_EMAIL } from "../../config";
 
 <LegalNotice />
 
-_Last updated: October 5, 2026 (draft)._
+_Last updated: October 8, 2026 (draft)._
 
 <Aside type="note" title="The short version">
 - **Your reviews stay yours.** You give us only the license we need to store, index and serve them to the sites you choose.
@@ -29,7 +29,7 @@ By creating an account or using the API, you agree to these Terms and to our [Pr
 ## Your account
 
 1. You need an account, created through our sign-in provider, to use the dashboard and get API keys. Give accurate information and keep it current. Accounts registered by bots or other automated means are not permitted.
-2. You are responsible for keeping your sign-in secure, for the people you invite to your workspace, and for everything that happens under your account. We recommend turning on two-factor authentication.
+2. You are responsible for keeping your sign-in secure, for the people you invite to your workspace, and for everything that happens under your account. We recommend turning on two-factor authentication. [PLACEHOLDER: keep this sentence only once two-factor authentication is enabled in the production Clerk instance (Configure → Multi-factor); it offers no second factor today.]
 3. You must be at least 16 years old, and old enough to enter a binding contract where you live.
 
 ## API keys
@@ -43,9 +43,15 @@ By creating an account or using the API, you agree to these Terms and to our [Pr
 1. **You own your content.** You keep all rights in the reviews, settings and other material you or your users submit ("Your Content"). We claim no ownership of it.
 2. **License to us.** You grant us a worldwide, non-exclusive, royalty-free license to host, copy, process, index, create embeddings and excerpts from, cache, transmit and display Your Content only as needed to provide, secure and support the Service for you — including serving it to the websites and callers you authorize — and for no other purpose. The license ends when Your Content is deleted from the Service, except for copies in backups, which expire on their normal schedule.
 3. **Your rights to import.** You confirm that you have every right, license and consent needed to import, store and publicly display each review you bring into ProofQL, and that doing so does not infringe anyone's rights or break any law or agreement. In practice, import only reviews **of your own business** (or of a client who has authorized you).
-4. **Source platform terms.** You must comply with the terms of the platform each review came from. For Google reviews, that includes the [Google Maps Platform Terms](https://cloud.google.com/maps-platform/terms), the [Places API policies](https://developers.google.com/maps/documentation/places/web-service/policies) and Google Business Profile policies, which require you to display each review with its author's name, photo and a link to it, and to credit Google as the source. The snippet does this by default; if you render reviews with your own code, you must do it yourself. Do not alter a review's text or rating, present it as written about a different business, or display reviews from a platform whose terms forbid it.
-5. **Reviewer requests.** You are the controller of the personal data in the reviews you import. If a reviewer asks you to remove or correct a review, you are responsible for handling it, and you agree to act promptly on requests we forward to you.
-6. We do not pre-screen content, but we may remove or hide content that we reasonably believe breaks these Terms or the law, or that we are legally required to remove.
+4. **Reviewer consent is your responsibility.** A review belongs to the person who wrote it, even when it is about your business. Some platforms and laws expect you to have the reviewer's permission before you show their review in your own marketing, including on your website; Google, for example, tells businesses to get the reviewer's consent before using reviews of their business on their own site. You are responsible for obtaining any consent that applies to the reviews you import and display, whichever way you import them (the API, an uploaded export, the Google Places lookup or a Google connection). ProofQL does not ask reviewers for consent on your behalf and does not check whether you have it.
+5. **Source platform terms.** You must comply with the terms of the platform each review came from. For Google reviews:
+   - Reviews imported with the Google Places lookup are subject to the [Google Maps Platform Terms](https://cloud.google.com/maps-platform/terms) and the [Places API policies](https://developers.google.com/maps/documentation/places/web-service/policies), which require each review to be shown with its author's name, the author's photo where Google provides one, and a link to the review or author, and Google to be credited as the source.
+   - Reviews imported through a Google Business Profile connection are subject to the [Google Business Profile APIs policies](https://developers.google.com/my-business/content/policies), which require any attribution Google provides with the content to be displayed without alteration.
+
+   The snippet shows the author's name, photo, a link and the Google badge by default; if you render reviews with your own code, you must do it yourself. Do not alter a review's text or rating, present it as written about a different business, or display reviews from a platform whose terms forbid it.
+6. **Disconnecting and deleting.** You can disconnect a Google connection, delete reviews, delete a project or delete your workspace at any time from the dashboard. Disconnecting ends our access to that source at once. What we keep afterwards, and for how long — including reviews imported through a connection, and the excerpts and search vectors derived from your reviews, which are deleted with them — is set out in the [Privacy policy](/privacy#retention-and-deletion).
+7. **Reviewer requests.** You are the controller of the personal data in the reviews you import. If a reviewer asks you to remove or correct a review, you are responsible for handling it, and you agree to act promptly on requests we forward to you.
+8. We do not pre-screen content, but we may remove or hide content that we reasonably believe breaks these Terms or the law, or that we are legally required to remove.
 
 ## Acceptable use
 

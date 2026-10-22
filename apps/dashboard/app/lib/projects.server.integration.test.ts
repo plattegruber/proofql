@@ -75,6 +75,7 @@ describe("createProject", () => {
     expect(await projectQuota(t.db, free)).toEqual({
       used: 0,
       limit: 1,
+      elsewhere: 0,
       atLimit: false,
     });
 
@@ -93,7 +94,7 @@ describe("createProject", () => {
     expect(second).toEqual({
       ok: false,
       reason: "plan_limit",
-      quota: { used: 1, limit: 1, atLimit: true },
+      quota: { used: 1, limit: 1, elsewhere: 0, atLimit: true },
     });
     expect(await projectQuota(t.db, free)).toMatchObject({ atLimit: true });
 
@@ -107,6 +108,63 @@ describe("createProject", () => {
   });
 });
 
+describe("the free allowance is per person, not per workspace", () => {
+  it("counts the creator's projects in their other free workspaces", async () => {
+    const first = await account(t.db, { createdByUserId: "user_multi" });
+    const second = await account(t.db, { createdByUserId: "user_multi" });
+    expect(
+      (await createProject(t.db, { account: first, name: "A", slug: "a" })).ok,
+    ).toBe(true);
+
+    // A second workspace by the same person starts at the limit.
+    expect(await projectQuota(t.db, second)).toEqual({
+      used: 0,
+      limit: 1,
+      elsewhere: 1,
+      atLimit: true,
+    });
+    expect(
+      await createProject(t.db, { account: second, name: "B", slug: "b" }),
+    ).toEqual({
+      ok: false,
+      reason: "plan_limit",
+      quota: { used: 0, limit: 1, elsewhere: 1, atLimit: true },
+    });
+  });
+
+  it("ignores other people, paid and deleted workspaces, and unknown creators", async () => {
+    const mine = await account(t.db, { createdByUserId: "user_me" });
+    // Someone else's free workspace with a project: not mine.
+    const theirs = await account(t.db, { createdByUserId: "user_other" });
+    await createProject(t.db, { account: theirs, name: "T", slug: "t" });
+    // My paid workspace: its allowance is its own.
+    const paid = await account(t.db, {
+      createdByUserId: "user_me",
+      plan: "paid",
+    });
+    await createProject(t.db, { account: paid, name: "P", slug: "p" });
+    // My deleted workspace: stops counting once Clerk marks it deleted.
+    const gone = await account(t.db, {
+      createdByUserId: "user_me",
+      deletedAt: new Date(),
+    });
+    await createProject(t.db, { account: gone, name: "G", slug: "g" });
+
+    expect(await projectQuota(t.db, mine)).toMatchObject({
+      elsewhere: 0,
+      atLimit: false,
+    });
+    // Paid accounts never count projects elsewhere.
+    expect(await projectQuota(t.db, paid)).toMatchObject({ elsewhere: 0 });
+    // No recorded creator (accounts from before the column): not counted.
+    const legacy = await account(t.db);
+    expect(await projectQuota(t.db, legacy)).toMatchObject({
+      elsewhere: 0,
+      atLimit: false,
+    });
+  });
+});
+
 describe("updateProjectSettings", () => {
   it("saves name/slug/policy and reports whether the policy changed", async () => {
     const p = await project(t.db, { slug: "before" });
@@ -117,6 +175,7 @@ describe("updateProjectSettings", () => {
       slug: "after",
       minRating: p.minRating,
       similarityFloor: p.similarityFloor,
+      category: p.category,
     });
     expect(renamed.ok && renamed.policyChanged).toBe(false);
     expect(renamed.ok && renamed.project.slug).toBe("after");
@@ -126,12 +185,34 @@ describe("updateProjectSettings", () => {
       slug: "after",
       minRating: 3,
       similarityFloor: 0.6,
+      category: null,
     });
     expect(policy.ok && policy.policyChanged).toBe(true);
     expect(policy.ok && policy.project).toMatchObject({
       minRating: 3,
       similarityFloor: 0.6,
     });
+
+    // The category picks the generic query words (#151): a policy change.
+    const category = await updateProjectSettings(t.db, ids, {
+      name: "Renamed",
+      slug: "after",
+      minRating: 3,
+      similarityFloor: 0.6,
+      category: "roofing",
+    });
+    expect(category.ok && category.policyChanged).toBe(true);
+    expect(category.ok && category.project.category).toBe("roofing");
+
+    const cleared = await updateProjectSettings(t.db, ids, {
+      name: "Renamed",
+      slug: "after",
+      minRating: 3,
+      similarityFloor: 0.6,
+      category: null,
+    });
+    expect(cleared.ok && cleared.policyChanged).toBe(true);
+    expect(cleared.ok && cleared.project.category).toBeNull();
   });
 
   it("reports a taken slug and refuses another account's project", async () => {
@@ -142,6 +223,7 @@ describe("updateProjectSettings", () => {
       name: "One",
       minRating: 4,
       similarityFloor: 0.55,
+      category: null,
     };
     expect(
       await updateProjectSettings(
