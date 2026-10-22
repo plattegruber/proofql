@@ -14,6 +14,7 @@ import { schema } from "@proofql/db";
 import { project, setupTestDb } from "@proofql/db/test";
 import {
   createPlacesClient,
+  PLACES_PLACE_FIELD_MASK,
   type PlacesCache,
   placeCacheKey,
 } from "@proofql/google";
@@ -80,13 +81,13 @@ describe("importPlaceReviews", () => {
       failed: 0,
       enqueued: 5,
       cached: false,
+      categorySet: true,
     });
     expect(api.calls).toEqual([
       {
         method: "GET",
         path: `/v1/places/${CEDAR_RIDGE_ID}`,
-        fieldMask:
-          "id,displayName,formattedAddress,rating,userRatingCount,reviews",
+        fieldMask: PLACES_PLACE_FIELD_MASK,
       },
     ]);
 
@@ -149,10 +150,43 @@ describe("importPlaceReviews", () => {
 
     // The project's counter follows, as for any ingest.
     const [row] = await t.db
-      .select({ n: schema.projects.reviewCount })
+      .select({
+        n: schema.projects.reviewCount,
+        category: schema.projects.category,
+      })
       .from(schema.projects)
       .where(eq(schema.projects.id, p.id));
     expect(row?.n).toBe(5);
+    // The place's `dentist` primaryType names the business (#151).
+    expect(row?.category).toBe("dental");
+  });
+
+  it("sets the category only while it is unset, and only from a mapped type (#151)", async () => {
+    const chosen = await project(t.db);
+    await t.db
+      .update(schema.projects)
+      .set({ category: "medical" })
+      .where(eq(schema.projects.id, chosen.id));
+    const bakery = await project(t.db);
+    const { queue, places } = harness();
+
+    const kept = await importPlaceReviews(
+      { db: t.db, places, queue },
+      { projectId: chosen.id, environment: "live", placeId: CEDAR_RIDGE_ID },
+    );
+    // Harbor Light's type is `bakery`, which the table does not map.
+    const unmapped = await importPlaceReviews(
+      { db: t.db, places, queue },
+      { projectId: bakery.id, environment: "live", placeId: HARBOR_LIGHT_ID },
+    );
+    expect(kept.categorySet).toBe(false);
+    expect(unmapped.categorySet).toBe(false);
+    const rows = await t.db
+      .select({ id: schema.projects.id, category: schema.projects.category })
+      .from(schema.projects);
+    const byId = new Map(rows.map((r) => [r.id, r.category]));
+    expect(byId.get(chosen.id)).toBe("medical");
+    expect(byId.get(bakery.id)).toBeNull();
   });
 
   it("Queues daily limit: the import succeeds with indexing deferred and logs quota.exhausted (#159)", async () => {
@@ -216,6 +250,7 @@ describe("importPlaceReviews", () => {
       skipped: 0,
       enqueued: 0,
       cached: true,
+      categorySet: false,
     });
     expect(api.calls).toHaveLength(1);
     expect(queue.messages).toHaveLength(5);
@@ -256,6 +291,34 @@ describe("importPlaceReviews", () => {
       where: eq(schema.reviews.projectId, p.id),
     });
     expect(reviews.map((r) => r.environment)).toEqual(["test"]);
+  });
+
+  it("refuses, before calling Google, where a Takeout import already brought every review in", async () => {
+    const p = await project(t.db);
+    await t.db.insert(schema.ingestRuns).values({
+      projectId: p.id,
+      environment: "live",
+      kind: "csv",
+      status: "succeeded",
+      received: 3,
+      artifactKey: `uploads/${p.id}/run.takeout.json`,
+      finishedAt: new Date(),
+    });
+    const { api, queue, places } = harness();
+    const error = await importPlaceReviews(
+      { db: t.db, places, queue },
+      { projectId: p.id, environment: "live", placeId: CEDAR_RIDGE_ID },
+    ).catch((e) => e);
+    expect(error).toBeInstanceOf(PlacesImportError);
+    expect(error.status).toBe(409);
+    expect(error.message).toContain("come from a Takeout export");
+    expect(api.calls).toHaveLength(0);
+    // The test environment had no Takeout import.
+    const test = await importPlaceReviews(
+      { db: t.db, places, queue },
+      { projectId: p.id, environment: "test", placeId: CEDAR_RIDGE_ID },
+    );
+    expect(test.created).toBe(5);
   });
 
   it("leaves no run for a place Google shares no reviews for", async () => {

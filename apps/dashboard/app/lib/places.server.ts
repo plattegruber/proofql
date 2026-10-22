@@ -26,7 +26,12 @@
  * API (`@proofql/google/fake`) and no network.
  */
 import { enqueueOrDefer, type Logger } from "@proofql/core";
-import { type Db, schema, upsertReviews } from "@proofql/db";
+import {
+  type Db,
+  schema,
+  setCategoryFromGoogleIfUnset,
+  upsertReviews,
+} from "@proofql/db";
 import {
   createPlacesClient,
   kvPlacesCache,
@@ -39,6 +44,7 @@ import {
 import { eq } from "drizzle-orm";
 
 import type { Environment, IndexQueue, IngestRun } from "./csv.server";
+import { hasTakeoutImport } from "./takeout.server";
 
 // --- Configuration -----------------------------------------------------------
 
@@ -114,6 +120,11 @@ export interface ImportPlaceResult {
   indexingDeferred: boolean;
   /** Whether the place came from the KV cache rather than Google. */
   cached: boolean;
+  /**
+   * `projects.category` was null and the place's `primaryType` set it
+   * (#151); the caller bumps the cache generation.
+   */
+  categorySet: boolean;
 }
 
 /**
@@ -127,6 +138,15 @@ export async function importPlaceReviews(
   input: ImportPlaceInput,
 ): Promise<ImportPlaceResult> {
   const { db, queue } = deps;
+  // A Takeout export already brought in every Google review (and replaced
+  // the bootstrap); Places' five would come back as duplicates under
+  // other ids. Checked before calling Google, so it costs no quota.
+  if (await hasTakeoutImport(db, input.projectId, input.environment)) {
+    throw new PlacesImportError(
+      `This project's ${input.environment} Google reviews come from a Takeout export, which has all of them; Places would add duplicates. Import a newer Takeout export to update them.`,
+      409,
+    );
+  }
   const { place: details, cached } = await deps.places.place(input.placeId);
   const mapped: MappedPlace = mapPlaceReviews(details);
   if ((details.reviews ?? []).length === 0) {
@@ -168,6 +188,13 @@ export async function importPlaceReviews(
       reviews: mapped.reviews,
       onLimit: "truncate",
     });
+    // The place's type names the business (#151); never overrides a
+    // category the owner chose, or one an earlier import set.
+    const categorySet = await setCategoryFromGoogleIfUnset(
+      db,
+      input.projectId,
+      details.primaryType,
+    );
     const enqueue = await enqueueOrDefer(queue, result.toEnqueue, {
       log,
       site: "dashboard.places_import",
@@ -201,6 +228,8 @@ export async function importPlaceReviews(
       enqueued,
       indexing_deferred: !enqueue.sent,
       cached,
+      primary_type: details.primaryType ?? null,
+      category_set: categorySet,
     });
     return {
       run,
@@ -212,6 +241,7 @@ export async function importPlaceReviews(
       enqueued,
       indexingDeferred: !enqueue.sent,
       cached,
+      categorySet,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "unhandled error";

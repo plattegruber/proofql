@@ -9,13 +9,13 @@ import OnboardingProject from "./app.onboarding";
 
 type LoaderData = {
   plan: "free" | "paid";
-  quota: { used: number; limit: number; atLimit: boolean };
+  quota: { used: number; limit: number; elsewhere: number; atLimit: boolean };
   existing: { name: string; slug: string } | null;
 };
 
 const fresh: LoaderData = {
   plan: "free",
-  quota: { used: 0, limit: 1, atLimit: false },
+  quota: { used: 0, limit: 1, elsewhere: 0, atLimit: false },
   existing: null,
 };
 
@@ -87,7 +87,7 @@ describe("onboarding step 1", () => {
   it("at the plan limit offers to continue with the existing project", async () => {
     const { container } = renderStep({
       plan: "free",
-      quota: { used: 1, limit: 1, atLimit: true },
+      quota: { used: 1, limit: 1, elsewhere: 0, atLimit: true },
       existing: { name: "Cedar Ridge Dental", slug: "cedar-ridge-dental" },
     });
     expect(
@@ -98,6 +98,22 @@ describe("onboarding step 1", () => {
         .getByRole("link", { name: "Continue with Cedar Ridge Dental" })
         .getAttribute("href"),
     ).toBe("/app/onboarding/cedar-ridge-dental/reviews");
+    expect(screen.queryByLabelText("Project name")).toBeNull();
+    expect(container.textContent).not.toContain("!");
+  });
+
+  it("explains a free project held in another workspace", async () => {
+    const { container } = renderStep({
+      plan: "free",
+      quota: { used: 0, limit: 1, elsewhere: 1, atLimit: true },
+      existing: null,
+    });
+    expect(
+      await screen.findByText("You already have a free project"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/one project per person, and you already have one/),
+    ).toBeTruthy();
     expect(screen.queryByLabelText("Project name")).toBeNull();
     expect(container.textContent).not.toContain("!");
   });

@@ -179,6 +179,7 @@ async function lookupApiKeyByHash(
       allowedOrigins: projects.allowedOrigins,
       minRating: projects.minRating,
       similarityFloor: projects.similarityFloor,
+      category: projects.category,
       plan: accounts.plan,
     })
     .from(apiKeys)
@@ -207,6 +208,7 @@ async function lookupApiKeyByHash(
         allowedOrigins: row.allowedOrigins,
         minRating: row.minRating,
         similarityFloor: row.similarityFloor,
+        category: row.category,
       },
     },
     lastUsedAt: row.lastUsedAt,

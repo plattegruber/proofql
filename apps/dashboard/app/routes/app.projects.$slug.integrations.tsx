@@ -8,7 +8,7 @@
 // Workers Free plan's daily Queues limit, #162) is not an error: the flag
 // stays set, so the pipeline's next Google poll takes the connection first,
 // and the flash says the sync is queued.
-import { enqueueOrDefer } from "@proofql/core";
+import { enqueueOrDefer, safeBumpProjectGeneration } from "@proofql/core";
 import { data, Form, redirect, useNavigation } from "react-router";
 
 import { InlineConfirm } from "~/components/form/inline-confirm";
@@ -81,6 +81,13 @@ export async function action(args: Route.ActionArgs) {
       saveLocationSelection(db, { projectId: project.id, enabledIds }),
     );
     if (!saved) throw data("No Google connection to save to", { status: 409 });
+    if (saved.categorySet) {
+      // New generic query words (#151); after the commit. Never throws.
+      await safeBumpProjectGeneration(env.CACHE, project.id, {
+        log,
+        site: "dashboard.generation_bump",
+      });
+    }
     const syncing = saved.enabled.length > 0;
     // After the commit, never inside it: the pipeline re-reads the row.
     // Never throws: `initial_sync_pending` is committed, so a refused send
@@ -98,6 +105,7 @@ export async function action(args: Route.ActionArgs) {
       location_ids: saved.enabled.map((l) => l.id),
       sync_enqueued: syncing && enqueue.sent,
       sync_deferred: syncing && !enqueue.sent,
+      category_set: saved.categorySet,
     });
     return redirect(back, {
       headers: await setFlash(env, {

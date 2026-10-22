@@ -5,7 +5,7 @@
  * Accepted shapes:
  *   - an array of objects (`[{...}, {...}]`);
  *   - an object with exactly one array-valued key holding objects — Google
- *     Takeout's `Reviews.json` is `{ "reviews": [...] }` — or a `reviews`
+ *     A Takeout `reviews.json` page is `{ "reviews": [...] }` — or a `reviews`
  *     / `data` / `items` / `results` key when there are several.
  *
  * Nested objects flatten to dotted headers (`reviewer.displayName`);
@@ -66,7 +66,7 @@ function findRecords(value: unknown): Record<string, unknown>[] {
     }
   }
   throw new JsonShapeError(
-    "Expected a JSON array of review objects, or an object with a single array of them (like Google Takeout's Reviews.json).",
+    "Expected a JSON array of review objects, or an object with a single array of them (like a Google Takeout reviews.json page).",
   );
 }
 

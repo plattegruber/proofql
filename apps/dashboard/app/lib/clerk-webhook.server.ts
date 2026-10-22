@@ -37,6 +37,8 @@ export async function applyClerkEvent(
       await upsertAccountByClerkOrgId(db, {
         clerkOrgId: event.data.id,
         name: event.data.name,
+        // Recorded once (accounts.ts): the free-plan allowance is per person.
+        createdByUserId: event.data.created_by ?? null,
       });
       return { type: event.type, handled: true };
     }

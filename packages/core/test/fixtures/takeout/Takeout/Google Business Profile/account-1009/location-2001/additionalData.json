@@ -1,0 +1,24 @@
+{
+  "attributes": [
+    {
+      "id": {
+        "attributeType": "LISTING_NAME"
+      },
+      "values": [
+        {
+          "datum": {
+            "listingName": {
+              "text": "Harbor Light Bakery"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": {
+        "attributeType": "OTHER"
+      },
+      "values": []
+    }
+  ]
+}

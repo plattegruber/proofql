@@ -636,8 +636,8 @@ every-term match, so each is a superset of `all`.
 | `half` (≥ half of content words) | 101 | 82.9% (29/35) | 23/35 | 4.5% (1/22) | 66.3% | 46.6% | p01, p19 |
 | **`half-specific`** (≥ half, ignoring "dental dentist teeth review office") | 97 | **85.7% (30/35)** | **25/35** | **4.5% (1/22)** | 69.8% | **50.0%** | **p01, p10, p19** |
 
-- **Chosen: `half-specific`** (`LEXICAL_RULE` and `GENERIC_QUERY_WORDS` in
-  `@proofql/core`): the most answered queries with the must-be-empty rate
+- **Chosen: `half-specific`** (`LEXICAL_RULE` in `@proofql/core`; the
+  generic words now come from the project's category, next section): the most answered queries with the must-be-empty rate
   under the 5% cap, and top-3 clean unchanged at 25/35. A query made only of
   generic words gets no partial credit. `any` fails outright: "the office
   dog greets patients" alone returns ten reviews.
@@ -679,6 +679,97 @@ every-term match, so each is a superset of `all`.
   result is 30/35 answered and 25/35 top-3 clean, matching the replay.
   The run was not repeated: the free plan allows two live collections and
   the second went to the reranker.
+
+### Generic words from the category (#151)
+
+The `half-specific` rule's generic words were a dental constant ("dental
+dentist teeth review office"), so for any other business its category
+words counted as evidence: on a roofer's page "copper roof" shares "roof"
+with nearly every review. #150 tried deriving them from document
+frequency and measured worse (reviews rarely repeat the words searchers use
+about the category; the demo derived only `{dr}`). Now they come from the
+project's business category: `genericQueryWords(projects.category)` in
+`@proofql/core` is a universal list ("review reviews company service
+business office team") plus the category's own words from
+`CATEGORY_TABLE` (15 categories keyed to Google types). The category is set
+from Places `primaryType` or Business Profile
+`categories.primaryCategory` on import while it is null, or chosen in
+Settings; null gets the universal list.
+
+**Measured offline, with no api and no Workers AI calls.** `pnpm
+db:floor-local` loads a labelled corpus into a scratch project on a local
+database, embeds nothing itself, and runs each query through `searchChunks`
+with the scratch-run settings (mode `reviews`, limit 20, floor 0.30); the
+output is a `SavedRun`, so `--annotate` and `--replay` read it unchanged.
+The vectors were computed on a laptop with `sentence-transformers` and
+`BAAI/bge-m3`, the model Workers AI serves as `@cf/baai/bge-m3`: on the
+dental fixtures they reproduce the preview scratch run
+([`2026-10-05-chunks.json`](floor-tuning/2026-10-05-chunks.json)) to a
+mean absolute difference of 0.00007 in cosine over 1,178 shared rows
+(max 0.003, Pearson 0.999998).
+
+**Dental is unchanged.** None of the 59 dental queries contains a universal
+word the old list lacked, so every query keeps the same specific lexemes
+(checked in Postgres for all 59) and every chunk keeps its word-match flag:
+annotated with the old constant and with `dental`, the local run's 1,180
+rows have identical flags (97 word matches).
+[`2026-10-08-local-dental.json`](floor-tuning/2026-10-08-local-dental.json):
+
+| Dental, 0.66 / 0.53 | Answered | Top-3 clean | Must-be-empty with a row | Precision | Recall |
+|---|---|---|---|---|---|
+| Every term (#146) | 77.1% (27/35) | 25/35 | 0.0% (0/22) | 73.4% | 31.8% |
+| Old constant (#147, before) | 85.7% (30/35) | 25/35 | 4.5% (1/22) | 69.8% | 50.0% |
+| **Category `dental` (after)** | **85.7% (30/35)** | **25/35** | **4.5% (1/22)** | **69.8%** | **50.0%** |
+| No category (universal words only) | 82.9% (29/35) | 23/35 | 4.5% (1/22) | 66.3% | 46.6% |
+
+The "before" row equals the #147 table above, measured on preview: the
+local harness reproduces it exactly. A dental project without a category
+loses p10 "pediatric dentist for my toddler" to the universal list, which
+is why migration 0010 sets the demo project's category and the Places and
+Business Profile imports fill it in.
+
+**Roofing improves.** A second labelled set
+(`src/seed/fixtures/relevance-roofing.ts`, not seeded): 32 reviews of a
+roofer, 26 answerable queries, 14 must-be-empty ones that pair a category
+word with something no review answers ("copper roof", "roof coating",
+"roofing company owner"). Raw:
+[`before`](floor-tuning/2026-10-08-local-roofing-before.json) (the old
+constant), [`after`](floor-tuning/2026-10-08-local-roofing-after.json)
+(category `roofing`). "Word-tier admissions" are rows that pass only
+through the word-match tier (similarity between the tiers, flagged a word
+match), split into labelled answers / unrelated rows on answerable
+queries / rows on must-be-empty queries.
+
+| Roofing | Answered | Top-3 clean | Must-be-empty with a row | Precision | Recall | Word-tier admissions |
+|---|---|---|---|---|---|---|
+| 0.66 / 0.53, before | 92.3% (24/26) | 15/26 | 78.6% (11/14) | 37.8% | 81.6% | 11 / 33 / 56 |
+| **0.66 / 0.53, after** | **100% (26/26)** | **15/26** | **71.4% (10/14)** | **59.6%** | **89.5%** | **14 / 5 / 1** |
+| 0.72 / 0.59, before | 84.6% (22/26) | 14/26 | 57.1% (8/14) | 48.2% | 71.1% | 18 / 27 / 43 |
+| **0.72 / 0.59, after** | **84.6% (22/26)** | **17/26** | **0.0% (0/14)** | **81.8%** | **71.1%** | **17 / 4 / 0** |
+| Flat 0.72 (no word tier) | 46.2% (12/26) | 10/26 | 0.0% (0/14) | 85.7% | 31.6% | — |
+
+- **The category removes the "roof" leak.** At the shipped pair, rows the
+  word tier admitted for must-be-empty queries fall from 56 to 1, and
+  unrelated rows on answerable ones from 33 to 5. Fewer specific words
+  also make the half rule easier to meet with the word that matters:
+  "roof repair company" needs "repair" (1 of 1) rather than 2 of 3, and
+  rp01 and rp09 gain their answers.
+- **The default floor is too low for this corpus, and that is not the
+  generic words.** 9 of the 14 negatives still return rows at 0.66 with
+  the every-term rule, on similarity alone: every roofing review is about
+  a roof, so "copper roof" scores 0.71 against the metal roof review.
+  The lowest safe flat floor here is 0.72. At 0.72 / 0.59 (the same
+  0.13 offset) the category takes the must-be-empty rate from 8 of 14 to
+  0 at the same 22/26 answered. Per-category default floors would need
+  more labelled corpora; owners tune the floor in Settings meanwhile.
+- **Cost of the shorter specific list.** rp09 "roof replacement warranty"
+  now also passes r24 and r15, which say "replaced" about something else
+  (1 of 2 specific words), and rn06 "roof moss cleaning" passes r01
+  ("cleaned up every nail"). Both are the half rule's known shape, not
+  the category.
+- **Caveat** as for every scratch run: one chunk per review is recorded,
+  so a sibling chunk can admit a review the replay misses (rp01's r29 is
+  one). Workers AI calls for all of the above: **0**.
 
 ### Reranker (#147): measured, off
 
@@ -1016,7 +1107,7 @@ the result cache. Hyperdrive counts are statements; a transaction counts its
 | **Onboarding** (create project + keys, find the business on Google, import its 5 reviews, preview) | ~10 | before: ~7 (Places search + details, 5 bumps). after: ~3 | before: ~7. after: **~3** (Places search, Places details, 1 bump) | ~40 for the dashboard steps + ~50 to index 5 reviews | 15 (5 reviews × 3) |
 | Waitlist submission (pre-launch) | 1 | 1 | 1 (unchanged) | 1 | 0 |
 | Google connect (OAuth) | 2 | 1 | 1 put + 1 delete (unchanged) | a few | 1 write for the first sync |
-| Crons (sweep every 5 min, Google poll every 6 h, Places refresh daily) | ~293 per day | Places refresh: 0 reads (fresh fetch), 1 per bump | 1 Places cache write per refreshed place + 1 bump if it changed | 1 per sweep tick + the polls | as many as they re-enqueue |
+| Crons (one five-minute tick; sweep gated on the KV work marker, Google poll every 6 h, Places refresh and purge daily) | 288 per day | 1 per tick (the marker), Places refresh 1 per bump | 1 Places cache write per refreshed place + 1 bump if it changed; marker: ≤ 1 put per hour-long window (24 a day under trickle, ≤ 29 worst case), no deletes | idle day: only the 6 database ticks (00:00, 03:30, 04:15, 06:00, 12:00, 18:00 UTC); before 2026-10-20 at least 1 per tick (288) | as many as they re-enqueue |
 
 The per-isolate rows trade a single global KV entry for state in each
 isolate, and a busy worker runs in several isolates per colo. The auth
@@ -1110,6 +1201,135 @@ Once `api.proofql.dev` is routed (scope §7.6), the Cache API path turns on
 by itself, with no deploy flag. Verify it then with two identical
 `/v1/query` requests to the custom domain: the second is `x-cache: HIT`,
 and `wrangler tail` shows no `kv.*` lines and no KV writes for it.
+
+### Neon compute-hours: why the cron must not query an idle database (2026-10-20)
+
+**What happened.** Neon project `hidden-haze-63906501` is on Neon's Free
+plan: **100 CU-hours of compute per project per month**, shared by both
+branches (`prod` and `preview`), and the compute is suspended until the
+next billing period once they are spent. It had used 110 CU-hours by
+2026-10-14 and was suspended until 2026-11-01. From then on everything that
+needs Postgres failed (onboarding's "Something went wrong", ingest,
+uncached queries), while every `/health` stayed 200 because none touched
+the database, and the daily acceptance run failed for six days without
+telling anyone.
+
+**Why.** Neon scales a compute to zero after **5 minutes** without
+activity. The pipeline's single `*/5` cron ran the re-enqueue sweep on
+every tick in both environments, and the sweep's first statement reads
+`reviews`. A query every 5 minutes against a 5-minute idle timeout means
+the compute never suspends. At the minimum compute size of **0.25 CU**
+(the sizes are under Neon console → Branches → Computes; autoscaling above
+the minimum under load only makes it worse):
+
+| | Postgres ticks a day, per environment | Compute awake, per branch | CU-hours / day (both branches) | CU-hours / 31-day month (both) |
+|---|---|---|---|---|
+| Before (sweep every tick) | **288** (every tick) | 24 h (never suspends) | 2 × 0.25 × 24 = **12** | **372**: the 100 are gone in ~8.3 days |
+| After, idle day | **6** (00:00, 03:30, 04:15, 06:00, 12:00, 18:00 UTC) | ~6 × 6 min ≈ 0.6 h | 2 × 0.25 × 0.6 = **0.3** | **~9.3** |
+
+"~6 min" per wakeup is the job itself (seconds), the cold start (under a
+second) and Neon's 5-minute idle window after the last statement. The six
+ticks are at least 45 minutes apart, so each is its own wakeup.
+
+**What changed.** The sweep only runs while the KV key
+`pipeline:sweep-pending` exists (`@proofql/core` `sweep-marker.ts`). The
+key **expires 15 minutes after it is put, and nothing ever deletes it**. A
+set-then-delete pair per burst of traffic would have cost up to ~144 puts
+plus ~144 deletes per environment a day: ~288 of the account's 1,000 daily
+puts, which the workers.dev result cache and the generation bumps share,
+plus ~288 deletes (a separate 1,000 a day in the table above).
+
+- Every producer puts it right before it sends index messages (api
+  ingest, CSV and Places imports, the Google poll, the Places refresh, a
+  `connection.sync`), whether or not the send then succeeds, with
+  `expirationTtl: 900`. It reads first and puts only when the key is
+  absent.
+- The cron reads it once per tick. Present: the sweep runs. Absent, and no
+  other job due: the tick opens no database client at all.
+- A sweep that still has work (anything re-sent, deferred, or unindexed
+  and in flight at any age, under the attempt cap) in the marker's last
+  3 minutes extends it: one fresh put with the TTL, whose new value blocks
+  a second extension in the same window. A sweep that finds work with no
+  marker (a full sweep after a `pnpm db:reindex`, a Queues outage) puts
+  one, so the backlog drains every five minutes. An idle sweep makes no KV
+  call.
+- KV unreadable: the sweep runs (fail safe). And every tick that already
+  wakes the database for another job sweeps in full, marker or not, so a
+  lost marker costs at most six hours and no extra wakeup. The one gap: a
+  review sent in a marker's last minutes, after the last sweep of that
+  window found nothing, is covered only by the consumer (and the DLQ) until
+  the next full sweep.
+
+**KV writes, per environment per day.** Puts: one per window, and a window
+lasts at least 12 minutes (15, or 12 when extended), so **at most 120**,
+and **96** under steady trickle traffic (also what the simulated worst case
+gives, since ticks are 5 minutes apart). Deletes: **none**. Both
+environments: ≤ 240 of the 1,000 puts, 192 under trickle. Reads: 288 for the ticks plus one per
+producer send. `sweep-gate.test.ts` simulates both days.
+
+**What activity costs on top of the idle floor.** A burst of activity (an
+ingest, an import, a dashboard session, an uncached query) keeps the
+compute up for its own duration plus 5 minutes. A burst that enqueues
+reviews also puts the marker, and the sweep then queries every tick until
+it expires, so **the database stays awake for about 20 minutes after the
+first ingest of a window** (15 for the marker, 5 for Neon's idle window),
+**~0.08 CU-hour** per isolated ingest burst. Further ingests inside those
+15 minutes cost nothing extra.
+
+| Source (per branch unless stated) | Wakeups | CU-hours / month |
+|---|---|---|
+| Idle floor (the six database ticks) | 6 a day | ~4.7 |
+| Daily acceptance run (07:23 UTC; the journey plus the marker's 15 minutes) | 1 a day | ~2.8 |
+| A deploy (migration plus one deep smoke check, back to back) | 1 per deploy | ~0.04 each |
+| An isolated ingest burst (API push, CSV or Places import, a Google poll that finds new reviews) | per burst | ~0.08 each |
+| External deep uptime monitor every 30 min | 48 a day | ~37 |
+| … every 60 min | 24 a day | ~18.6 |
+| … every 6 h | 4 a day | ~0 extra if it lands on 00:00/06:00/12:00/18:00, else ~3.1 |
+
+**The ceiling.** 100 CU-hours a month at 0.25 CU is **400 compute-hours**,
+about **12.9 hours awake a day across both branches** (31-day month), or
+roughly **130 isolated wakeups a day** in total. The fixed costs above (both
+branches' idle floors ~9.3, both acceptance runs ~5.6, a deep monitor on
+prod at 60 minutes ~18.6) come to **~34 CU-hours**, which leaves ~66 for
+real use: ~8.5 hours a day of awake compute, or ~800 isolated ingest bursts
+a month. A sustained load that autoscales the compute to 1 CU spends four
+times as fast.
+
+**The trade-off to watch.** Hourly ingest (a tenant pushing reviews once an
+hour, all day) lets the marker lapse after 15 minutes each time, so the
+compute is up ~20 minutes an hour: ~8 hours a day, **~62 CU-hours a month
+for that branch**. Over half the allowance, but it suspends between pushes.
+Ingest with gaps under ~15 minutes, all day, keeps the marker alive and the
+compute awake permanently (~186 CU-hours a month for one branch), as any
+traffic with gaps under Neon's 5 minutes would anyway. Either is past §16's
+upgrade trigger. `SWEEP_MARKER_TTL_SECONDS` is the knob: at *T* minutes
+with a 3-minute extension window, the worst case is ~1440 / (*T* − 3) puts
+a day per environment, and ingest gaps longer than ~*T* + 5 minutes let the
+compute suspend in between. The one-hour TTL first tried here capped puts
+at 29 a day but kept a branch awake through hourly ingest.
+
+**The rule.** Anything periodic that reaches Postgres more often than every
+5 minutes keeps a compute awake permanently: 0.25 × 24 × 31 = 186 CU-hours a
+month for one branch, nearly twice the whole allowance. Each periodic
+database job with interval *I* minutes (> 5) costs about (1440 / *I*) × 6
+minutes awake a day. Gate new cron work on a cheap signal, as the sweep
+does, or put it on one of the six database ticks. Plain `/health` never
+touches the database; only `/health?deep=1` does (docs/launch.md §16
+"Uptime monitoring").
+
+**Checked by** `workers/pipeline/src/sweep-gate.test.ts` (an idle day of 288
+ticks opens a database client on exactly 6 and spends 288 KV reads and no
+writes; marker set → sweep; expired marker → no database; KV failing →
+sweep; the six full-sweep ticks; a producer sending after every tick of a
+day costs 96 puts, ≤ 120 when every sweep has work left, and no deletes),
+`packages/core/src/sweep-marker.test.ts` (put only when absent, always
+with the TTL, the extension guard, the re-put race, expiry, KV failures) and `sweep.integration.test.ts` (`idle` on
+the real schema). The CU-hour figures are arithmetic from Neon's published
+limits, not measured: no load was run. Neon closes idle connections when it
+suspends a compute, so Hyperdrive's pool should not keep it awake. After
+the next deploy, confirm the computes show **Idle** between the six ticks
+(Neon console → Branches → Computes) and that the project's compute usage
+grows by well under 1 CU-hour a day.
 
 ### How this was checked
 

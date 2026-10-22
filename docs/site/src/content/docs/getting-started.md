@@ -5,13 +5,13 @@ description: From sign-up to reviews rendered on your own page in ten minutes, u
 
 By the end of this page a `<div>` on one of your pages shows the reviews that are relevant to that page. You need an account, a few reviews, and a page you can edit.
 
-:::note[Where the dashboard is]
-The hosted dashboard (`app.proofql.dev`), the API (`api.proofql.dev`) and the snippet (`cdn.proofql.dev`) go live with the first production deploy; the paths below are stable. Running the repo locally? `pnpm run setup && pnpm dev` serves the dashboard at `http://localhost:8799` and the API at `http://localhost:8797`, signed in as the seeded demo account (Cedar Ridge Dental, 80 reviews) with its live and test keys printed by `setup`.
+:::note[Running it locally]
+`pnpm run setup && pnpm dev` serves the dashboard at `http://localhost:8799` and the API at `http://localhost:8797`, signed in as the seeded demo account (Cedar Ridge Dental, 80 reviews) with its live and test keys printed by `setup`.
 :::
 
 ## 1. Sign up and create a workspace
 
-Open the dashboard and go to `/sign-up`. Sign in with Google or an email address. You are then asked to create a **workspace** (`/app/workspace`): the workspace is your account, and it holds your projects, API keys, and reviews. Name it after your company; you can invite teammates later.
+Open the dashboard at [app.proofql.dev/sign-up](https://app.proofql.dev/sign-up). Sign in with Google or an email address. You are then asked to create a **workspace** (`/app/workspace`): the workspace is your account, and it holds your projects, API keys, and reviews. Name it after your company; you can invite teammates later.
 
 You land on `/app`, the overview: your plan and your projects.
 

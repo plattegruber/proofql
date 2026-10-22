@@ -4,8 +4,10 @@
  *
  * Cron contract (`triggers.crons`, one five-minute cron; #174):
  * `handleScheduled` runs the jobs `jobsDueAt` (src/schedule.ts) picks for
- * the tick's scheduled time — always the re-enqueue sweep (src/sweep.ts)
- * for reviews stuck unindexed; at 00/06/12/18:00 UTC the Google poll
+ * the tick's scheduled time — the re-enqueue sweep (src/sweep.ts) for
+ * reviews stuck unindexed, but only while the KV work marker (which
+ * expires 15 minutes after it is set) exists or on a full-sweep tick (`planSweep`; @proofql/core sweep-marker.ts), so an
+ * idle tick opens no database client; at 00/06/12/18:00 UTC the Google poll
  * (src/google-poll.ts, #46); at 03:30 UTC the Places refresh of
  * bootstraps older than 25 days (src/places-refresh.ts, #116); at 04:15
  * UTC the hard-delete of workspaces soft-deleted 30+ days ago
@@ -66,12 +68,17 @@ import {
   type CoalescedGenerations,
   coalesceGenerationBumps,
   createLogger,
+  extendSweepMarker,
   type IngestMessage,
   ingestMessageSchema,
   kvFaults,
   type Logger,
+  readSweepMarker,
+  type SweepMarkerKv,
+  type SweepMarkerState,
+  withSweepMarker,
 } from "@proofql/core";
-import { createDb } from "@proofql/db";
+import { createDb, type Db, type Sql } from "@proofql/db";
 
 import { type AccountPurgeResult, runAccountPurge } from "./account-purge.js";
 import type { PipelineBindings } from "./bindings.js";
@@ -94,7 +101,12 @@ import {
   type PlacesRefreshResult,
   refreshPlacesBootstraps,
 } from "./places-refresh.js";
-import { jobsDueAt, type ScheduledJob } from "./schedule.js";
+import {
+  isFullSweepTick,
+  jobsDueAt,
+  type ScheduledJob,
+  tickAt,
+} from "./schedule.js";
 import { type IngestQueue, type SweepResult, sweepUnindexed } from "./sweep.js";
 
 /** The subset of a Queues `Message` the handler reads and decides on. */
@@ -343,14 +355,19 @@ export function createQueueContext(env: PipelineBindings): {
   close(): Promise<void>;
 } {
   const { db, sql } = createDb(env.HYPERDRIVE.connectionString);
+  const log = createPipelineLogger(env);
   return {
     ctx: {
       db,
       classifier: createClassifier(env),
       embedder: createEmbedder(env),
       cache: env.CACHE,
-      log: createPipelineLogger(env),
-      queue: env.INGEST_QUEUE,
+      log,
+      // A `connection.sync` enqueues the reviews it imports: mark the sweep.
+      queue: withSweepMarker(env.INGEST_QUEUE, env.CACHE, {
+        log,
+        site: "pipeline.connection_sync",
+      }),
       env,
     },
     close: () => sql.end(),
@@ -440,12 +457,14 @@ export interface TickResult {
 
 /**
  * Run `jobs` in order, each isolated: a job that throws is logged as
- * `cron.job_failed` and the next still runs. Logs one `cron.tick` line.
+ * `cron.job_failed` and the next still runs. Logs one `cron.tick` line,
+ * carrying `fields` as well (the sweep decision).
  */
 export async function runScheduledJobs(
   jobs: readonly ScheduledJob[],
   runners: ScheduledRunners,
   log: Logger,
+  fields: Record<string, unknown> = {},
 ): Promise<TickResult> {
   const ran: ScheduledResult[] = [];
   const failed: ScheduledJob[] = [];
@@ -461,55 +480,144 @@ export async function runScheduledJobs(
   log.log("cron.tick", {
     jobs: ran.map((r) => r.job),
     failed,
+    ...fields,
     ...(failed.length > 0 ? { level: "warn" } : {}),
   });
   return { ran, failed };
 }
 
 /**
+ * Why a tick's sweep runs or not (`cron.tick` field `sweep`):
+ *
+ * - `pending`: the work marker is set.
+ * - `full`: a full-sweep tick (src/schedule.ts `isFullSweepTick`).
+ * - `kv_unavailable`: the marker could not be read; sweep (fail safe).
+ * - `idle`: no marker, not a full-sweep tick; skipped, no database.
+ */
+export type SweepReason = "pending" | "full" | "kv_unavailable" | "idle";
+
+export interface SweepPlan {
+  run: boolean;
+  reason: SweepReason;
+  /** What the tick read, for `settleSweepMarker`. */
+  marker: SweepMarkerState;
+}
+
+const SWEEP_MARKER_SITE = "pipeline.sweep_marker";
+
+/** Decide this tick's sweep from one KV read (module doc, @proofql/core sweep-marker.ts). */
+export async function planSweep(
+  tick: Date | number,
+  kv: SweepMarkerKv,
+  log: Logger,
+): Promise<SweepPlan> {
+  const marker = await readSweepMarker(kv, { log, site: SWEEP_MARKER_SITE });
+  if (isFullSweepTick(tick)) return { run: true, reason: "full", marker };
+  if (marker.kind === "present")
+    return { run: true, reason: "pending", marker };
+  if (marker.kind === "unknown") {
+    return { run: true, reason: "kv_unavailable", marker };
+  }
+  return { run: false, reason: "idle", marker };
+}
+
+/** What the tick did to the marker (`cron.tick` field `marker`). */
+export type MarkerAction = "none" | "set" | "extended" | "kept" | "failed";
+
+/**
+ * After a sweep. The marker is never deleted: an idle sweep leaves it to
+ * expire (no KV call at all). A sweep with work left puts one if there is
+ * none (a full sweep found a backlog, which then drains every five
+ * minutes rather than every six hours) or extends one about to expire, at
+ * most once per TTL window (`extendSweepMarker`). Never throws.
+ */
+export async function settleSweepMarker(
+  result: Pick<SweepResult, "idle">,
+  marker: SweepMarkerState,
+  kv: SweepMarkerKv,
+  log: Logger,
+  now?: () => number,
+): Promise<MarkerAction> {
+  if (result.idle) return "none";
+  const ctx = { log, site: SWEEP_MARKER_SITE, ...(now ? { now } : {}) };
+  return extendSweepMarker(kv, marker, ctx);
+}
+
+/**
  * One cron tick (the single `triggers.crons` entry in wrangler.jsonc):
  * runs the jobs due at `scheduledTime` (`controller.scheduledTime`, epoch
- * ms) — the sweep, plus the Google poll, Places refresh or account purge
- * when their time of day comes round (src/schedule.ts). Opens its own
- * database client, as the queue handler does, and closes it when done.
+ * ms) — the sweep when `planSweep` says so, plus the Google poll, Places
+ * refresh or account purge when their time of day comes round
+ * (src/schedule.ts). The database client is opened on first use only, so
+ * an idle tick (no marker, no other job) costs one KV read and never
+ * reaches Hyperdrive or Neon; it is closed when the tick is done.
  */
 export async function handleScheduled(
   env: Omit<PipelineBindings, "AI">,
   scheduledTime: number,
 ): Promise<TickResult> {
-  const { db, sql } = createDb(env.HYPERDRIVE.connectionString);
   const log = createPipelineLogger(env).child({ trigger: "cron" });
+  const tick = tickAt(scheduledTime);
+  const plan = await planSweep(tick, env.CACHE, log);
+  const jobs = jobsDueAt(tick).filter((j) => j !== "sweep" || plan.run);
+
+  let client: { db: Db; sql: Sql } | undefined;
+  const db = (): Db => {
+    client ??= createDb(env.HYPERDRIVE.connectionString);
+    return client.db;
+  };
+  // Producers for the jobs that import reviews: mark the sweep on send.
+  const producer = (site: string) =>
+    withSweepMarker(env.INGEST_QUEUE, env.CACHE, { log, site });
+  const fields: Record<string, unknown> = { sweep: plan.reason };
   try {
     return await runScheduledJobs(
-      jobsDueAt(scheduledTime),
+      jobs,
       {
-        sweep: () =>
-          sweepUnindexed(
-            { db, queue: env.INGEST_QUEUE, log },
+        sweep: async () => {
+          const result = await sweepUnindexed(
+            { db: db(), queue: env.INGEST_QUEUE, log },
             { olderThanMinutes: SWEEP_OLDER_THAN_MINUTES, limit: SWEEP_LIMIT },
-          ),
+          );
+          fields.marker = await settleSweepMarker(
+            result,
+            plan.marker,
+            env.CACHE,
+            log,
+          );
+          return result;
+        },
         google_poll: () =>
           pollGoogleConnections(
-            { db, queue: env.INGEST_QUEUE, log, env, cache: env.CACHE },
+            {
+              db: db(),
+              queue: producer("pipeline.google_poll"),
+              log,
+              env,
+              cache: env.CACHE,
+            },
             { trigger: "cron" },
           ),
         places_refresh: () =>
           refreshPlacesBootstraps({
-            db,
-            queue: env.INGEST_QUEUE,
+            db: db(),
+            queue: producer("pipeline.places_refresh"),
             log,
             env,
             kv: env.CACHE,
           }),
         account_purge: () =>
           runAccountPurge(
-            env.UPLOADS ? { db, uploads: env.UPLOADS, log } : { db, log },
+            env.UPLOADS
+              ? { db: db(), uploads: env.UPLOADS, log }
+              : { db: db(), log },
           ),
       },
       log,
+      fields,
     );
   } finally {
-    await sql.end();
+    if (client) await client.sql.end();
   }
 }
 

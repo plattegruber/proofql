@@ -14,7 +14,7 @@
  *     <blockquote class="pq-excerpt">…</blockquote>   <!-- data-highlight: text, <mark class="pq-mark">, text -->
  *     <footer class="pq-meta">
  *       <span class="pq-author">…</span>
- *       <a class="pq-source" href="…">Google</a>   <!-- <span> without a URL; none for `custom` -->
+ *       <a class="pq-source" href="…">Google review</a>   <!-- <span> without a URL; none for `custom` -->
  *       <time class="pq-date" datetime="…">Jan 15, 2026</time>
  *     </footer>
  *   </li>
@@ -80,6 +80,19 @@ const SOURCE_NAMES: Record<string, string> = {
   facebook: "Facebook",
   trustpilot: "Trustpilot",
 };
+
+/**
+ * The attribution a review carries: "Google review", "Yelp review". Google
+ * asks businesses to present its reviews as reviews *on Google*, in words,
+ * without stars beside its name or logo (Partner Marketing Hub, "Customer
+ * reviews"); the stars sit above the quote, the attribution in the footer
+ * after the author. Linked to the review when there is a URL (Places, the
+ * connector), plain text when there is none (a Takeout import has no link).
+ */
+export function sourceLabel(source: string): string | null {
+  const name = sourceName(source);
+  return name === null ? null : `${name} review`;
+}
 
 /** Display name for a `source`; null for `custom` (the customer's own reviews). */
 export function sourceName(source: string): string | null {
@@ -217,7 +230,7 @@ export function renderItem(
   if (typeof author === "string" && author.trim() !== "") {
     meta.appendChild(element(doc, "span", "pq-author", author));
   }
-  const source = sourceName(String(result.review.source ?? ""));
+  const source = sourceLabel(String(result.review.source ?? ""));
   if (source !== null) {
     const href = safeHref(result.review.url);
     if (href !== null) {

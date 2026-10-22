@@ -4,6 +4,7 @@
 // nothing downstream touches Clerk's hooks.
 import { ClerkProvider } from "@clerk/react-router";
 import { rootAuthLoader } from "@clerk/react-router/server";
+import type { ComponentProps } from "react";
 import {
   data,
   isRouteErrorResponse,
@@ -31,7 +32,7 @@ export const middleware: Route.MiddlewareFunction[] = [clerkAuthMiddleware];
 /**
  * Clerk's default copy is exclamatory ("Welcome back!"); the design
  * system's voice is not. Only the strings the prebuilt cards show on
- * first paint are overridden.
+ * first paint are overridden, plus one error below.
  */
 const clerkLocalization = {
   signIn: {
@@ -46,7 +47,18 @@ const clerkLocalization = {
       subtitle: "A workspace for your reviews, keys and snippet",
     },
   },
-};
+  unstable__errors: {
+    // Clerk rejects organization names with a run of digits ("Studio 54
+    // 2024") as `form_param_value_invalid` on `name`, with a bare "contains
+    // a phone number". Clerk's UI looks up `<code>__<param>` before
+    // `<code>`, so this key replaces only that message, inline under the
+    // name field, everywhere a workspace is named or renamed: the
+    // choose-organization task, /app/workspace, the switcher's create form
+    // and the organization profile.
+    form_param_value_invalid__name:
+      'Names can\'t include a long run of digits, which reads as a phone number. Spell numbers out or leave them off, e.g. "Studio Fifty-Four".',
+  },
+} satisfies ComponentProps<typeof ClerkProvider>["localization"];
 
 export const links: Route.LinksFunction = () => [
   // Google-hosted fonts per the design system's tokens/fonts.css (no brand

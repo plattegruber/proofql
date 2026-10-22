@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { jobsDueAt, tickAt } from "./schedule.js";
+import { isFullSweepTick, jobsDueAt, tickAt } from "./schedule.js";
 
 const at = (hhmm: string) => new Date(`2026-10-05T${hhmm}:00.000Z`);
 
@@ -47,5 +47,28 @@ describe("jobsDueAt (#174: one cron, jobs picked by time of day)", () => {
     expect(tickAt(at("03:32").getTime()).toISOString()).toBe(
       "2026-10-05T03:30:00.000Z",
     );
+  });
+});
+
+describe("isFullSweepTick (the guaranteed sweep rides on the database jobs)", () => {
+  it("is true exactly on the six ticks another job is due", () => {
+    const full: string[] = [];
+    for (let m = 0; m < 24 * 60; m += 5) {
+      const d = new Date(Date.UTC(2026, 9, 5, 0, m));
+      if (isFullSweepTick(d)) full.push(d.toISOString().slice(11, 16));
+    }
+    expect(full).toEqual([
+      "00:00",
+      "03:30",
+      "04:15",
+      "06:00",
+      "12:00",
+      "18:00",
+    ]);
+  });
+
+  it("matches a late tick like jobsDueAt does", () => {
+    expect(isFullSweepTick(at("06:03"))).toBe(true);
+    expect(isFullSweepTick(at("06:05"))).toBe(false);
   });
 });

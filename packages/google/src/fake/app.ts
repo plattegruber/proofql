@@ -108,6 +108,14 @@ function locationWire(location: FakeLocation, readMask: Set<string>) {
       postalCode: location.postalCode,
     };
   }
+  if (readMask.has("categories") && location.primaryCategory) {
+    wire.categories = {
+      primaryCategory: {
+        name: `categories/${location.primaryCategory}`,
+        displayName: location.primaryCategory.replace(/^gcid:/, ""),
+      },
+    };
+  }
   if (readMask.has("metadata")) {
     wire.metadata = {
       hasVoiceOfMerchant: location.verified,
@@ -337,7 +345,7 @@ export function createFakeGoogle(
         "GET /o/oauth2/v2/auth",
         "POST /token",
         "GET /v1/accounts",
-        "GET /v1/accounts/{a}/locations?readMask=name,title,storefrontAddress,metadata",
+        "GET /v1/accounts/{a}/locations?readMask=name,title,storefrontAddress,metadata,categories",
         "GET /v4/accounts/{a}/locations/{l}/reviews?pageSize=50&orderBy=updateTime desc",
       ],
       scenarios: "append ?scenario=429|500|503 to any /v1 or /v4 request",

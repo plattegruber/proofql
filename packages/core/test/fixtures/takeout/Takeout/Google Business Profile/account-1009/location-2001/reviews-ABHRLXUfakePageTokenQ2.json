@@ -1,0 +1,42 @@
+{
+  "reviews": [
+    {
+      "reviewer": {
+        "displayName": "Finley O."
+      },
+      "starRating": "FIVE",
+      "createTime": "2025-07-13T10:15:30.123456Z",
+      "updateTime": "2025-07-13T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq020Tk",
+      "comment": "The sourdough has a crackly crust and an open crumb. Worth the early line."
+    },
+    {
+      "reviewer": {
+        "displayName": "Blake Rivers"
+      },
+      "starRating": "FIVE",
+      "createTime": "2025-07-22T10:15:30.123456Z",
+      "updateTime": "2025-07-22T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq021Tk",
+      "comment": "Best morning buns in town. The cardamom ones sell out by nine, so go early.",
+      "reviewReply": {
+        "comment": "Thank you, Blake! We hope to see you again soon.",
+        "updateTime": "2025-07-23T10:15:30.123456Z"
+      }
+    },
+    {
+      "reviewer": {
+        "displayName": "Kai Mendes"
+      },
+      "starRating": "THREE",
+      "createTime": "2025-08-03T10:15:30.123456Z",
+      "updateTime": "2025-08-03T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq022Tk",
+      "comment": "Friendly staff, but the coffee was lukewarm on a busy Saturday.",
+      "reviewReply": {
+        "comment": "Thank you, Kai! We hope to see you again soon.",
+        "updateTime": "2025-08-04T10:15:30.123456Z"
+      }
+    }
+  ]
+}

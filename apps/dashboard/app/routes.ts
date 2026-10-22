@@ -72,6 +72,9 @@ export default [
       // CSV / JSON import (#38): upload → map columns → run/result (+ the
       // error report as a resource route).
       route("import", "routes/app.projects.$slug.import._index.tsx"),
+      // Google Takeout (a Business Profile's own reviews): the archive is
+      // read in the browser; the action takes the reviews and starts a run.
+      route("import/takeout", "routes/app.projects.$slug.import.takeout.tsx"),
       route(
         "import/:runId/map",
         "routes/app.projects.$slug.import.$runId.map.tsx",

@@ -38,6 +38,8 @@ and where it lives), [`docs/security.md`](security.md) (§7 WAF rules),
 [`docs/places.md`](places.md) (Google Places terms), the roadmap
 [#52](https://github.com/plattegruber/proofql/issues/52).
 
+**Current state:** [`docs/go-live.md`](go-live.md) audits every item below against production (2026-10-08) and lists the remaining owner steps in order, with `scripts/signup-switch.sh` for §13.
+
 ---
 
 ## 1. Accounts and provisioning
@@ -249,7 +251,7 @@ structured lines ([`docs/observability.md`](observability.md)).
 
 - [ ] **Alert on 5xx.** Cloudflare Notifications has **no Workers error-rate alert** below Enterprise ("Advanced Error Rate Alert" and "Traffic Anomalies" are Enterprise; "Health Checks" needs Pro). So:
   1. Dashboard → Notifications → **Add** → search "Workers"; if your plan offers a Workers error alert, pick it for `proofql-api-prod` and `proofql-dashboard-prod` with an email destination, and skip the next line.
-  2. Otherwise use a free external monitor on the health endpoints: Better Stack (free tier), UptimeRobot (free, 5-min interval) or the Upptime repo from §9, checking `https://api.proofql.dev/health`, `https://app.proofql.dev/health`, `https://cdn.proofql.dev/health`, `https://proofql-pipeline-prod.<subdomain>.workers.dev/health` (the pipeline has no custom host), each with "expected body contains `"ok":true`" and email/SMS on failure. This catches a worker that is down, not an elevated 5xx rate; the 5xx rate is a Workers Logs query during day one (§14) and the Logs page's status-code chart, until the account is on a plan with error alerts.
+  2. Otherwise use a free external monitor on the health endpoints: Better Stack (free tier), UptimeRobot (free, 5-min interval) or the Upptime repo from §9, checking `https://api.proofql.dev/health`, `https://app.proofql.dev/health`, `https://cdn.proofql.dev/health`, `https://proofql-pipeline-prod.<subdomain>.workers.dev/health` (the pipeline has no custom host), each with "expected body contains `"ok":true`" and email/SMS on failure. These plain `/health` checks never touch the database, so UptimeRobot's 5-minute interval is fine for them. Add **one** database check, `https://api.proofql.dev/health?deep=1`, at **60 minutes** (never under 30: each probe wakes Neon, §16 "Uptime monitoring"). This catches a worker that is down, not an elevated 5xx rate; the 5xx rate is a Workers Logs query during day one (§14) and the Logs page's status-code chart, until the account is on a plan with error alerts.
   3. Verify: break something on purpose — `wrangler secret delete SESSION_SECRET --env preview` on **preview**, load the preview dashboard, confirm the monitor (or the alert) fires within its interval, then `wrangler secret put` it back.
 - [ ] **Billing alerts.** Dashboard → Notifications → Add → **Usage Based Billing** (Workers requests, Workers AI neurons, KV, Queues) with thresholds a little above the expected first-month numbers; and in Google Cloud a budget on the Places project (provisioning step 14).
 
@@ -406,7 +408,7 @@ a documented ops command run by you against the prod branch
 | Task | Command | Notes |
 |---|---|---|
 | **Upgrade an account to paid** | `pnpm db:set-plan -- --account <org_…> --plan paid` | §7; `packages/db/README.md` "Migration workflow". |
-| **Re-index a project's reviews after a chunker change** | `pnpm db:reindex -- --project <slug\|uuid> --dry-run`, then without `--dry-run`; `--all --environment live` for every project | #127 added `sentence` chunks (migration 0008); reviews indexed before it keep `full` + `window` chunks only, so their highlights stay window-wide until re-indexed. The script marks reviews (`indexed_at = NULL`, `index_attempts = 0`) and the pipeline's five-minute sweep re-enqueues them 500 per tick, so a 5,000-review project takes about 50 minutes and one Workers AI embedding batch per review; search keeps serving the old chunks until each review is replaced. Watch `review.indexed` lines with `sentences > 0` (`wrangler tail proofql-pipeline-prod --search review.indexed`). Details: `packages/db/README.md` "Re-indexing". |
+| **Re-index a project's reviews after a chunker change** | `pnpm db:reindex -- --project <slug\|uuid> --dry-run`, then without `--dry-run`; `--all --environment live` for every project | #127 added `sentence` chunks (migration 0008); reviews indexed before it keep `full` + `window` chunks only, so their highlights stay window-wide until re-indexed. The script marks reviews (`indexed_at = NULL`, `index_attempts = 0`) and the pipeline's five-minute sweep re-enqueues them 500 per tick, starting at its next full-sweep tick (≤ 6 h) unless you set the sweep marker first (`pnpm --filter @proofql/pipeline exec wrangler kv key put pipeline:sweep-pending 1 --ttl 900 --binding CACHE --env prod --remote`), so a 5,000-review project takes about 50 minutes once started and one Workers AI embedding batch per review; search keeps serving the old chunks until each review is replaced. Watch `review.indexed` lines with `sentences > 0` (`wrangler tail proofql-pipeline-prod --search review.indexed`). Details: `packages/db/README.md` "Re-indexing". |
 | **Purge deleted workspaces by hand** | `pnpm db:purge-accounts -- --dry-run`, then without `--dry-run` (`--limit <n>`, default 50) | #169. The pipeline's 04:15 UTC cron tick already hard-deletes accounts soft-deleted (Clerk `organization.deleted`) more than 30 days ago, 50 per tick, logging `account.purged` (`wrangler tail proofql-pipeline-prod --search account.purge`). Use the script to see what is due or to catch up after an outage. It touches the database only; the purged projects' R2 uploads are removed by the cron, or by the bucket's 7-day lifecycle rule (`infra/provisioning.md` §4). A purged workspace is gone: the next sign-in with that Clerk organization creates a new, empty account. |
 | **Check a tenant's search cost** | `pnpm --filter @proofql/db exec tsx scripts/bench-search.ts --project <slug\|uuid>` against a branch of prod | `docs/performance.md` §2: ~2.5–3 ms per 1,000 chunks; `search_ms` p50 above ~50 ms for one `project_id` is the trigger for a per-tenant partial HNSW index. |
 
@@ -420,6 +422,13 @@ spending one degrades requests rather than taking every tenant down. The
 counts behind these numbers are in
 [`docs/performance.md` §7](performance.md#7-running-inside-the-workers-free-plan-2026-10-05-158).
 
+The database is on **Neon's Free plan**, whose limit is **monthly** and is
+not a degradation: **100 CU-hours per project per month**, shared by the
+`prod` and `preview` branches, and once they are spent Neon suspends the
+compute until the next billing period, so everything that needs Postgres
+fails for both environments (it happened on 2026-10-14; performance.md §7
+"Neon compute-hours").
+
 ### Ceilings
 
 | Allowance | Daily limit | Roughly what it buys today (`*.workers.dev`) |
@@ -430,6 +439,7 @@ counts behind these numbers are in
 | Hyperdrive queries | 100,000 | ~40,000 uncached queries, or ~10,000 reviews indexed |
 | Queues operations | 10,000 | **~3,300 reviews indexed** (3 operations each). This is the tightest limit for imports. Past it, ingest still accepts reviews and indexing catches up after 00:00 UTC |
 | Workers AI | 10,000 neurons | ~30,000 reviews indexed, or far more queries. Not the constraint |
+| **Neon compute** (monthly, not daily; both branches) | 100 CU-hours / month | ~400 compute-hours at 0.25 CU: **~12.9 h awake a day** across prod and preview, or ~130 isolated wakeups a day (each ≈ 6 min: the work plus Neon's 5-minute idle window). Fixed costs ≈ 34 CU-hours a month: the cron's six database ticks a day per branch (~9.3), the daily acceptance runs (~5.6), a deep uptime monitor on prod at 60 min (~18.6). Each further isolated ingest burst costs ~0.08 (~20 min awake). Hourly ingest all day costs ~62 a month for that branch; ingest with gaps under ~15 minutes, or anything that queries more often than every 5 minutes, keeps a compute awake for good (186 CU-hours a month per branch) |
 
 Cached queries cost no database queries and, on a custom domain, no KV
 writes. Once the first prod deploy routes `api.proofql.dev` (§2), the result and auth caches
@@ -439,12 +449,26 @@ move to the Workers Cache API by themselves
 **Cron triggers.** The Free plan allows **5 cron triggers per account**
 (Paid: 250), counted across every environment on it. The pipeline declares
 one per environment (`*/5 * * * *`, #174) and picks the jobs due on each
-tick itself (`workers/pipeline/src/schedule.ts`): the sweep every tick, the
-Google poll at 00/06/12/18:00, the Places refresh at 03:30 and the account
-purge at 04:15 UTC. A skipped tick skips that run; each job is idempotent
+tick itself (`workers/pipeline/src/schedule.ts`): the sweep, the Google poll
+at 00/06/12/18:00, the Places refresh at 03:30 and the account purge at
+04:15 UTC. **The sweep is gated** so an idle tick never wakes Neon: it runs
+only while the KV key `pipeline:sweep-pending` exists, when KV cannot be
+read (fail safe), and in full on the six ticks that wake the database
+anyway (00:00, 03:30, 04:15, 06:00, 12:00, 18:00). Every producer puts the
+key, only when it is absent, with a **15-minute TTL**, before sending index
+messages; it is never deleted, and a sweep that still has work in its last
+3 minutes extends it once. KV cost: ≤ 120 puts a day per environment
+(96 under steady trickle), no deletes. The database stays awake for about
+20 minutes after the first ingest of a window. An idle day therefore
+touches Postgres on **6 ticks per environment, down from 288**. Most
+`cron.tick` lines say `sweep: "idle"` with `jobs: []`. A skipped tick skips that run; each job is idempotent
 and age-based, so it catches up at its next due time (six hours for
 Google, a day for the other two). Do not add crons to `wrangler.jsonc`;
-add a row to `DUE_JOBS` instead.
+add a row to `DUE_JOBS` instead, and keep any new database work on one
+of the six database ticks or behind a cheap signal like the sweep's
+marker (performance.md §7 "Neon compute-hours": each periodic database
+job with interval *I* minutes costs ~(1440 / *I*) × 6 minutes awake a
+day).
 
 ### What degrades first
 
@@ -496,12 +520,49 @@ per day.
 - [ ] Any `quota.exhausted` (level error) or `kv.limit_exceeded` line in
   Workers Logs means a limit was reached that day.
 
+### Uptime monitoring
+
+- **`/health`** (api, dashboard, pipeline, cdn) touches no database. Point
+  a liveness monitor at it as often as you like; it costs one Workers
+  request per probe and no Neon time.
+- **`/health?deep=1`** (api and dashboard only) also runs one `select`
+  through Hyperdrive with a 5 s timeout: 200 `{ ok: true, db: { ok: true,
+  ms } }`, or **503** `{ ok: false, db: { ok: false, error: "timeout" |
+  "failed" } }` with a `health.db_failed` line (level error) carrying the
+  cause. This is the check that would have caught 2026-10-14. The deploy
+  smoke steps call it once per deploy.
+- **Every deep probe wakes Neon** for ~6 minutes (work plus its 5-minute
+  idle window). Poll it **no more often than every 30 minutes, and prefer
+  60**, on prod only: 48 probes a day cost ~37 CU-hours a month, 24 cost
+  ~18.6 (a fifth of the allowance), every 6 hours on 00:00/06:00/12:00/18:00
+  UTC costs nothing extra because the cron's Google poll wakes the database
+  then anyway. Never poll it more often than every 5 minutes: the compute
+  would never suspend (186 CU-hours a month). One probe of
+  `https://api.proofql.dev/health?deep=1` covers the database; it is the
+  same Neon branch the dashboard uses.
+- [ ] Owner: add the deep monitor (prod, every 60 minutes, alert on non-200)
+  to the external monitor of §8 "Alert on 5xx", next to the plain
+  `/health` checks.
+
+### Acceptance failures
+
+A failing Acceptance run (scheduled or after a deploy) opens one issue per
+environment, **"Acceptance failing on preview|prod"** with the label
+`acceptance-failure`, quoting the redacted `[at] FAILED at …` line and
+linking the run. Repeats comment on it instead of opening new ones; the
+next green run of that environment closes it
+(`scripts/acceptance-alert.sh`). Watch the label, or let GitHub's issue
+notifications reach you: an open `acceptance-failure` issue means a
+customer journey is broken right now.
+
 ### The trigger to upgrade
 
 Upgrade to **Workers Paid** ($5/month, #143) when **any** allowance runs
 above **50 % of its daily limit on 3 days in a week**, or reaches 100 % even
 once in front of customers. Upgrade immediately if the first paying customer
-signs up, as the owner decided. At 50 % there is still a day's headroom for
+signs up, as the owner decided. For Neon, upgrade (or move preview to its
+own project) when the month's compute usage is on course to pass **50 CU-hours
+by the 15th**: Neon console → project → Usage shows the running total. At 50 % there is still a day's headroom for
 a traffic spike or an import. Nothing in code changes on upgrade: the same
 paths simply stop hitting limits. Load runs against preview spend the same
 shared allowances (performance.md §6), so do not run one on the free plan.

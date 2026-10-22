@@ -22,6 +22,7 @@ const demoAccount: Account = {
   stripeCustomerId: null,
   deletedAt: null,
   onboardingCompletedAt: null,
+  createdByUserId: null,
   createdAt: new Date(0),
   updatedAt: new Date(0),
 };
@@ -85,7 +86,9 @@ function fakeDeps(
     withDb: vi.fn(async (_context, fn) =>
       fn(db as unknown as Parameters<typeof fn>[0]),
     ),
-    fetchOrganizationName: vi.fn(async () => orgName),
+    fetchOrganization: vi.fn(async () =>
+      orgName === null ? null : { name: orgName, createdBy: "user_creator" },
+    ),
   };
   return { deps, table };
 }
@@ -131,7 +134,7 @@ describe("requireAccount — local auth stub", () => {
       mode: "stub",
     });
     expect(deps.getAuth).not.toHaveBeenCalled();
-    expect(deps.fetchOrganizationName).not.toHaveBeenCalled();
+    expect(deps.fetchOrganization).not.toHaveBeenCalled();
   });
 
   it("explains the missing seed instead of a blank page", async () => {
@@ -200,10 +203,10 @@ describe("requireAccount — Clerk", () => {
     expect(ctx.userId).toBe("user_1");
     expect(ctx.account.name).toBe("Acme Co");
     expect(table.get("org_acme")?.name).toBe("Acme Co");
-    expect(deps.fetchOrganizationName).toHaveBeenCalledWith(
-      clerkEnv,
-      "org_acme",
-    );
+    // The creator Clerk reports, not the loading user: the free-plan
+    // allowance is counted per creator (projects.server.ts).
+    expect(table.get("org_acme")?.createdByUserId).toBe("user_creator");
+    expect(deps.fetchOrganization).toHaveBeenCalledWith(clerkEnv, "org_acme");
   });
 
   it("falls back to the slug when Clerk's API is unavailable", async () => {
@@ -214,6 +217,8 @@ describe("requireAccount — Clerk", () => {
     );
     const ctx = await requireAccount(args(clerkEnv), deps);
     expect(ctx.account.name).toBe("acme");
+    // Without Clerk's answer the first loader of a new workspace is its creator.
+    expect(ctx.account.createdByUserId).toBe("user_1");
   });
 
   it("reuses an existing account without calling Clerk's API", async () => {
@@ -228,7 +233,7 @@ describe("requireAccount — Clerk", () => {
     ]);
     const ctx = await requireAccount(args(clerkEnv), deps);
     expect(ctx.account).toBe(existing);
-    expect(deps.fetchOrganizationName).not.toHaveBeenCalled();
+    expect(deps.fetchOrganization).not.toHaveBeenCalled();
   });
 
   it("revives a soft-deleted account when its organization is active again", async () => {

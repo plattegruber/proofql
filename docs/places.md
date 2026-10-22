@@ -40,8 +40,9 @@ card: q ──► POST /app/projects/:slug/places  intent=search
                                                                         places.formattedAddress,places.rating,places.userRatingCount
 card: pick ─► POST ... intent=import place_id=<id> [environment] [onboarding=1]
              └─ KV places:p:<id>  (24 h)  ──miss──► GET /v1/places/<id>
-                                                    X-Goog-FieldMask: id,displayName,formattedAddress,rating,userRatingCount,reviews
+                                                    X-Goog-FieldMask: id,displayName,formattedAddress,rating,userRatingCount,primaryType,reviews
              └─ mapPlaceReviews → reviewInputSchema → upsertReviews(onLimit: "truncate")
+             └─ projects.category ← categoryFromGoogleType(primaryType), only while null (#151)
              └─ ingest_runs { kind: places, artifact_key: "places:<id>", received, created, updated, skipped, failed }
              └─ INGEST_QUEUE ← one message per inserted / re-indexed review
              └─ 302 → onboarding step 3 ?run=<id>   or   /app/projects/:slug/import/<run id>
@@ -80,6 +81,8 @@ the next day, since candidates are age-based):
 every (project, environment, place) whose latest `places` run
   finished more than 25 days ago                 (a failed one: more than a day ago)
   and whose project has no `active` google connection
+  and whose project has no succeeded Takeout import in that environment
+    (a `csv` run whose artifact ends in `.takeout.json`)
   and that still has at least one bootstrap row for the place
 oldest first, 200 per tick
   └─ GET /v1/places/<id>  (past the KV cache; the fresh copy is written back)
@@ -107,6 +110,23 @@ bootstrap review for the place has opted out and is left alone — a
 re-import from the Import tab starts the cycle again. A refresh never
 *starts* a bootstrap: nothing is written for a place Google now returns
 no reviews for except the removal of the rows it used to.
+
+**Superseded by a Google Takeout import.** A Takeout export of the
+Business Profile (dashboard → Import → Google Takeout,
+`apps/dashboard/app/lib/takeout.server.ts`) has every review, not five. When
+a project imports one, the import page names the Places bootstrap it will
+replace and, once confirmed, the import deletes that environment's
+`places/…` rows (lowering `review_count`, bumping the cache generation)
+in the same step that records the run. The refresh then leaves the project
+and environment alone twice over: no bootstrap row survives, and the
+candidate query skips any `(project, environment)` with a **succeeded
+Takeout import** (an `ingest_runs` row of kind `csv` whose `artifact_key`
+ends in `.takeout.json`, `TAKEOUT_ARTIFACT_SUFFIX` in `@proofql/core`),
+the same way it skips a project with an active connection. That run row is the record of the supersession, so nothing
+else needs to be stored. The Places card refuses to import into such an
+environment (`409`, before any Google call), since Places' five would come
+back as duplicates under other ids; a newer Takeout export is the way to
+update. The other environment is unaffected.
 
 Failure shape: a Google error fails that project's run only (`error` is
 the same human description the card shows: "Google no longer lists this
@@ -142,7 +162,7 @@ before launch):
 | Call | Fields | SKU | Free per month | Then, per 1,000 |
 | --- | --- | --- | --- | --- |
 | `places:searchText` | `id, displayName, formattedAddress, rating, userRatingCount` | Text Search **Enterprise** (`rating` and `userRatingCount` lift it from Pro) | 1,000 | ~$35 |
-| `GET /v1/places/{id}` | `… , reviews` | Place Details **Enterprise + Atmosphere** (`reviews`) | 1,000 | ~$25 |
+| `GET /v1/places/{id}` | `… , primaryType, reviews` | Place Details **Enterprise + Atmosphere** (`reviews`; `primaryType` is a Pro field, so it adds nothing) | 1,000 | ~$25 |
 
 Per onboarding: typically **one or two searches and one place fetch**, so
 about 1.5 search calls and 1 fetch. Both are cached in the `CACHE` KV

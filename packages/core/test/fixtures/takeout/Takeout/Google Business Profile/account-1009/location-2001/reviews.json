@@ -1,0 +1,262 @@
+{
+  "reviews": [
+    {
+      "reviewer": {
+        "displayName": "Avery Lin"
+      },
+      "starRating": "FIVE",
+      "createTime": "2025-01-01T10:15:30.123456Z",
+      "updateTime": "2025-01-01T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq000Tk",
+      "comment": "The sourdough has a crackly crust and an open crumb. Worth the early line.",
+      "reviewReply": {
+        "comment": "Thank you, Avery! We hope to see you again soon.",
+        "updateTime": "2025-01-02T10:15:30.123456Z"
+      }
+    },
+    {
+      "reviewer": {
+        "displayName": "Jordan P."
+      },
+      "starRating": "FIVE",
+      "createTime": "2025-01-10T10:15:30.123456Z",
+      "updateTime": "2025-01-10T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq001Tk",
+      "comment": "Best morning buns in town. The cardamom ones sell out by nine, so go early.",
+      "reviewReply": {
+        "comment": "Thank you, Jordan! We hope to see you again soon.",
+        "updateTime": "2025-01-11T10:15:30.123456Z"
+      }
+    },
+    {
+      "reviewer": {
+        "displayName": "Sam Okafor"
+      },
+      "starRating": "THREE",
+      "createTime": "2025-01-19T10:15:30.123456Z",
+      "updateTime": "2025-01-19T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq002Tk",
+      "comment": "Friendly staff, but the coffee was lukewarm on a busy Saturday."
+    },
+    {
+      "reviewer": {
+        "displayName": "Riley Chen"
+      },
+      "starRating": "FIVE",
+      "createTime": "2025-01-28T10:15:30.123456Z",
+      "updateTime": "2025-01-28T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq003Tk",
+      "comment": "They made our wedding cake on short notice and it was perfect.",
+      "reviewReply": {
+        "comment": "Thank you! We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you. We loved baking for you.",
+        "updateTime": "2025-02-02T10:15:30.123456Z"
+      }
+    },
+    {
+      "reviewer": {
+        "displayName": "Morgan D."
+      },
+      "starRating": "THREE",
+      "createTime": "2025-02-09T10:15:30.123456Z",
+      "updateTime": "2025-03-11T10:15:30.654321Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq004Tk",
+      "comment": "Gluten-free options are limited to one muffin. Would love more.",
+      "reviewReply": {
+        "comment": "Thank you, Morgan! We hope to see you again soon.",
+        "updateTime": "2025-02-10T10:15:30.123456Z"
+      }
+    },
+    {
+      "reviewer": {
+        "displayName": "Casey Brooks"
+      },
+      "starRating": "FIVE",
+      "createTime": "2025-02-18T10:15:30.123456Z",
+      "updateTime": "2025-02-18T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq005Tk",
+      "comment": "Croissants are flaky and buttery, as good as any I had in Paris."
+    },
+    {
+      "reviewer": {
+        "displayName": "Taylor Reyes"
+      },
+      "starRating": "FOUR",
+      "createTime": "2025-02-27T10:15:30.123456Z",
+      "updateTime": "2025-02-27T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq006Tk",
+      "reviewReply": {
+        "comment": "Thank you, Taylor! We hope to see you again soon.",
+        "updateTime": "2025-02-28T10:15:30.123456Z"
+      }
+    },
+    {
+      "reviewer": {
+        "displayName": "Quinn A."
+      },
+      "starRating": "FIVE",
+      "createTime": "2025-03-08T10:15:30.123456Z",
+      "updateTime": "2025-03-08T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq007Tk",
+      "comment": "I order the seeded rye every week. Consistent and fresh.",
+      "reviewReply": {
+        "comment": "Thank you, Quinn! We hope to see you again soon.",
+        "updateTime": "2025-03-09T10:15:30.123456Z"
+      }
+    },
+    {
+      "reviewer": {
+        "displayName": "Devon Hart"
+      },
+      "starRating": "FOUR",
+      "createTime": "2025-03-17T10:15:30.123456Z",
+      "updateTime": "2025-03-17T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq008Tk",
+      "comment": "The line moves fast even when it reaches the door."
+    },
+    {
+      "reviewer": {
+        "displayName": "Jamie Cole"
+      },
+      "starRating": "FIVE",
+      "createTime": "2025-03-26T10:15:30.123456Z",
+      "updateTime": "2025-03-26T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq009Tk",
+      "comment": "(Translated by Google) The oat milk latte is great.\n\n(Original)\nEl latte con leche de avena es excelente.",
+      "reviewReply": {
+        "comment": "Thank you, Jamie! We hope to see you again soon.",
+        "updateTime": "2025-03-27T10:15:30.123456Z"
+      }
+    },
+    {
+      "reviewer": {
+        "displayName": "Robin Vega"
+      },
+      "starRating": "FOUR",
+      "createTime": "2025-04-07T10:15:30.123456Z",
+      "updateTime": "2025-04-07T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq010Tk",
+      "comment": "A little pricey, but the quality explains it.",
+      "reviewReply": {
+        "comment": "Thank you, Robin! We hope to see you again soon.",
+        "updateTime": "2025-04-08T10:15:30.123456Z"
+      }
+    },
+    {
+      "reviewer": {},
+      "starRating": "FIVE",
+      "createTime": "2025-04-16T10:15:30.123456Z",
+      "updateTime": "2025-04-16T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq011Tk",
+      "comment": "Kind people. They gave my kid a free cookie after a meltdown."
+    },
+    {
+      "reviewer": {
+        "displayName": "Drew Kim"
+      },
+      "starRating": "TWO",
+      "createTime": "2025-04-25T10:15:30.123456Z",
+      "updateTime": "2025-04-25T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq012Tk",
+      "comment": "Birthday cake was dry this time, which surprised me.",
+      "reviewReply": {
+        "comment": "Thank you, Drew! We hope to see you again soon.",
+        "updateTime": "2025-04-26T10:15:30.123456Z"
+      }
+    },
+    {
+      "reviewer": {
+        "displayName": "Skyler Ng"
+      },
+      "starRating": "FOUR",
+      "createTime": "2025-05-06T10:15:30.123456Z",
+      "updateTime": "2025-05-06T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq013Tk",
+      "comment": "Great place to work for an hour; outlets along the window bar.",
+      "reviewReply": {
+        "comment": "Thank you, Skyler! We hope to see you again soon.",
+        "updateTime": "2025-05-07T10:15:30.123456Z"
+      }
+    },
+    {
+      "reviewer": {
+        "displayName": "Parker J.",
+        "isAnonymous": true
+      },
+      "starRating": "FIVE",
+      "createTime": "2025-05-15T10:15:30.123456Z",
+      "updateTime": "2025-05-15T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq014Tk",
+      "comment": "The focaccia with rosemary is my favorite thing they make."
+    },
+    {
+      "reviewer": {
+        "displayName": "Reese Lowe"
+      },
+      "starRating": "FIVE",
+      "createTime": "2025-05-24T10:15:30.123456Z",
+      "updateTime": "2025-05-24T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq015Tk",
+      "comment": "Ordered a dozen bagels for the office and everyone asked where from.",
+      "reviewMediaItems": [
+        {
+          "mediaFormat": "PHOTO"
+        }
+      ],
+      "reviewReply": {
+        "comment": "Thank you, Reese! We hope to see you again soon.",
+        "updateTime": "2025-05-25T10:15:30.123456Z"
+      }
+    },
+    {
+      "reviewer": {
+        "displayName": "Emerson T."
+      },
+      "starRating": "FIVE",
+      "createTime": "2025-06-05T10:15:30.123456Z",
+      "updateTime": "2025-06-05T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq016Tk",
+      "comment": "Cinnamon rolls are huge and not too sweet.",
+      "reviewReply": {
+        "comment": "Thank you, Emerson! We hope to see you again soon.",
+        "updateTime": "2025-06-06T10:15:30.123456Z"
+      }
+    },
+    {
+      "reviewer": {
+        "displayName": "Hayden Fox"
+      },
+      "starRating": "FOUR",
+      "createTime": "2025-06-14T10:15:30.123456Z",
+      "updateTime": "2025-06-14T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq017Tk"
+    },
+    {
+      "reviewer": {
+        "displayName": "Rowan Bell"
+      },
+      "starRating": "THREE",
+      "createTime": "2025-06-23T10:15:30.123456Z",
+      "updateTime": "2025-06-23T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq018Tk",
+      "comment": "Wish they opened earlier than seven on weekdays.",
+      "reviewReply": {
+        "comment": "Thank you, Rowan! We hope to see you again soon.",
+        "updateTime": "2025-06-24T10:15:30.123456Z"
+      }
+    },
+    {
+      "reviewer": {
+        "displayName": "Sage Patel"
+      },
+      "starRating": "FOUR",
+      "createTime": "2025-07-04T10:15:30.123456Z",
+      "updateTime": "2025-07-04T10:15:30.123456Z",
+      "name": "accounts/1009/locations/2001/reviews/AbFvOq019Tk",
+      "comment": "The baguettes go stale by evening, buy them in the morning.",
+      "reviewReply": {
+        "comment": "Thank you, Sage! We hope to see you again soon.",
+        "updateTime": "2025-07-05T10:15:30.123456Z"
+      }
+    }
+  ]
+}

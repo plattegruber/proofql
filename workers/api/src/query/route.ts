@@ -268,6 +268,7 @@ const handleQuery: Handler<AppEnv> = async (c) => {
   const policy = {
     minRating: Math.max(project.minRating, request.filters.min_rating ?? 0),
     similarityFloor: project.similarityFloor,
+    category: project.category,
     ...(rerank ? { rerankThreshold: rerank.threshold } : {}),
   };
 
@@ -332,7 +333,11 @@ const handleQuery: Handler<AppEnv> = async (c) => {
     const candidates = await searchChunks(c.get("getDb")(), {
       ...search,
       limit: Math.min(RERANK_CANDIDATES, MAX_SEARCH_LIMIT),
-      policy: { minRating: policy.minRating, similarityFloor: 0 },
+      policy: {
+        minRating: policy.minRating,
+        similarityFloor: 0,
+        category: policy.category,
+      },
       queryEmbedding,
       queryText: request.q,
     });
@@ -537,7 +542,11 @@ interface QueryOutcome {
 function logCompleted(
   c: Context<AppEnv>,
   request: QueryRequest,
-  policy: { minRating: number; similarityFloor: number },
+  policy: {
+    minRating: number;
+    similarityFloor: number;
+    category?: string | null;
+  },
   outcome: QueryOutcome,
 ): void {
   const auth = c.get("auth");
@@ -552,6 +561,7 @@ function logCompleted(
     limit: request.limit,
     min_rating: policy.minRating,
     similarity_floor: policy.similarityFloor,
+    category: policy.category ?? null,
     ...outcome,
   });
 }

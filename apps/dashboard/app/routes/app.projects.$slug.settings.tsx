@@ -1,5 +1,6 @@
 // Settings tab (#41, plus rename/delete from #37): the publication policy
-// the query API applies in SQL — minimum rating and the relevance floor —
+// the query API applies in SQL — minimum rating, the relevance floor, and
+// the business category whose generic words the word match ignores (#151) —
 // alongside the project's name and slug, and a Danger section that deletes
 // the project. Saving the policy bumps the project's cache generation so
 // the playground (and every snippet) sees the change on its next query.
@@ -17,6 +18,7 @@ import { withRequestDb } from "~/lib/db.server";
 import { setFlash } from "~/lib/flash.server";
 import { type FieldErrors, parseFormData } from "~/lib/forms.server";
 import {
+  CATEGORY_OPTIONS,
   MIN_RATING_OPTIONS,
   projectSettingsSchema,
   SIMILARITY_FLOOR_DEFAULT,
@@ -46,6 +48,7 @@ export async function loader(args: Route.LoaderArgs) {
       slug: project.slug,
       minRating: project.minRating,
       similarityFloor: project.similarityFloor,
+      category: project.category,
       reviewCount: project.reviewCount,
     },
   };
@@ -119,6 +122,7 @@ export async function action(args: Route.ActionArgs) {
       slug: parsed.data.slug,
       minRating: parsed.data.min_rating,
       similarityFloor: parsed.data.similarity_floor,
+      category: parsed.data.category,
     }),
   );
   if (!result.ok) {
@@ -145,6 +149,7 @@ export async function action(args: Route.ActionArgs) {
       project_id: project.id,
       min_rating: result.project.minRating,
       similarity_floor: result.project.similarityFloor,
+      category: result.project.category,
       generation,
     });
   }
@@ -221,6 +226,14 @@ export default function ProjectSettings({
                 </>
               }
               className="font-mono"
+              errors={fieldErrors}
+            />
+            <SelectField
+              name="category"
+              label="Business category"
+              defaultValue={project.category ?? ""}
+              options={CATEGORY_OPTIONS}
+              hint="Words every review of this kind of business shares, like “roof” for a roofer, don't count as a match on their own. Set from Google when you import from Places or Business Profile; when not set, only general words like “service” are ignored."
               errors={fieldErrors}
             />
           </div>

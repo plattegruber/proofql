@@ -1,4 +1,5 @@
 import { recordingSink } from "@proofql/core";
+import type { Db } from "@proofql/db";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "./app.js";
@@ -12,6 +13,59 @@ describe("api app", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
+  });
+
+  it("GET /health never opens a database client; ?deep=1 probes it", async () => {
+    let opened = 0;
+    const probing = createApp({
+      dbProvider: () => {
+        opened += 1;
+        return {
+          db: { execute: async () => [{ ok: 1 }] } as unknown as Db,
+          close: async () => {},
+        };
+      },
+    });
+    const plain = await probing.request("/health");
+    expect(await plain.json()).toEqual({ ok: true });
+    expect(opened).toBe(0);
+    // Only the exact `deep=1` turns it on.
+    await probing.request("/health?deep=0");
+    expect(opened).toBe(0);
+
+    const deep = await probing.request("/health?deep=1");
+    expect(deep.status).toBe(200);
+    expect(deep.headers.get("cache-control")).toBe("no-store");
+    expect(await deep.json()).toMatchObject({ ok: true, db: { ok: true } });
+    expect(opened).toBe(1);
+  });
+
+  it("GET /health?deep=1 is 503 with a reason, and logs the cause, when Postgres fails", async () => {
+    const out = recordingSink();
+    const failing = createApp({
+      logSink: out.sink,
+      dbProvider: () => ({
+        db: {
+          execute: async () => {
+            throw new Error("Your project has exceeded the compute time quota");
+          },
+        } as unknown as Db,
+        close: async () => {},
+      }),
+    });
+    const res = await failing.request("/health?deep=1");
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: false,
+      db: { ok: false, error: "failed" },
+    });
+    // The cause goes to the log, never to the (public) response.
+    expect(JSON.stringify(body)).not.toContain("quota");
+    expect(out.only("health.db_failed")).toMatchObject({
+      level: "error",
+      reason: "failed",
+    });
   });
 
   it("unknown routes 404 with the error envelope", async () => {

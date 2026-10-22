@@ -41,7 +41,8 @@ needs no database, but it loads the schema, which takes its enum values from
 | `pnpm db:generate` | Diff `src/schema` against the last snapshot and emit SQL into `migrations/` |
 | `pnpm db:migrate` | Apply pending migrations from `migrations/` to `DATABASE_URL` (`scripts/migrate.ts`, drizzle's migrator; idempotent) |
 | `pnpm db:set-plan -- --account <uuid\|org_…> --plan free\|paid` | Ops (#54): change an account's plan and rewrite its projects' `show_badge` mirror in one transaction (`scripts/set-plan.ts` → `setAccountPlan`). `--sync` instead of `--plan` only repairs the mirror. The only way a plan changes until billing (M3). |
-| `pnpm db:reindex -- --project <slug\|uuid> \| --all [--environment live\|test] [--dry-run]` | Ops (#127): mark reviews for re-indexing after a chunker change. Sets `indexed_at = NULL` and `index_attempts = 0` on the selected (non-hidden) reviews; the pipeline's five-minute sweep (#72) re-enqueues them 500 per tick and `indexReview` replaces each review's chunks, so it is idempotent. Prints the count and the expected time. See "Re-indexing" below. |
+| `pnpm db:floor-local -- --corpus dental\|roofing --vectors <json> --out <run>` | Ops (#151): collect a floor-tuning run against a **local** scratch database from precomputed `bge-m3` vectors (`--emit-texts <path>` lists the texts to embed), through `searchChunks`, with no api and no Workers AI calls; `db:tune-floor --annotate` / `--replay` read the output (`scripts/floor-local.ts`, `docs/performance.md` §5). |
+| `pnpm db:reindex -- --project <slug\|uuid> \| --all [--environment live\|test] [--dry-run]` | Ops (#127): mark reviews for re-indexing after a chunker change. Sets `indexed_at = NULL` and `index_attempts = 0` on the selected (non-hidden) reviews; the pipeline's five-minute sweep (#72) re-enqueues them 500 per tick, starting at the next full sweep (≤ 6 h) or at once if the sweep marker is set ("Re-indexing"), and `indexReview` replaces each review's chunks, so it is idempotent. Prints the count and the expected time. See "Re-indexing" below. |
 
 Local dev: start Postgres (`docker compose up -d`, #11), then
 `DATABASE_URL=postgres://proofql:proofql@localhost:54323/proofql pnpm db:migrate`.
@@ -92,7 +93,8 @@ What the dataset contains:
   project** (`cedar-ridge-dental`, fixed id `DEMO_PROJECT_ID`,
   `allowed_origins` = the local dashboard (8799), the local cdn worker's
   demo page (8800), and `localhost:3000`; default
-  policy: `min_rating 4`, `similarity_floor` = `DEFAULT_SIMILARITY_FLOOR`, 0.66).
+  policy: `min_rating 4`, `similarity_floor` = `DEFAULT_SIMILARITY_FLOOR`, 0.66;
+  `category` = `dental`, so its generic query words are the dental ones, #151).
 - **4 API keys**: a secret + publishable pair for `live` and one for
   `test`. Plaintexts are printed at the end of the run and nowhere else;
   every run mints new ones.
@@ -137,8 +139,8 @@ Rules and properties:
   only the API keys change per run.
 - **Guarded.** Refuses a `DATABASE_URL` whose host is not loopback unless
   `--force` is passed (`src/seed/guard.ts`).
-- **`SEED_VERSION`** (`src/seed/constants.ts`, currently 5) is written
-  into the account name — `"ProofQL Demo (seed v6)"` — so any local
+- **`SEED_VERSION`** (`src/seed/constants.ts`, currently 7) is written
+  into the account name — `"ProofQL Demo (seed v7)"` — so any local
   database shows which fixture set it holds. Bump it with **any** change to
   what the seed produces and call the bump out in the PR: integration
   tests and the playground import `DEMO_REVIEW_FIXTURES` from
@@ -171,6 +173,18 @@ transaction and the embedding stage sets `indexed_at` again, so the whole
 operation is idempotent: running it twice costs a second round of
 embeddings and nothing else. The script prints how many reviews it marked
 and how long the sweep will take (`ceil(n / 500) × 5` minutes).
+
+The sweep only runs while the KV work marker `pipeline:sweep-pending` is
+set, or on the cron's six daily full-sweep ticks (00:00, 03:30, 04:15,
+06:00, 12:00, 18:00 UTC), so that an idle tick never wakes Neon
+(`@proofql/core` `sweep-marker.ts`). This script cannot set the marker, so
+the first batch waits for the next full sweep, which sets the marker and
+drains the rest every five minutes. To start within five minutes instead:
+
+```sh
+pnpm --filter @proofql/pipeline exec wrangler kv key put pipeline:sweep-pending 1 \
+  --ttl 900 --binding CACHE --env prod --remote
+```
 
 While it runs: the old chunks keep serving search until the moment a
 review is re-chunked; its new rows then carry NULL embeddings for the
@@ -220,7 +234,11 @@ const results = await searchChunks(db, {
   queryEmbedding: await embedder.embedText(q), // omit for newest-first
   queryText: q,
   limit: 5,
-  policy: { minRating: project.minRating, similarityFloor: project.similarityFloor },
+  policy: {
+    minRating: project.minRating,
+    similarityFloor: project.similarityFloor,
+    category: project.category, // picks the generic query words (#151)
+  },
   filters: { source: ["google"], metadata: { location: "north" } },
   mode: "excerpts",
 });
