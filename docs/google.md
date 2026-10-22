@@ -10,7 +10,9 @@ page covers the polling side (#46) and the pieces both share.
 Google Cloud project starts with a quota of 0 QPM on every Business Profile
 API, so every real call fails until the approval flips it to 300 QPM.
 Nothing here needs real Google to develop or test: the fake server stands
-in for every Google host.
+in for every Google host. Getting the approval, switching the connector on
+and taking the OAuth consent screen to production are the owner's steps in
+[`google-access.md`](google-access.md).
 
 ## Connecting (#45)
 
