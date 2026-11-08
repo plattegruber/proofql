@@ -207,7 +207,8 @@ built from `packages/snippet`, the docs from `docs/site` and the marketing
 site from `apps/www` right before their deploys; prod skips www until
 `WWW_PROD_ENABLED` is `true`); `workflow_dispatch` with
 `environment=prod` does the same for prod inside the GitHub environment
-`production` (required reviewer). Every job is skipped until the repository
+`production` (no required reviewer: it scopes the prod DB secret and limits
+deploys to protected branches). Every job is skipped until the repository
 variable `DEPLOY_ENABLED` is `true` — the last provisioning step and the
 kill switch. Secrets and variables the workflow reads:
 [`docs/secrets.md`](../docs/secrets.md).
