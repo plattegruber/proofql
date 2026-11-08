@@ -354,12 +354,14 @@ gh secret set CLOUDFLARE_API_TOKEN      -R $R --body "$CLOUDFLARE_API_TOKEN"
 gh secret set CLOUDFLARE_ACCOUNT_ID     -R $R --body "$CLOUDFLARE_ACCOUNT_ID"
 gh secret set NEON_PREVIEW_DATABASE_URL -R $R --body "<preview DIRECT string>"
 
-# GitHub environment `production` with you as required reviewer, deployable
-# only from protected branches (main). The prod jobs in deploy.yml wait for
-# approval under Actions → the run → "Review deployments".
+# GitHub environment `production`, deployable only from protected branches
+# (main). It holds the prod DB secret. No required reviewer: this is a
+# one-owner project, and an approval only the owner can give is a step that
+# gets forgotten (the 2026-11-08 redeploy sat waiting on it). Add
+# `"reviewers": [{ "type": "User", "id": <id> }]` if a second person joins.
 gh api -X PUT repos/$R/environments/production --input - <<EOF
 {
-  "reviewers": [{ "type": "User", "id": $(gh api user --jq .id) }],
+  "reviewers": [],
   "deployment_branch_policy": { "protected_branches": true, "custom_branch_policies": false }
 }
 EOF
@@ -387,7 +389,7 @@ already set; "Custom domains" below).
 gh secret list -R $R                      # CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, NEON_PREVIEW_DATABASE_URL
 gh secret list -R $R --env production     # NEON_PROD_DATABASE_URL
 gh variable list -R $R                    # WORKERS_SUBDOMAIN
-gh api repos/$R/environments/production --jq '.protection_rules[].type'   # required_reviewers, branch_policy
+gh api repos/$R/environments/production --jq '.protection_rules[].type'   # branch_policy
 node scripts/check-provisioning.mjs       # "All bindings provisioned."
 ```
 

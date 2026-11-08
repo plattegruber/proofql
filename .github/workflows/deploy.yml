@@ -3,8 +3,10 @@
 #   push to main            → preview  (migrate-preview → deploy-preview)
 #   workflow_dispatch       → preview by default, or prod via the
 #                             `environment` input; prod jobs run inside the
-#                             GitHub environment `production`, whose required
-#                             reviewers gate them (infra/provisioning.md).
+#                             GitHub environment `production`, which holds
+#                             the prod database secret and only deploys from
+#                             protected branches. No approval gate: the
+#                             project has one owner (infra/provisioning.md).
 #
 # Safe to merge before anything is provisioned: every job is gated on the
 # repository *variable* DEPLOY_ENABLED == 'true' (secrets cannot be read in
@@ -218,10 +220,12 @@ jobs:
           done
 
   # ------------------------------------------------------------------- prod
-  # Both prod jobs carry `environment: production`, so the required reviewer
-  # approves the migration and the deploy separately (a reviewer can stop
-  # after the migration if it misbehaves). NEON_PROD_DATABASE_URL is an
-  # environment secret: only jobs inside `production` can read it.
+  # Both prod jobs carry `environment: production`: NEON_PROD_DATABASE_URL
+  # is an environment secret, so only jobs inside `production` can read it,
+  # and the environment's branch policy limits prod deploys to protected
+  # branches. It has no required reviewer (removed 2026-11-08: a one-owner
+  # project only ever approved its own deploys, and a pending approval that
+  # nobody notices is a deploy that never happens).
   migrate-prod:
     if: vars.DEPLOY_ENABLED == 'true' && inputs.environment == 'prod'
     runs-on: ubuntu-latest

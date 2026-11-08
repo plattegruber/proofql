@@ -51,9 +51,9 @@ merged; it depends on these resources existing.
 - [ ] Cloudflare: `wrangler login`, Account ID noted (step 1).
 - [ ] KV namespaces, queues, R2 buckets, Hyperdrive configs created; ids pasted into the three `wrangler.jsonc` env blocks (steps 3, 4, 7).
 - [ ] Neon project `proofql` with branches `prod` and `preview` (step 6).
-- [ ] CI token and GitHub secrets, `production` environment with you as required reviewer (steps 8–9).
+- [ ] CI token and GitHub secrets, `production` environment (holds the prod DB secret; protected branches only, no required reviewer) (steps 8–9).
 - [ ] First preview migration and manual deploy; `DEPLOY_ENABLED=true` (steps 10–12).
-- [ ] First **prod** deploy: `gh workflow run deploy.yml -f environment=prod`, approve `migrate-prod` then `deploy-prod` (step 13).
+- [ ] First **prod** deploy: `gh workflow run deploy.yml -f environment=prod`; it runs `migrate-prod` then `deploy-prod` without approval (step 13).
 - [ ] Places API key on the dashboard in both envs (step 14).
 
 **Verify** — "done" is all four lines true:
